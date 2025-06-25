@@ -13,6 +13,7 @@ import (
 type Claims struct {
 	UserID   uint   `json:"user_id"`
 	Username string `json:"username"`
+	Role     string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -69,13 +70,36 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		c.Set("claims", claims)
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
+		c.Set("role", claims.Role)
 
 		// 为兼容现有代码，也设置旧格式的claims
 		legacyClaims := map[string]interface{}{
 			"user_id":  float64(claims.UserID),
 			"username": claims.Username,
+			"role":     claims.Role,
 		}
 		c.Set("legacy_claims", legacyClaims)
+
+		c.Next()
+	}
+}
+
+// AdminMiddleware 管理员权限中间件
+func AdminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("role")
+		if !exists {
+			c.JSON(http.StatusForbidden, gin.H{"error": "权限不足"})
+			c.Abort()
+			return
+		}
+
+		roleStr, ok := role.(string)
+		if !ok || roleStr != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
+			c.Abort()
+			return
+		}
 
 		c.Next()
 	}

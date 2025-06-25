@@ -15,6 +15,8 @@ type User struct {
 	Password  string    `gorm:"type:varchar(255)" json:"-"` // 不序列化
 	APIKey    string    `gorm:"type:varchar(500)" json:"apiKey"`
 	SecretKey string    `gorm:"type:varchar(500)" json:"secretKey"`
+	Role      string    `gorm:"type:varchar(20);default:'user'" json:"role"`      // admin, user
+	Status    string    `gorm:"type:varchar(20);default:'pending'" json:"status"` // pending, active, disabled
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }

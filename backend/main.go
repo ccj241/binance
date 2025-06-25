@@ -18,13 +18,34 @@ func main() {
 		log.Fatalf("数据库迁移失败: %v", err)
 	}
 
-	// 初始化测试用户
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("testpass"), bcrypt.DefaultCost)
+	// 初始化默认管理员账号
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
 	if err != nil {
 		log.Fatalf("密码哈希失败: %v", err)
 	}
-	user := models.User{Username: "testuser", Password: string(hashedPassword)}
-	if err := cfg.DB.FirstOrCreate(&user, models.User{Username: "testuser"}).Error; err != nil {
+	adminUser := models.User{
+		Username: "admin",
+		Password: string(hashedPassword),
+		Role:     "admin",
+		Status:   "active",
+	}
+	if err := cfg.DB.FirstOrCreate(&adminUser, models.User{Username: "admin"}).Error; err != nil {
+		log.Fatalf("创建管理员用户失败: %v", err)
+	}
+	log.Printf("默认管理员账号: admin / admin123")
+
+	// 初始化测试用户（默认需要审核）
+	testPassword, err := bcrypt.GenerateFromPassword([]byte("testpass"), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatalf("密码哈希失败: %v", err)
+	}
+	testUser := models.User{
+		Username: "testuser",
+		Password: string(testPassword),
+		Role:     "user",
+		Status:   "active", // 为了兼容现有代码，测试用户默认激活
+	}
+	if err := cfg.DB.FirstOrCreate(&testUser, models.User{Username: "testuser"}).Error; err != nil {
 		log.Fatalf("创建测试用户失败: %v", err)
 	}
 

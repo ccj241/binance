@@ -21,6 +21,7 @@ type AuthResponse struct {
 	Token   string `json:"token,omitempty"`
 	Message string `json:"message"`
 	UserID  uint   `json:"user_id,omitempty"`
+	Role    string `json:"role,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -32,6 +33,7 @@ type ErrorResponse struct {
 type Claims struct {
 	UserID   uint   `json:"user_id"`
 	Username string `json:"username"`
+	Role     string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -91,10 +93,12 @@ func RegisterHandler(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// 创建用户
+		// 创建用户，默认状态为pending，需要管理员审核
 		user := models.User{
 			Username: req.Username,
 			Password: string(hashedPassword),
+			Role:     "user",
+			Status:   "pending", // 默认待审核状态
 		}
 
 		if err := cfg.DB.Create(&user).Error; err != nil {
@@ -103,9 +107,9 @@ func RegisterHandler(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("用户注册成功: %s (ID: %d)", user.Username, user.ID)
+		log.Printf("用户注册成功: %s (ID: %d), 等待管理员审核", user.Username, user.ID)
 		writeSuccessResponse(w, AuthResponse{
-			Message: "注册成功",
+			Message: "注册成功，请等待管理员审核后方可登录",
 			UserID:  user.ID,
 		})
 	}
@@ -150,6 +154,19 @@ func LoginHandler(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		// 检查用户状态
+		if user.Status == "pending" {
+			log.Printf("用户登录失败 - 账号待审核: %s", req.Username)
+			writeErrorResponse(w, http.StatusForbidden, "账号待审核，请联系管理员")
+			return
+		}
+
+		if user.Status == "disabled" {
+			log.Printf("用户登录失败 - 账号已禁用: %s", req.Username)
+			writeErrorResponse(w, http.StatusForbidden, "账号已被禁用，请联系管理员")
+			return
+		}
+
 		// 验证密码
 		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 			log.Printf("用户登录失败 - 密码错误: %s", req.Username)
@@ -161,6 +178,7 @@ func LoginHandler(cfg *config.Config) http.HandlerFunc {
 		claims := Claims{
 			UserID:   user.ID,
 			Username: user.Username,
+			Role:     user.Role,
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 				IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -175,11 +193,12 @@ func LoginHandler(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("用户登录成功: %s (ID: %d)", user.Username, user.ID)
+		log.Printf("用户登录成功: %s (ID: %d, Role: %s)", user.Username, user.ID, user.Role)
 		writeSuccessResponse(w, AuthResponse{
 			Token:   tokenString,
 			Message: "登录成功",
 			UserID:  user.ID,
+			Role:    user.Role,
 		})
 	}
 }

@@ -11,8 +11,6 @@ import (
 )
 
 // SetupRoutes 配置路由
-// backend/routes/routes.go - 添加删除路由
-
 func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 配置CORS中间件
 	corsConfig := cors.Config{
@@ -33,8 +31,9 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 添加错误恢复中间件
 	router.Use(gin.Recovery())
 
-	// 创建用户控制器实例
+	// 创建控制器实例
 	userController := &controllers.UserController{Config: cfg}
+	adminController := &controllers.AdminController{Config: cfg}
 
 	// 健康检查端点
 	router.GET("/health", func(c *gin.Context) {
@@ -90,6 +89,19 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		protected.GET("/withdrawals", handlers.GinListWithdrawalRulesHandler(cfg))
 		protected.PUT("/withdrawals/:id", handlers.GinUpdateWithdrawalRuleHandler(cfg))
 		protected.DELETE("/withdrawals/:id", handlers.GinDeleteWithdrawalRuleHandler(cfg))
+	}
+
+	// 管理员路由
+	admin := router.Group("/admin")
+	admin.Use(middleware.AuthMiddleware(cfg))
+	admin.Use(middleware.AdminMiddleware())
+	{
+		// 用户管理
+		admin.GET("/users", adminController.GetUsers)
+		admin.POST("/users/approve", adminController.ApproveUser)
+		admin.PUT("/users/status", adminController.UpdateUserStatus)
+		admin.PUT("/users/role", adminController.UpdateUserRole)
+		admin.GET("/users/stats", adminController.GetUserStats)
 	}
 
 	// 404 处理

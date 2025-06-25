@@ -75,6 +75,10 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      '/admin': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
     },
   },
 });
