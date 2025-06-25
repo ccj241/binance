@@ -23,27 +23,45 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	}
 	router.Use(cors.New(corsConfig))
 
+	// 添加请求日志中间件
+	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{"/health"}, // 跳过健康检查日志
+	}))
+
+	// 添加错误恢复中间件
+	router.Use(gin.Recovery())
+
 	// 创建用户控制器实例
 	userController := &controllers.UserController{Config: cfg}
 
+	// 健康检查端点
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status": "ok",
+			"time":   time.Now().Format(time.RFC3339),
+		})
+	})
+
 	// 公共路由，无需认证
-	router.POST("/register", gin.WrapH(handlers.RegisterHandler(cfg))) // 注册新用户
-	router.POST("/login", gin.WrapH(handlers.LoginHandler(cfg)))       // 用户登录
+	router.POST("/register", gin.WrapH(handlers.RegisterHandler(cfg)))
+	router.POST("/login", gin.WrapH(handlers.LoginHandler(cfg)))
 
 	// 受保护路由，需要认证
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware(cfg))
+	protected.Use(middleware.ValidationMiddleware()) // 添加验证中间件
 	{
-		// API密钥管理 - 修正路由路径以匹配前端
-		protected.POST("/api-key", userController.SetAPIKey)             // 设置API密钥
-		protected.GET("/api-key", userController.GetAPIKey)              // 获取API密钥
-		protected.DELETE("/api-key/delete", userController.DeleteAPIKey) // 删除API密钥
+		// API密钥管理
+		protected.POST("/api-key", userController.SetAPIKey)
+		protected.GET("/api-key", userController.GetAPIKey)
+		protected.DELETE("/api-key/delete", userController.DeleteAPIKey)
 
-		// 订单管理 - 转换为Gin handlers
+		// 订单管理
 		protected.GET("/orders", handlers.GinOrdersHandler(cfg))
 		protected.GET("/cancelled_orders", handlers.GinCancelledOrdersHandler(cfg))
 		protected.POST("/order", handlers.GinCreateOrderHandler(cfg))
 		protected.POST("/cancel_order/:orderId", handlers.GinCancelOrderHandler(cfg))
+		protected.POST("/batch_cancel_orders", handlers.GinBatchCancelOrdersHandler(cfg)) // 批量取消订单
 
 		// 策略管理
 		protected.POST("/strategy", handlers.GinCreateStrategyHandler(cfg))
@@ -51,6 +69,8 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		protected.POST("/toggle_strategy", handlers.GinToggleStrategyHandler(cfg))
 		protected.POST("/delete_strategy", handlers.GinDeleteStrategyHandler(cfg))
 		protected.DELETE("/delete_strategy", handlers.GinDeleteStrategyHandler(cfg))
+		protected.GET("/strategy/:id/stats", handlers.GinStrategyStatsHandler(cfg))   // 策略统计
+		protected.GET("/strategy/:id/orders", handlers.GinStrategyOrdersHandler(cfg)) // 策略订单
 
 		// 交易对和价格
 		protected.GET("/symbols", handlers.GinListSymbolsHandler(cfg))
@@ -68,4 +88,13 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		protected.PUT("/withdrawals/:id", handlers.GinUpdateWithdrawalRuleHandler(cfg))
 		protected.DELETE("/withdrawals/:id", handlers.GinDeleteWithdrawalRuleHandler(cfg))
 	}
+
+	// 404 处理
+	router.NoRoute(func(c *gin.Context) {
+		c.JSON(404, gin.H{
+			"error":   "NOT_FOUND",
+			"message": "请求的资源不存在",
+			"path":    c.Request.URL.Path,
+		})
+	})
 }
