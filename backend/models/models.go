@@ -1,3 +1,4 @@
+// backend/models/models.go
 package models
 
 import (
@@ -49,19 +50,22 @@ type Trade struct {
 
 type Strategy struct {
 	gorm.Model
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	UserID          uint      `gorm:"index" json:"userId"`
-	Symbol          string    `gorm:"type:varchar(50)" json:"symbol"`
-	StrategyType    string    `gorm:"type:varchar(20)" json:"strategyType"` // simple, iceberg, custom
-	Side            string    `gorm:"type:varchar(10)" json:"side"`         // BUY, SELL
-	Price           float64   `json:"price"`
-	TotalQuantity   float64   `json:"totalQuantity"`
-	Status          string    `gorm:"type:varchar(20);default:'active'" json:"status"`
-	Enabled         bool      `gorm:"default:true" json:"enabled"`
-	BuyQuantities   string    `gorm:"type:text" json:"buyQuantities"` // 逗号分隔的百分比
-	SellQuantities  string    `gorm:"type:text" json:"sellQuantities"`
-	BuyDepthLevels  string    `gorm:"type:text" json:"buyDepthLevels"` // 逗号分隔的深度级别
-	SellDepthLevels string    `gorm:"type:text" json:"sellDepthLevels"`
+	ID              uint    `gorm:"primaryKey" json:"id"`
+	UserID          uint    `gorm:"index" json:"userId"`
+	Symbol          string  `gorm:"type:varchar(50)" json:"symbol"`
+	StrategyType    string  `gorm:"type:varchar(20)" json:"strategyType"` // simple, iceberg, custom
+	Side            string  `gorm:"type:varchar(10)" json:"side"`         // BUY, SELL
+	Price           float64 `json:"price"`
+	TotalQuantity   float64 `json:"totalQuantity"`
+	Status          string  `gorm:"type:varchar(20);default:'active'" json:"status"`
+	Enabled         bool    `gorm:"default:true" json:"enabled"`
+	BuyQuantities   string  `gorm:"type:text" json:"buyQuantities"` // 逗号分隔的百分比
+	SellQuantities  string  `gorm:"type:text" json:"sellQuantities"`
+	BuyDepthLevels  string  `gorm:"type:text" json:"buyDepthLevels"` // 逗号分隔的深度级别
+	SellDepthLevels string  `gorm:"type:text" json:"sellDepthLevels"`
+	// 新增字段：万分比配置
+	BuyBasisPoints  string    `gorm:"type:text" json:"buyBasisPoints"`  // 逗号分隔的万分比 (如: -10,-5,0,5,10)
+	SellBasisPoints string    `gorm:"type:text" json:"sellBasisPoints"` // 逗号分隔的万分比
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 	PendingBatch    bool      `gorm:"default:false" json:"pendingBatch"` // 标记是否有活跃订单批次

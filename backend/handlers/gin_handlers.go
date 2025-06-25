@@ -809,6 +809,7 @@ func GinDeleteWithdrawalRuleHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
+// GinCreateStrategyHandler Gin版本的创建策略处理器
 func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -827,6 +828,9 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 			SellQuantities  []float64 `json:"sellQuantities"`
 			BuyDepthLevels  []int     `json:"buyDepthLevels"`
 			SellDepthLevels []int     `json:"sellDepthLevels"`
+			// 新增万分比字段
+			BuyBasisPoints  []float64 `json:"buyBasisPoints"`  // 买单万分比
+			SellBasisPoints []float64 `json:"sellBasisPoints"` // 卖单万分比
 		}
 
 		if err := c.ShouldBindJSON(&strategyReq); err != nil {
@@ -875,26 +879,24 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 				strategyReq.BuyQuantities = []float64{}
 				strategyReq.BuyDepthLevels = []int{}
 			}
-		}
-
-		// 验证自定义策略配置
-		if strategyReq.StrategyType == "custom" {
+		} else if strategyReq.StrategyType == "custom" {
+			// 自定义策略验证
 			if strategyReq.Side == "BUY" {
-				if len(strategyReq.BuyQuantities) == 0 || len(strategyReq.BuyDepthLevels) == 0 {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "自定义买入策略需要设置数量和深度级别"})
+				if len(strategyReq.BuyQuantities) == 0 || len(strategyReq.BuyBasisPoints) == 0 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "自定义买入策略需要设置数量分配和万分比"})
 					return
 				}
-				if len(strategyReq.BuyQuantities) != len(strategyReq.BuyDepthLevels) {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "数量和深度级别数量不匹配"})
+				if len(strategyReq.BuyQuantities) != len(strategyReq.BuyBasisPoints) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "买入数量分配和万分比的数量必须相同"})
 					return
 				}
 			} else {
-				if len(strategyReq.SellQuantities) == 0 || len(strategyReq.SellDepthLevels) == 0 {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "自定义卖出策略需要设置数量和深度级别"})
+				if len(strategyReq.SellQuantities) == 0 || len(strategyReq.SellBasisPoints) == 0 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "自定义卖出策略需要设置数量分配和万分比"})
 					return
 				}
-				if len(strategyReq.SellQuantities) != len(strategyReq.SellDepthLevels) {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "数量和深度级别数量不匹配"})
+				if len(strategyReq.SellQuantities) != len(strategyReq.SellBasisPoints) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "卖出数量分配和万分比的数量必须相同"})
 					return
 				}
 			}
@@ -937,6 +939,25 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 			sellDepthLevelsStr = strings.Join(strs, ",")
 		}
 
+		// 新增：万分比字符串转换
+		buyBasisPointsStr := ""
+		if len(strategyReq.BuyBasisPoints) > 0 {
+			strs := make([]string, len(strategyReq.BuyBasisPoints))
+			for i, bp := range strategyReq.BuyBasisPoints {
+				strs[i] = fmt.Sprintf("%.2f", bp)
+			}
+			buyBasisPointsStr = strings.Join(strs, ",")
+		}
+
+		sellBasisPointsStr := ""
+		if len(strategyReq.SellBasisPoints) > 0 {
+			strs := make([]string, len(strategyReq.SellBasisPoints))
+			for i, bp := range strategyReq.SellBasisPoints {
+				strs[i] = fmt.Sprintf("%.2f", bp)
+			}
+			sellBasisPointsStr = strings.Join(strs, ",")
+		}
+
 		// 创建策略
 		strategy := models.Strategy{
 			UserID:          user.ID,
@@ -951,6 +972,8 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 			SellQuantities:  sellQuantitiesStr,
 			BuyDepthLevels:  buyDepthLevelsStr,
 			SellDepthLevels: sellDepthLevelsStr,
+			BuyBasisPoints:  buyBasisPointsStr,  // 新增
+			SellBasisPoints: sellBasisPointsStr, // 新增
 		}
 
 		if err := cfg.DB.Create(&strategy).Error; err != nil {
@@ -972,6 +995,7 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
+// GinListStrategiesHandler 修改后的策略列表处理器
 func GinListStrategiesHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -1029,6 +1053,25 @@ func GinListStrategiesHandler(cfg *config.Config) gin.HandlerFunc {
 				}
 			}
 
+			// 新增：解析万分比配置
+			buyBasisPoints := []float64{}
+			if s.BuyBasisPoints != "" {
+				for _, bp := range strings.Split(s.BuyBasisPoints, ",") {
+					if bpValue, err := strconv.ParseFloat(strings.TrimSpace(bp), 64); err == nil {
+						buyBasisPoints = append(buyBasisPoints, bpValue)
+					}
+				}
+			}
+
+			sellBasisPoints := []float64{}
+			if s.SellBasisPoints != "" {
+				for _, bp := range strings.Split(s.SellBasisPoints, ",") {
+					if bpValue, err := strconv.ParseFloat(strings.TrimSpace(bp), 64); err == nil {
+						sellBasisPoints = append(sellBasisPoints, bpValue)
+					}
+				}
+			}
+
 			formattedStrategies = append(formattedStrategies, map[string]interface{}{
 				"id":              s.ID,
 				"symbol":          s.Symbol,
@@ -1042,6 +1085,8 @@ func GinListStrategiesHandler(cfg *config.Config) gin.HandlerFunc {
 				"sellQuantities":  sellQuantities,
 				"buyDepthLevels":  buyDepthLevels,
 				"sellDepthLevels": sellDepthLevels,
+				"buyBasisPoints":  buyBasisPoints,  // 新增
+				"sellBasisPoints": sellBasisPoints, // 新增
 				"pendingBatch":    s.PendingBatch,
 				"createdAt":       s.CreatedAt,
 				"updatedAt":       s.UpdatedAt,
@@ -1052,6 +1097,7 @@ func GinListStrategiesHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
+// GinToggleStrategyHandler 修改后的策略状态切换处理器
 func GinToggleStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -1076,7 +1122,7 @@ func GinToggleStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 切换启用状态
+		// 修改：即使策略正在执行中（PendingBatch=true），也允许禁用
 		strategy.Enabled = !strategy.Enabled
 		if err := cfg.DB.Save(&strategy).Error; err != nil {
 			log.Printf("切换策略状态失败: %v", err)
@@ -1093,14 +1139,27 @@ func GinToggleStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 				// 获取用户API密钥
 				if user.APIKey != "" && user.SecretKey != "" {
 					client := binance.NewClient(user.APIKey, user.SecretKey)
+					cancelledCount := 0
 					for _, order := range orders {
-						client.NewCancelOrderService().
+						_, err := client.NewCancelOrderService().
 							Symbol(order.Symbol).
 							OrderID(order.OrderID).
 							Do(context.Background())
 
-						cfg.DB.Model(&order).Update("status", "cancelled")
+						if err != nil {
+							// 检查是否因为订单已经不存在
+							if strings.Contains(err.Error(), "Order does not exist") {
+								cfg.DB.Model(&order).Update("status", "cancelled")
+								cancelledCount++
+							} else {
+								log.Printf("取消订单 %d 失败: %v", order.OrderID, err)
+							}
+						} else {
+							cfg.DB.Model(&order).Update("status", "cancelled")
+							cancelledCount++
+						}
 					}
+					log.Printf("策略 %d 禁用，已取消 %d 个订单", strategy.ID, cancelledCount)
 				}
 			}
 

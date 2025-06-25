@@ -20,10 +20,11 @@
         <th>交易对</th>
         <th>类型</th>
         <th>方向</th>
-        <th>触发价格</th>
+        <th>基准价格</th>
         <th>总数量</th>
         <th>状态</th>
         <th>启用</th>
+        <th>执行状态</th>
         <th>创建时间</th>
         <th>操作</th>
       </tr>
@@ -49,12 +50,16 @@
             {{ strategy.enabled ? '启用' : '禁用' }}
           </span>
         </td>
+        <td>
+          <span :class="strategy.pendingBatch ? 'executing' : 'idle'">
+            {{ strategy.pendingBatch ? '执行中' : '空闲' }}
+          </span>
+        </td>
         <td>{{ formatDate(strategy.createdAt) }}</td>
         <td>
           <button @click="toggleStrategy(strategy)"
-                  :class="strategy.enabled ? 'disable-btn' : 'enable-btn'"
-                  :disabled="strategy.pendingBatch">
-            {{ strategy.pendingBatch ? '执行中...' : (strategy.enabled ? '禁用' : '启用') }}
+                  :class="strategy.enabled ? 'disable-btn' : 'enable-btn'">
+            {{ strategy.enabled ? '禁用' : '启用' }}
           </button>
           <button @click="viewStrategyDetails(strategy)" class="view-btn">
             查看
@@ -97,7 +102,7 @@
           <span>{{ selectedStrategy.side === 'BUY' ? '买入' : '卖出' }}</span>
         </div>
         <div class="detail-item">
-          <label>触发价格:</label>
+          <label>基准价格:</label>
           <span>{{ formatPrice(selectedStrategy.price) }}</span>
         </div>
         <div class="detail-item">
@@ -108,14 +113,20 @@
           <label>买入配置:</label>
           <div>
             <p>数量分配: {{ selectedStrategy.buyQuantities.join(', ') }}</p>
-            <p>深度级别: {{ selectedStrategy.buyDepthLevels.join(', ') }}</p>
+            <p v-if="selectedStrategy.strategyType !== 'custom'">深度级别: {{ selectedStrategy.buyDepthLevels ? selectedStrategy.buyDepthLevels.join(', ') : '' }}</p>
+            <p v-if="selectedStrategy.strategyType === 'custom' && selectedStrategy.buyBasisPoints">
+              万分比: {{ selectedStrategy.buyBasisPoints.map(bp => bp > 0 ? '+' + bp : bp).join(', ') }}bp
+            </p>
           </div>
         </div>
         <div v-if="selectedStrategy.sellQuantities && selectedStrategy.sellQuantities.length > 0" class="detail-item">
           <label>卖出配置:</label>
           <div>
             <p>数量分配: {{ selectedStrategy.sellQuantities.join(', ') }}</p>
-            <p>深度级别: {{ selectedStrategy.sellDepthLevels.join(', ') }}</p>
+            <p v-if="selectedStrategy.strategyType !== 'custom'">深度级别: {{ selectedStrategy.sellDepthLevels ? selectedStrategy.sellDepthLevels.join(', ') : '' }}</p>
+            <p v-if="selectedStrategy.strategyType === 'custom' && selectedStrategy.sellBasisPoints">
+              万分比: {{ selectedStrategy.sellBasisPoints.map(bp => bp > 0 ? '+' + bp : bp).join(', ') }}bp
+            </p>
           </div>
         </div>
         <button @click="closeDetails" class="close-btn">关闭</button>
@@ -179,7 +190,7 @@
               <td>{{ formatQuantity(order.quantity) }}</td>
               <td>
                   <span :class="`status-${order.status}`">
-                    {{ getStatusText(order.status) }}
+                    {{ getOrderStatusText(order.status) }}
                   </span>
               </td>
               <td>{{ formatDate(order.createdAt) }}</td>
@@ -224,18 +235,18 @@
         <div class="form-row">
           <div class="form-group">
             <label>交易方向</label>
-            <select v-model="newStrategy.side" required>
+            <select v-model="newStrategy.side" @change="onSideChange" required>
               <option value="">选择方向</option>
               <option value="BUY">买入</option>
               <option value="SELL">卖出</option>
             </select>
           </div>
           <div class="form-group">
-            <label>触发价格</label>
+            <label>基准价格</label>
             <input v-model.number="newStrategy.price"
                    type="number"
                    step="0.00000001"
-                   placeholder="触发策略的价格"
+                   placeholder="基准价格"
                    required />
           </div>
           <div class="form-group">
@@ -251,20 +262,22 @@
         <!-- 策略说明 -->
         <div class="strategy-description">
           <p v-if="newStrategy.strategyType === 'simple'">
-            <strong>简单策略：</strong>当价格达到触发条件时，一次性下单全部数量。
+            <strong>简单策略：</strong>当价格达到触发条件时，以基准价格一次性下单全部数量。
           </p>
           <p v-if="newStrategy.strategyType === 'iceberg'">
-            <strong>冰山策略：</strong>将订单分成多个小订单，在不同价格层级分批下单，避免对市场造成大的冲击。
+            <strong>冰山策略：</strong>将订单分成多个小订单，基于基准价格按固定万分比在不同价格层级分批下单。
+            <br>默认万分比：买单[0, -1, -3, -5, -7]，卖单[0, 1, 3, 5, 7]
           </p>
           <p v-if="newStrategy.strategyType === 'custom'">
-            <strong>自定义策略：</strong>可以自定义每个订单的数量比例和价格深度。
+            <strong>自定义策略：</strong>基于基准价格，按自定义万分比计算各档位价格进行分批下单。
+            <br><strong>万分比说明：</strong>正数表示高于基准价格，负数表示低于基准价格。例如：+50表示基准价格+0.5%，-30表示基准价格-0.3%
           </p>
         </div>
 
         <!-- 自定义策略的额外配置 -->
         <div v-if="newStrategy.strategyType === 'custom'" class="custom-config">
           <h3>自定义配置</h3>
-          <p class="config-hint">配置每个订单的数量比例和在订单簿中的深度级别</p>
+          <p class="config-hint">配置每个订单的数量比例和相对于基准价格的万分比偏移</p>
 
           <div v-if="newStrategy.side === 'BUY'" class="config-section">
             <h4>买入配置</h4>
@@ -277,10 +290,10 @@
                 <small>每个值表示占总数量的比例，总和应为1</small>
               </div>
               <div class="form-group">
-                <label>深度级别</label>
-                <input v-model="buyDepthLevelsInput"
-                       placeholder="如: 1,3,5,7" />
-                <small>在买单簿中的位置（1表示最优价格）</small>
+                <label>万分比偏移</label>
+                <input v-model="buyBasisPointsInput"
+                       placeholder="如: 0,-10,-20,-30" />
+                <small>相对于基准价格的万分比偏移（负数表示更低价格）</small>
               </div>
             </div>
           </div>
@@ -296,10 +309,10 @@
                 <small>每个值表示占总数量的比例，总和应为1</small>
               </div>
               <div class="form-group">
-                <label>深度级别</label>
-                <input v-model="sellDepthLevelsInput"
-                       placeholder="如: 1,3,5,7" />
-                <small>在卖单簿中的位置（1表示最优价格）</small>
+                <label>万分比偏移</label>
+                <input v-model="sellBasisPointsInput"
+                       placeholder="如: 0,10,20,30" />
+                <small>相对于基准价格的万分比偏移（正数表示更高价格）</small>
               </div>
             </div>
           </div>
@@ -318,7 +331,8 @@
               <th>订单</th>
               <th>数量</th>
               <th>占比</th>
-              <th>深度级别</th>
+              <th v-if="newStrategy.strategyType === 'custom'">万分比</th>
+              <th>预估价格</th>
             </tr>
             </thead>
             <tbody>
@@ -326,7 +340,10 @@
               <td>订单 {{ index + 1 }}</td>
               <td>{{ order.quantity.toFixed(8) }}</td>
               <td>{{ (order.ratio * 100).toFixed(1) }}%</td>
-              <td>第 {{ order.depth }} 层</td>
+              <td v-if="newStrategy.strategyType === 'custom'">
+                {{ order.basisPoint > 0 ? '+' : '' }}{{ order.basisPoint }}bp
+              </td>
+              <td>{{ order.price.toFixed(8) }}</td>
             </tr>
             </tbody>
           </table>
@@ -356,9 +373,9 @@ export default {
         totalQuantity: 0
       },
       buyQuantitiesInput: '',
-      buyDepthLevelsInput: '',
+      buyBasisPointsInput: '',
       sellQuantitiesInput: '',
-      sellDepthLevelsInput: '',
+      sellBasisPointsInput: '',
       currentPage: 1,
       pageSize: 10,
       errorMessage: '',
@@ -368,7 +385,7 @@ export default {
       selectedStrategy: {},
       quantityWarning: '',
       orderPreview: [],
-      availableSymbols: [], // 可用的交易对列表
+      availableSymbols: [],
       showStats: false,
       statsData: {
         stats: {},
@@ -395,9 +412,9 @@ export default {
 
       if (this.newStrategy.strategyType === 'custom') {
         if (this.newStrategy.side === 'BUY') {
-          return this.buyQuantitiesInput && this.buyDepthLevelsInput && !this.quantityWarning;
+          return this.buyQuantitiesInput && this.buyBasisPointsInput && !this.quantityWarning;
         } else {
-          return this.sellQuantitiesInput && this.sellDepthLevelsInput && !this.quantityWarning;
+          return this.sellQuantitiesInput && this.sellBasisPointsInput && !this.quantityWarning;
         }
       }
 
@@ -414,22 +431,25 @@ export default {
     'newStrategy.totalQuantity': function(newVal) {
       this.updateOrderPreview();
     },
+    'newStrategy.price': function(newVal) {
+      this.updateOrderPreview();
+    },
     buyQuantitiesInput: function() {
       this.updateOrderPreview();
     },
     sellQuantitiesInput: function() {
       this.updateOrderPreview();
     },
-    buyDepthLevelsInput: function() {
+    buyBasisPointsInput: function() {
       this.updateOrderPreview();
     },
-    sellDepthLevelsInput: function() {
+    sellBasisPointsInput: function() {
       this.updateOrderPreview();
     }
   },
   mounted() {
     this.fetchStrategies();
-    this.fetchSymbols(); // 获取可用的交易对
+    this.fetchSymbols();
   },
   methods: {
     getAuthHeaders() {
@@ -495,6 +515,17 @@ export default {
       return statuses[status] || status;
     },
 
+    getOrderStatusText(status) {
+      const statusMap = {
+        'pending': '待处理',
+        'filled': '已成交',
+        'cancelled': '已取消',
+        'expired': '已过期',
+        'rejected': '已拒绝'
+      };
+      return statusMap[status] || status;
+    },
+
     async fetchStrategies() {
       try {
         const response = await axios.get('/strategies', {
@@ -515,7 +546,6 @@ export default {
         });
         this.availableSymbols = response.data.symbols || [];
 
-        // 如果没有可用的交易对，提示用户
         if (this.availableSymbols.length === 0) {
           this.showMessage('请先在仪表盘中添加交易对', true);
         }
@@ -526,22 +556,38 @@ export default {
     },
 
     onStrategyTypeChange() {
-      // 重置自定义配置
       if (this.newStrategy.strategyType !== 'custom') {
         this.buyQuantitiesInput = '';
-        this.buyDepthLevelsInput = '';
+        this.buyBasisPointsInput = '';
         this.sellQuantitiesInput = '';
-        this.sellDepthLevelsInput = '';
+        this.sellBasisPointsInput = '';
       } else {
-        // 为自定义策略设置默认值
         if (this.newStrategy.side === 'BUY' && !this.buyQuantitiesInput) {
           this.buyQuantitiesInput = '0.3,0.3,0.2,0.2';
-          this.buyDepthLevelsInput = '1,3,5,7';
+          this.buyBasisPointsInput = '0,-10,-20,-30';
         } else if (this.newStrategy.side === 'SELL' && !this.sellQuantitiesInput) {
           this.sellQuantitiesInput = '0.3,0.3,0.2,0.2';
-          this.sellDepthLevelsInput = '1,3,5,7';
+          this.sellBasisPointsInput = '0,10,20,30';
         }
       }
+      this.updateOrderPreview();
+    },
+
+    onSideChange() {
+      if (this.newStrategy.strategyType === 'custom') {
+        if (this.newStrategy.side === 'BUY') {
+          this.buyQuantitiesInput = '0.3,0.3,0.2,0.2';
+          this.buyBasisPointsInput = '0,-10,-20,-30';
+          this.sellQuantitiesInput = '';
+          this.sellBasisPointsInput = '';
+        } else {
+          this.sellQuantitiesInput = '0.3,0.3,0.2,0.2';
+          this.sellBasisPointsInput = '0,10,20,30';
+          this.buyQuantitiesInput = '';
+          this.buyBasisPointsInput = '';
+        }
+      }
+      this.updateOrderPreview();
     },
 
     validateQuantities(side) {
@@ -564,34 +610,42 @@ export default {
     updateOrderPreview() {
       this.orderPreview = [];
 
-      if (!this.newStrategy.totalQuantity || this.newStrategy.totalQuantity <= 0) {
+      if (!this.newStrategy.totalQuantity || this.newStrategy.totalQuantity <= 0 || !this.newStrategy.price) {
         return;
       }
 
       let quantities = [];
-      let depths = [];
+      let basisPoints = [];
 
       if (this.newStrategy.strategyType === 'simple') {
         quantities = [1.0];
-        depths = [1];
+        basisPoints = [0];
       } else if (this.newStrategy.strategyType === 'iceberg') {
         quantities = [0.35, 0.25, 0.2, 0.1, 0.1];
-        depths = [1, 3, 5, 7, 9];
+        if (this.newStrategy.side === 'SELL') {
+          basisPoints = [0, 1, 3, 5, 7];
+        } else {
+          basisPoints = [0, -1, -3, -5, -7];
+        }
       } else if (this.newStrategy.strategyType === 'custom') {
-        if (this.newStrategy.side === 'BUY' && this.buyQuantitiesInput) {
+        if (this.newStrategy.side === 'BUY' && this.buyQuantitiesInput && this.buyBasisPointsInput) {
           quantities = this.buyQuantitiesInput.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
-          depths = this.buyDepthLevelsInput.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
-        } else if (this.newStrategy.side === 'SELL' && this.sellQuantitiesInput) {
+          basisPoints = this.buyBasisPointsInput.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+        } else if (this.newStrategy.side === 'SELL' && this.sellQuantitiesInput && this.sellBasisPointsInput) {
           quantities = this.sellQuantitiesInput.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
-          depths = this.sellDepthLevelsInput.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
+          basisPoints = this.sellBasisPointsInput.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
         }
       }
 
-      for (let i = 0; i < quantities.length; i++) {
+      for (let i = 0; i < quantities.length && i < basisPoints.length; i++) {
+        const multiplier = 1 + (basisPoints[i] / 10000);
+        const price = this.newStrategy.price * multiplier;
+
         this.orderPreview.push({
           quantity: this.newStrategy.totalQuantity * quantities[i],
           ratio: quantities[i],
-          depth: depths[i] || 1
+          basisPoint: basisPoints[i],
+          price: price
         });
       }
     },
@@ -602,7 +656,6 @@ export default {
         return;
       }
 
-      // 检查是否选择了交易对
       if (!this.availableSymbols.includes(this.newStrategy.symbol)) {
         this.showMessage('请选择有效的交易对', true);
         return;
@@ -612,14 +665,13 @@ export default {
       try {
         const strategyData = { ...this.newStrategy };
 
-        // 处理自定义策略的配置
         if (this.newStrategy.strategyType === 'custom') {
           if (this.newStrategy.side === 'BUY') {
             strategyData.buyQuantities = this.buyQuantitiesInput.split(',').map(v => parseFloat(v.trim()));
-            strategyData.buyDepthLevels = this.buyDepthLevelsInput.split(',').map(v => parseInt(v.trim()));
+            strategyData.buyBasisPoints = this.buyBasisPointsInput.split(',').map(v => parseFloat(v.trim()));
           } else {
             strategyData.sellQuantities = this.sellQuantitiesInput.split(',').map(v => parseFloat(v.trim()));
-            strategyData.sellDepthLevels = this.sellDepthLevelsInput.split(',').map(v => parseInt(v.trim()));
+            strategyData.sellBasisPoints = this.sellBasisPointsInput.split(',').map(v => parseFloat(v.trim()));
           }
         }
 
@@ -686,7 +738,6 @@ export default {
     },
 
     async viewAllStrategyOrders() {
-      // 跳转到订单页面并筛选该策略的订单
       this.$router.push({
         path: '/orders',
         query: { strategyId: this.statsData.strategy.id }
@@ -720,9 +771,9 @@ export default {
         totalQuantity: 0
       };
       this.buyQuantitiesInput = '';
-      this.buyDepthLevelsInput = '';
+      this.buyBasisPointsInput = '';
       this.sellQuantitiesInput = '';
-      this.sellDepthLevelsInput = '';
+      this.sellBasisPointsInput = '';
       this.quantityWarning = '';
       this.orderPreview = [];
     },
@@ -842,17 +893,6 @@ button:disabled {
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
-}
-
-.toggle-btn {
-  background-color: #28a745;
-  padding: 6px 12px;
-  font-size: 12px;
-  margin-right: 5px;
-}
-
-.toggle-btn:hover {
-  background-color: #218838;
 }
 
 .enable-btn {
@@ -1001,9 +1041,19 @@ button:disabled {
 
 .enabled {
   color: #28a745;
+  font-weight: bold;
 }
 
 .disabled {
+  color: #6c757d;
+}
+
+.executing {
+  color: #ffc107;
+  font-weight: bold;
+}
+
+.idle {
   color: #6c757d;
 }
 
@@ -1022,6 +1072,16 @@ button:disabled {
 
 .status-cancelled {
   color: #dc3545;
+}
+
+.status-pending {
+  color: #ffc107;
+  font-weight: bold;
+}
+
+.status-filled {
+  color: #28a745;
+  font-weight: bold;
 }
 
 /* 弹窗样式 */

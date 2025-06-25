@@ -441,6 +441,9 @@ type PriceLevel struct {
 }
 
 // calculatePriceLevels 计算价格级别
+// backend/tasks/price.go - 价格计算部分的修改
+
+// calculatePriceLevels 计算价格级别
 func calculatePriceLevels(strategy models.Strategy, side string, levels interface{},
 	quantities []float64, depthLevels []float64, pricePrecision int) ([]PriceLevel, error) {
 
@@ -473,45 +476,90 @@ func calculatePriceLevels(strategy models.Strategy, side string, levels interfac
 		}
 
 	case "custom":
-		// 自定义策略：根据深度级别计算价格
-		if len(depthLevels) == 0 {
-			return nil, fmt.Errorf("自定义策略需要深度级别配置")
-		}
+		// 自定义策略：基于基准价格和万分比计算
+		basePrice := strategy.Price
+		var basisPoints []float64
 
-		// 从市场深度获取参考价格
-		var refPrices []float64
-		if side == "SELL" {
-			asks := levels.([]binance.Ask)
-			for i := 0; i < len(depthLevels) && i < len(asks); i++ {
-				idx := int(depthLevels[i]) - 1
-				if idx >= 0 && idx < len(asks) {
-					price, _ := strconv.ParseFloat(asks[idx].Price, 64)
-					refPrices = append(refPrices, price)
+		// 解析万分比配置
+		if side == "SELL" && strategy.SellBasisPoints != "" {
+			for _, bp := range strings.Split(strategy.SellBasisPoints, ",") {
+				if bpValue, err := strconv.ParseFloat(strings.TrimSpace(bp), 64); err == nil {
+					basisPoints = append(basisPoints, bpValue)
 				}
 			}
-		} else {
-			bids := levels.([]binance.Bid)
-			for i := 0; i < len(depthLevels) && i < len(bids); i++ {
-				idx := int(depthLevels[i]) - 1
-				if idx >= 0 && idx < len(bids) {
-					price, _ := strconv.ParseFloat(bids[idx].Price, 64)
-					refPrices = append(refPrices, price)
+		} else if side == "BUY" && strategy.BuyBasisPoints != "" {
+			for _, bp := range strings.Split(strategy.BuyBasisPoints, ",") {
+				if bpValue, err := strconv.ParseFloat(strings.TrimSpace(bp), 64); err == nil {
+					basisPoints = append(basisPoints, bpValue)
 				}
 			}
 		}
 
-		// 使用参考价格或策略价格
-		for i := 0; i < len(quantities); i++ {
-			if i < len(refPrices) {
-				priceLevels = append(priceLevels, PriceLevel{Price: refPrices[i]})
+		// 如果没有配置万分比，使用默认值
+		if len(basisPoints) == 0 {
+			if side == "SELL" {
+				basisPoints = []float64{0, 5, 10, 15, 20} // 默认卖单万分比：0, +5, +10, +15, +20
 			} else {
-				// 如果深度不够，使用策略价格
-				priceLevels = append(priceLevels, PriceLevel{Price: strategy.Price})
+				basisPoints = []float64{0, -5, -10, -15, -20} // 默认买单万分比：0, -5, -10, -15, -20
 			}
+		}
+
+		// 根据万分比计算价格
+		for i := 0; i < len(quantities) && i < len(basisPoints); i++ {
+			// 万分比转换为乘数：万分比 / 10000
+			multiplier := 1.0 + (basisPoints[i] / 10000.0)
+			calculatedPrice := basePrice * multiplier
+
+			// 确保价格精度符合交易所要求
+			priceLevels = append(priceLevels, PriceLevel{
+				Price: calculatedPrice,
+			})
 		}
 	}
 
 	return priceLevels, nil
+}
+
+// parseQuantitiesAndBasisPoints 解析数量和万分比配置
+func parseQuantitiesAndBasisPoints(quantitiesStr, basisPointsStr string, strategyID uint) ([]float64, []float64, error) {
+	var quantities, basisPoints []float64
+
+	// 去除可能的方括号
+	quantitiesStr = strings.Trim(quantitiesStr, "[]")
+	basisPointsStr = strings.Trim(basisPointsStr, "[]")
+
+	// 解析数量
+	if quantitiesStr != "" {
+		for _, q := range strings.Split(quantitiesStr, ",") {
+			q = strings.TrimSpace(q)
+			if q == "" {
+				continue
+			}
+			if qty, err := strconv.ParseFloat(q, 64); err == nil && qty > 0 {
+				quantities = append(quantities, qty)
+			}
+		}
+	}
+
+	// 解析万分比
+	if basisPointsStr != "" {
+		for _, bp := range strings.Split(basisPointsStr, ",") {
+			bp = strings.TrimSpace(bp)
+			if bp == "" {
+				continue
+			}
+			if bpValue, err := strconv.ParseFloat(bp, 64); err == nil {
+				basisPoints = append(basisPoints, bpValue)
+			}
+		}
+	}
+
+	// 验证长度匹配
+	if len(quantities) > 0 && len(basisPoints) > 0 && len(quantities) != len(basisPoints) {
+		return nil, nil, fmt.Errorf("数量和万分比数量不匹配: %d vs %d", len(quantities), len(basisPoints))
+	}
+
+	return quantities, basisPoints, nil
 }
 
 // parseSymbolInfo 解析交易对信息
