@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gin-gonic/gin"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -34,7 +34,7 @@ func ValidationMiddleware() gin.HandlerFunc {
 			validateStrategy(c)
 		case strings.HasSuffix(path, "/order"):
 			validateOrder(c)
-		case strings.HasSuffix(path, "/withdrawals"):
+		case strings.HasSuffix(path, "/withdrawals") || strings.Contains(path, "/withdrawals/"):
 			validateWithdrawal(c)
 		default:
 			c.Next()
@@ -100,8 +100,16 @@ func validateAPIKey(c *gin.Context) {
 
 // validateStrategy 验证策略
 func validateStrategy(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "读取请求体失败",
+		})
+		c.Abort()
+		return
+	}
+
 	var data map[string]interface{}
-	body, _ := c.GetRawData()
 	if err := json.Unmarshal(body, &data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "无效的请求数据",
@@ -306,10 +314,20 @@ func validateOrder(c *gin.Context) {
 	c.Next()
 }
 
-// validateWithdrawal 验证提币规则
+// validateWithdrawal 验证提币规则 - 修复版本
 func validateWithdrawal(c *gin.Context) {
+	// 读取请求体
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "读取请求体失败",
+		})
+		c.Abort()
+		return
+	}
+
 	var data map[string]interface{}
-	if err := c.ShouldBindJSON(&data); err != nil {
+	if err := json.Unmarshal(body, &data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "无效的请求数据",
 		})
@@ -326,6 +344,11 @@ func validateWithdrawal(c *gin.Context) {
 			Field:   "asset",
 			Message: "资产不能为空",
 		})
+	} else if len(asset) < 2 || len(asset) > 10 {
+		errors = append(errors, ValidationError{
+			Field:   "asset",
+			Message: "资产名称长度必须在2-10个字符之间",
+		})
 	}
 
 	// 验证地址
@@ -335,10 +358,10 @@ func validateWithdrawal(c *gin.Context) {
 			Field:   "address",
 			Message: "提币地址不能为空",
 		})
-	} else if !isValidAddress(address) {
+	} else if len(address) < 10 {
 		errors = append(errors, ValidationError{
 			Field:   "address",
-			Message: "无效的提币地址格式",
+			Message: "提币地址格式不正确",
 		})
 	}
 
@@ -351,13 +374,23 @@ func validateWithdrawal(c *gin.Context) {
 		})
 	}
 
-	// 验证金额
+	// 验证金额 - 允许为0（表示提取全部）
 	amount, ok := getFloat64(data["amount"])
-	if !ok || amount <= 0 {
+	if !ok || amount < 0 {
 		errors = append(errors, ValidationError{
 			Field:   "amount",
-			Message: "提币金额必须大于 0",
+			Message: "提币金额不能为负数",
 		})
+	}
+
+	// 验证启用状态（可选字段）
+	if enabled, exists := data["enabled"]; exists {
+		if _, ok := enabled.(bool); !ok {
+			errors = append(errors, ValidationError{
+				Field:   "enabled",
+				Message: "启用状态必须是布尔值",
+			})
+		}
 	}
 
 	if len(errors) > 0 {
@@ -369,6 +402,8 @@ func validateWithdrawal(c *gin.Context) {
 		return
 	}
 
+	// 重新设置请求体以供后续使用
+	c.Request.Body = &bodyReader{data: body}
 	c.Set("validated_data", data)
 	c.Next()
 }
@@ -422,7 +457,7 @@ type bodyReader struct {
 
 func (r *bodyReader) Read(p []byte) (n int, err error) {
 	if r.pos >= len(r.data) {
-		return 0, fmt.Errorf("EOF")
+		return 0, io.EOF
 	}
 	n = copy(p, r.data[r.pos:])
 	r.pos += n

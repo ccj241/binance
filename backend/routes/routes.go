@@ -50,22 +50,37 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 受保护路由，需要认证
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware(cfg))
-	protected.Use(middleware.ValidationMiddleware()) // 添加验证中间件
+	// 注意：只对特定路由使用验证中间件，不要全局使用
 	{
-		// API密钥管理
-		protected.POST("/api-key", userController.SetAPIKey)
+		// API密钥管理 - 使用验证中间件
+		apiGroup := protected.Group("/api-key")
+		apiGroup.Use(middleware.ValidationMiddleware())
+		{
+			apiGroup.POST("", userController.SetAPIKey)
+		}
 		protected.GET("/api-key", userController.GetAPIKey)
 		protected.DELETE("/api-key/delete", userController.DeleteAPIKey)
 
 		// 订单管理
 		protected.GET("/orders", handlers.GinOrdersHandler(cfg))
 		protected.GET("/cancelled_orders", handlers.GinCancelledOrdersHandler(cfg))
-		protected.POST("/order", handlers.GinCreateOrderHandler(cfg))
+
+		// 订单创建 - 使用验证中间件
+		orderGroup := protected.Group("/order")
+		orderGroup.Use(middleware.ValidationMiddleware())
+		{
+			orderGroup.POST("", handlers.GinCreateOrderHandler(cfg))
+		}
+
 		protected.POST("/cancel_order/:orderId", handlers.GinCancelOrderHandler(cfg))
 		protected.POST("/batch_cancel_orders", handlers.GinBatchCancelOrdersHandler(cfg)) // 批量取消订单
 
-		// 策略管理
-		protected.POST("/strategy", handlers.GinCreateStrategyHandler(cfg))
+		// 策略管理 - 使用验证中间件
+		strategyGroup := protected.Group("/strategy")
+		strategyGroup.Use(middleware.ValidationMiddleware())
+		{
+			strategyGroup.POST("", handlers.GinCreateStrategyHandler(cfg))
+		}
 		protected.GET("/strategies", handlers.GinListStrategiesHandler(cfg))
 		protected.POST("/toggle_strategy", handlers.GinToggleStrategyHandler(cfg))
 		protected.POST("/delete_strategy", handlers.GinDeleteStrategyHandler(cfg))
@@ -83,12 +98,20 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		protected.GET("/balance", handlers.GinBalanceHandler(cfg))
 		protected.GET("/trades", handlers.GinTradesHandler(cfg))
 
-		// 提币管理
+		// 提币历史
 		protected.GET("/withdrawalhistory", handlers.GinWithdrawalHistoryHandler(cfg))
-		protected.POST("/withdrawals", handlers.GinCreateWithdrawalRuleHandler(cfg))
-		protected.GET("/withdrawals", handlers.GinListWithdrawalRulesHandler(cfg))
-		protected.PUT("/withdrawals/:id", handlers.GinUpdateWithdrawalRuleHandler(cfg))
-		protected.DELETE("/withdrawals/:id", handlers.GinDeleteWithdrawalRuleHandler(cfg))
+
+		// 提币管理 - 分别配置验证中间件
+		withdrawalGroup := protected.Group("/withdrawals")
+		{
+			// 创建和更新提币规则需要验证
+			withdrawalGroup.POST("", middleware.ValidationMiddleware(), handlers.GinCreateWithdrawalRuleHandler(cfg))
+			withdrawalGroup.PUT("/:id", middleware.ValidationMiddleware(), handlers.GinUpdateWithdrawalRuleHandler(cfg))
+
+			// 获取和删除不需要验证
+			withdrawalGroup.GET("", handlers.GinListWithdrawalRulesHandler(cfg))
+			withdrawalGroup.DELETE("/:id", handlers.GinDeleteWithdrawalRuleHandler(cfg))
+		}
 	}
 
 	// 管理员路由
