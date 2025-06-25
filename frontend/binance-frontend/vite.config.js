@@ -53,6 +53,19 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      // 自动提币相关端点
+      '/auto_withdraw_rule': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/auto_withdraw_rules': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/withdraw_coins': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
       '/symbols': {
         target: 'http://localhost:8081',
         changeOrigin: true,

@@ -211,7 +211,7 @@
                   <div class="input-wrapper">
                     <i class="input-icon">🪙</i>
                     <input
-                        v-model="newWithdrawal.asset"
+                        v-model="newWithdrawal.symbol"
                         type="text"
                         placeholder="例如: BTC, ETH, USDT"
                         required
@@ -220,17 +220,34 @@
                 </div>
 
                 <div class="form-group">
-                  <label>阈值 (数量)</label>
+                  <label>提币网络</label>
+                  <div class="input-wrapper">
+                    <i class="input-icon">🌐</i>
+                    <select v-model="newWithdrawal.network" required>
+                      <option value="">选择网络</option>
+                      <option value="BSC">BSC (BEP20)</option>
+                      <option value="ETH">Ethereum (ERC20)</option>
+                      <option value="POLYGON">Polygon</option>
+                      <option value="ARBITRUM">Arbitrum</option>
+                      <option value="TRX">TRON (TRC20)</option>
+                      <option value="SOLANA">Solana</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label>触发阈值</label>
                   <div class="input-wrapper">
                     <i class="input-icon">📊</i>
                     <input
-                        v-model.number="newWithdrawal.threshold"
+                        v-model.number="newWithdrawal.min_amount"
                         type="number"
                         step="0.00000001"
-                        placeholder="触发提币的最小数量"
+                        placeholder="余额超过此数量时自动提币"
                         required
                     />
                   </div>
+                  <small class="form-hint">当余额超过此阈值时，系统将自动提取最大可用金额</small>
                 </div>
 
                 <div class="form-group">
@@ -245,18 +262,16 @@
                     />
                   </div>
                 </div>
+              </div>
 
-                <div class="form-group">
-                  <label>提币数量</label>
-                  <div class="input-wrapper">
-                    <i class="input-icon">💰</i>
-                    <input
-                        v-model.number="newWithdrawal.amount"
-                        type="number"
-                        step="0.00000001"
-                        placeholder="每次提币的数量"
-                        required
-                    />
+              <!-- 规则说明 -->
+              <div class="rule-description">
+                <div class="description-card">
+                  <div class="description-icon">💡</div>
+                  <div class="description-content">
+                    <h4>自动提币规则说明</h4>
+                    <p>当您的 <strong>{{ newWithdrawal.symbol || '[币种]' }}</strong> 余额超过 <strong>{{ newWithdrawal.min_amount || '[阈值]' }}</strong> 时，系统将自动提取 <strong>最大可用金额</strong> 到指定地址。</p>
+                    <small>⚠️ 提示：请确保提币地址正确，提币操作无法撤回。系统会自动计算并扣除网络手续费。</small>
                   </div>
                 </div>
               </div>
@@ -290,7 +305,7 @@
                   <div class="rule-asset">
                     <div class="asset-icon">🪙</div>
                     <div class="asset-info">
-                      <h4>{{ rule.asset }}</h4>
+                      <h4>{{ rule.symbol }}</h4>
                       <span :class="['status-chip', rule.enabled ? 'enabled' : 'disabled']">
                         <span class="status-dot"></span>
                         {{ rule.enabled ? '启用' : '禁用' }}
@@ -302,12 +317,12 @@
 
                 <div class="rule-details">
                   <div class="detail-item">
-                    <span class="detail-label">阈值</span>
-                    <span class="detail-value">{{ formatNumber(rule.threshold) }}</span>
+                    <span class="detail-label">网络</span>
+                    <span class="detail-value">{{ rule.network || 'BSC' }}</span>
                   </div>
                   <div class="detail-item">
-                    <span class="detail-label">提币数量</span>
-                    <span class="detail-value">{{ formatNumber(rule.amount) }}</span>
+                    <span class="detail-label">最小金额</span>
+                    <span class="detail-value">{{ formatNumber(rule.min_amount) }}</span>
                   </div>
                   <div class="detail-item">
                     <span class="detail-label">提币地址</span>
@@ -346,15 +361,19 @@
             </div>
             <div class="detail-card">
               <div class="detail-label">币种</div>
-              <div class="detail-value">{{ selectedRule.asset }}</div>
+              <div class="detail-value">{{ selectedRule.symbol }}</div>
             </div>
             <div class="detail-card">
-              <div class="detail-label">阈值</div>
-              <div class="detail-value">{{ formatNumber(selectedRule.threshold) }}</div>
+              <div class="detail-label">网络</div>
+              <div class="detail-value">{{ selectedRule.network || 'BSC' }}</div>
             </div>
             <div class="detail-card">
-              <div class="detail-label">提币数量</div>
-              <div class="detail-value">{{ formatNumber(selectedRule.amount) }}</div>
+              <div class="detail-label">触发阈值</div>
+              <div class="detail-value">{{ formatNumber(selectedRule.min_amount) }}</div>
+            </div>
+            <div class="detail-card">
+              <div class="detail-label">提币方式</div>
+              <div class="detail-value">提取最大可用金额</div>
             </div>
             <div class="detail-card">
               <div class="detail-label">状态</div>
@@ -399,10 +418,10 @@ export default {
       showApiSection: true,
       showWithdrawalSection: true,
       newWithdrawal: {
-        asset: '',
-        threshold: 0,
+        symbol: '',
+        network: '',
+        min_amount: 0,
         address: '',
-        amount: 0,
       },
       withdrawalRules: [],
       toastMessage: '',
@@ -478,10 +497,10 @@ export default {
 
     resetWithdrawalForm() {
       this.newWithdrawal = {
-        asset: '',
-        threshold: 0,
+        symbol: '',
+        network: '',
+        min_amount: 0,
         address: '',
-        amount: 0,
       };
     },
 
@@ -546,28 +565,28 @@ export default {
     },
 
     async createWithdrawalRule() {
-      const { asset, threshold, address, amount } = this.newWithdrawal;
+      const { symbol, network, min_amount, address } = this.newWithdrawal;
 
-      if (!asset.trim() || threshold <= 0 || !address.trim() || amount <= 0) {
-        this.showToast('请填写所有必需字段，且数量必须大于0', 'error');
+      if (!symbol.trim() || !network || min_amount <= 0 || !address.trim()) {
+        this.showToast('请填写所有必需字段，且阈值必须大于0', 'error');
         return;
       }
 
       try {
         const response = await axios.post(
-            '/withdrawals',
+            '/auto_withdraw_rule',
             {
-              asset: asset.toUpperCase(),
-              threshold,
-              address,
-              amount,
+              symbol: symbol.toUpperCase(),
+              network: network,
+              address: address,
+              min_amount: Number(min_amount),
               enabled: true,
             },
             {
               headers: this.getAuthHeaders(),
             }
         );
-        this.showToast(response.data.message || '提币规则创建成功 🚀');
+        this.showToast(response.data.message || '自动提币规则创建成功 🚀');
         this.resetWithdrawalForm();
         await this.fetchWithdrawalRules();
       } catch (err) {
@@ -578,7 +597,7 @@ export default {
 
     async fetchWithdrawalRules() {
       try {
-        const response = await axios.get('/withdrawals', {
+        const response = await axios.get('/auto_withdraw_rules', {
           headers: this.getAuthHeaders(),
         });
         this.withdrawalRules = response.data.rules || [];
@@ -594,7 +613,7 @@ export default {
       }
 
       try {
-        const response = await axios.delete(`/withdrawals/${ruleId}`, {
+        const response = await axios.delete(`/auto_withdraw_rule/${ruleId}`, {
           headers: this.getAuthHeaders(),
         });
         this.showToast(response.data.message || '提币规则删除成功 🗑️');
@@ -1013,7 +1032,8 @@ export default {
   font-size: 1.2rem;
 }
 
-.input-wrapper input {
+.input-wrapper input,
+.input-wrapper select {
   width: 100%;
   padding: 0.8rem 1rem 0.8rem 3rem;
   background: rgba(255, 255, 255, 0.05);
@@ -1024,14 +1044,97 @@ export default {
   transition: all 0.3s ease;
 }
 
-.input-wrapper input:focus {
+.input-wrapper input:focus,
+.input-wrapper select:focus {
   outline: none;
   background: rgba(255, 255, 255, 0.08);
   border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .input-wrapper input::placeholder {
   color: #666;
+}
+
+/* 修复下拉框选项样式 */
+.input-wrapper select {
+  cursor: pointer;
+  /* 确保选项文字可见 */
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  background-size: 1.2rem;
+  padding-right: 3rem;
+}
+
+.input-wrapper select option {
+  background-color: #1a1a1a;
+  color: #fff;
+  padding: 0.5rem;
+}
+
+.input-wrapper select option:hover {
+  background-color: #2a2a2a;
+}
+
+/* 确保下拉框在聚焦时的样式 */
+.input-wrapper select:focus option {
+  background-color: #1a1a1a;
+  color: #fff;
+}
+
+.form-hint {
+  color: #999;
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+  font-style: italic;
+}
+
+/* 规则说明 */
+.rule-description {
+  margin: 2rem 0;
+}
+
+.description-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.description-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.description-content h4 {
+  margin: 0 0 0.5rem 0;
+  color: #667eea;
+  font-size: 1.1rem;
+}
+
+.description-content p {
+  margin: 0 0 0.5rem 0;
+  color: #ccc;
+  line-height: 1.5;
+}
+
+.description-content small {
+  color: #fbbf24;
+  font-size: 0.85rem;
+  display: block;
+  margin-top: 0.5rem;
+}
+
+.detail-value.withdraw-type {
+  color: #22c55e;
+  font-weight: 600;
 }
 
 .password-toggle {
