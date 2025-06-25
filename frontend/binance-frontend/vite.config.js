@@ -1,3 +1,5 @@
+// frontend/binance-frontend/vite.config.js - 添加删除路由的代理配置
+
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
@@ -6,6 +8,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/login': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/register': {
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
@@ -45,7 +51,27 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      '/withdrawalhistory': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
       '/symbols': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/cancel_order': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/batch_cancel_orders': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/toggle_strategy': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/delete_strategy': {
         target: 'http://localhost:8081',
         changeOrigin: true,
       },

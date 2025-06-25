@@ -6,25 +6,51 @@
     <section>
       <h2>实时价格</h2>
       <div v-if="Object.keys(prices).length === 0" class="no-data">未添加交易对</div>
-      <table v-else>
-        <thead>
-        <tr>
-          <th>交易对</th>
-          <th>价格</th>
-        </tr>
-        </thead>
-        <tbody>
-        <tr v-for="(price, symbol) in prices" :key="symbol">
-          <td>{{ symbol }}</td>
-          <td>{{ price.toFixed(2) }}</td>
-        </tr>
-        </tbody>
-      </table>
-      <form @submit.prevent="addSymbol">
+      <div v-else>
+        <table>
+          <thead>
+          <tr>
+            <th>交易对</th>
+            <th>价格</th>
+            <th>操作</th>
+          </tr>
+          </thead>
+          <tbody>
+          <tr v-for="(price, symbol) in prices" :key="symbol">
+            <td>{{ symbol }}</td>
+            <td>{{ price.toFixed(2) }}</td>
+            <td>
+              <button @click="confirmDeleteSymbol(symbol)" class="delete-symbol-btn">
+                删除
+              </button>
+            </td>
+          </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <form @submit.prevent="addSymbol" class="add-symbol-form">
         <input v-model="newSymbol" placeholder="输入交易对 (如 SOLUSDT)" required />
-        <button type="submit">添加交易对</button>
+        <button type="submit" :disabled="isAddingSymbol">
+          {{ isAddingSymbol ? '添加中...' : '添加交易对' }}
+        </button>
       </form>
     </section>
+
+    <!-- 删除确认弹窗 -->
+    <div v-if="showDeleteConfirm" class="modal-overlay" @click="cancelDeleteSymbol">
+      <div class="modal-content" @click.stop>
+        <h3>确认删除交易对</h3>
+        <p>确定要删除交易对 <strong>{{ symbolToDelete }}</strong> 吗？</p>
+        <p class="warning-text">删除后将停止价格监控，相关的策略和订单数据不会被删除。</p>
+        <div class="modal-actions">
+          <button @click="cancelDeleteSymbol" class="cancel-btn">取消</button>
+          <button @click="deleteSymbol" class="confirm-delete-btn" :disabled="isDeletingSymbol">
+            {{ isDeletingSymbol ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- 余额 -->
     <section>
@@ -139,6 +165,11 @@
     <div v-if="errorMessage" class="error-message">
       {{ errorMessage }}
     </div>
+
+    <!-- 成功提示 -->
+    <div v-if="successMessage" class="success-message">
+      {{ successMessage }}
+    </div>
   </div>
 </template>
 
@@ -158,7 +189,13 @@ export default {
       currentPage: 1,
       pageSize: 10,
       errorMessage: '',
+      successMessage: '',
       priceInterval: null,
+      isAddingSymbol: false,
+      // 删除相关状态
+      showDeleteConfirm: false,
+      symbolToDelete: '',
+      isDeletingSymbol: false,
     };
   },
   computed: {
@@ -193,11 +230,17 @@ export default {
       };
     },
 
-    handleApiError(error, defaultMessage = '操作失败') {
-      console.error(defaultMessage + ':', error);
-      this.errorMessage = error.response?.data?.error || error.response?.data?.message || defaultMessage;
+    showMessage(message, isError = false) {
+      if (isError) {
+        this.errorMessage = message;
+        this.successMessage = '';
+      } else {
+        this.successMessage = message;
+        this.errorMessage = '';
+      }
       setTimeout(() => {
         this.errorMessage = '';
+        this.successMessage = '';
       }, 5000);
     },
 
@@ -208,7 +251,8 @@ export default {
         });
         this.prices = response.data.prices || {};
       } catch (error) {
-        this.handleApiError(error, '获取价格失败');
+        console.error('获取价格失败:', error);
+        this.showMessage(error.response?.data?.error || '获取价格失败', true);
       }
     },
 
@@ -219,7 +263,8 @@ export default {
         });
         this.balances = response.data.balances || [];
       } catch (error) {
-        this.handleApiError(error, '获取余额失败');
+        console.error('获取余额失败:', error);
+        this.showMessage(error.response?.data?.error || '获取余额失败', true);
       }
     },
 
@@ -231,7 +276,8 @@ export default {
         this.trades = response.data.trades || [];
         this.currentPage = 1;
       } catch (error) {
-        this.handleApiError(error, '获取交易记录失败');
+        console.error('获取交易记录失败:', error);
+        this.showMessage(error.response?.data?.error || '获取交易记录失败', true);
       }
     },
 
@@ -242,7 +288,8 @@ export default {
         });
         this.withdrawalHistory = response.data.history || [];
       } catch (error) {
-        this.handleApiError(error, '获取取款历史失败');
+        console.error('获取取款历史失败:', error);
+        this.showMessage(error.response?.data?.error || '获取取款历史失败', true);
       }
     },
 
@@ -253,26 +300,74 @@ export default {
         });
         this.strategies = response.data.strategies || [];
       } catch (error) {
-        this.handleApiError(error, '获取策略失败');
+        console.error('获取策略失败:', error);
+        this.showMessage(error.response?.data?.error || '获取策略失败', true);
       }
     },
 
     async addSymbol() {
       if (!this.newSymbol.trim()) {
-        this.errorMessage = '请输入有效的交易对';
+        this.showMessage('请输入有效的交易对', true);
         return;
       }
 
+      this.isAddingSymbol = true;
       try {
-        await axios.post('/symbols',
+        const response = await axios.post('/symbols',
             { symbol: this.newSymbol.toUpperCase() },
             { headers: this.getAuthHeaders() }
         );
         this.newSymbol = '';
-        this.fetchPrices();
-        this.errorMessage = '';
+        this.showMessage(response.data.message || '交易对添加成功');
+        // 刷新价格列表
+        await this.fetchPrices();
       } catch (error) {
-        this.handleApiError(error, '添加交易对失败');
+        console.error('添加交易对失败:', error);
+        this.showMessage(error.response?.data?.error || '添加交易对失败', true);
+      } finally {
+        this.isAddingSymbol = false;
+      }
+    },
+
+    // 删除交易对相关方法
+    confirmDeleteSymbol(symbol) {
+      this.symbolToDelete = symbol;
+      this.showDeleteConfirm = true;
+    },
+
+    cancelDeleteSymbol() {
+      this.showDeleteConfirm = false;
+      this.symbolToDelete = '';
+      this.isDeletingSymbol = false;
+    },
+
+    async deleteSymbol() {
+      if (!this.symbolToDelete) return;
+
+      this.isDeletingSymbol = true;
+      try {
+        const response = await axios.delete('/symbols',
+            {
+              data: { symbol: this.symbolToDelete },
+              headers: this.getAuthHeaders()
+            }
+        );
+
+        this.showMessage(response.data.message || '交易对删除成功');
+
+        // 从本地价格列表中移除
+        delete this.prices[this.symbolToDelete];
+
+        // 关闭弹窗
+        this.cancelDeleteSymbol();
+
+        // 刷新价格列表
+        await this.fetchPrices();
+      } catch (error) {
+        console.error('删除交易对失败:', error);
+        this.showMessage(error.response?.data?.error || '删除交易对失败', true);
+      } finally {
+        this.isDeletingSymbol = false;
       }
     },
   },
@@ -310,10 +405,10 @@ th {
   background-color: #f2f2f2;
 }
 
-form {
+.add-symbol-form {
   display: flex;
   gap: 10px;
-  margin-top: 10px;
+  margin-top: 15px;
 }
 
 input, button {
@@ -336,6 +431,16 @@ button:hover {
 button:disabled {
   background-color: #6c757d;
   cursor: not-allowed;
+}
+
+.delete-symbol-btn {
+  background-color: #dc3545;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.delete-symbol-btn:hover {
+  background-color: #c82333;
 }
 
 .no-data {
@@ -365,6 +470,15 @@ button:disabled {
   margin-top: 20px;
 }
 
+.success-message {
+  background-color: #d4edda;
+  color: #155724;
+  padding: 12px;
+  border: 1px solid #c3e6cb;
+  border-radius: 4px;
+  margin-top: 20px;
+}
+
 input {
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -373,5 +487,72 @@ input {
 input:focus {
   outline: none;
   border-color: #007bff;
+}
+
+/* 弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: white;
+  padding: 30px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.modal-content h3 {
+  margin-top: 0;
+  color: #333;
+  border-bottom: 2px solid #dc3545;
+  padding-bottom: 10px;
+}
+
+.modal-content p {
+  margin: 15px 0;
+  color: #666;
+}
+
+.warning-text {
+  color: #856404;
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.cancel-btn {
+  background-color: #6c757d;
+}
+
+.cancel-btn:hover {
+  background-color: #5a6268;
+}
+
+.confirm-delete-btn {
+  background-color: #dc3545;
+}
+
+.confirm-delete-btn:hover {
+  background-color: #c82333;
 }
 </style>

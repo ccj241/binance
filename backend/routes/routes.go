@@ -11,6 +11,8 @@ import (
 )
 
 // SetupRoutes 配置路由
+// backend/routes/routes.go - 添加删除路由
+
 func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 配置CORS中间件
 	corsConfig := cors.Config{
@@ -75,6 +77,7 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		// 交易对和价格
 		protected.GET("/symbols", handlers.GinListSymbolsHandler(cfg))
 		protected.POST("/symbols", handlers.GinAddSymbolHandler(cfg))
+		protected.DELETE("/symbols", handlers.GinDeleteSymbolHandler(cfg)) // 删除交易对
 		protected.GET("/prices", handlers.GinPricesHandler(cfg))
 
 		// 账户信息

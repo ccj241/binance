@@ -1,3 +1,5 @@
+// backend/tasks/price.go - 完整修改版本
+
 package tasks
 
 import (
@@ -187,16 +189,16 @@ func (m *WebSocketManager) checkStrategies(userID uint, currentPrice float64) {
 	}
 }
 
-// executeStrategy 执行策略
+// executeStrategy 执行策略 - 修改后的版本
 func (m *WebSocketManager) executeStrategy(client *binance.Client, strategy models.Strategy, userID uint, currentPrice float64) {
-	// 检查策略触发条件
+	// 检查策略触发条件 - 使用目标价格判断
 	shouldExecute := false
 	if strategy.Side == "SELL" && currentPrice >= strategy.Price {
 		shouldExecute = true
-		log.Printf("策略 %d 触发: 当前价格 %.2f >= 目标价格 %.2f (卖出)", strategy.ID, currentPrice, strategy.Price)
+		log.Printf("卖出策略 %d 触发: 当前价格 %.8f >= 目标价格 %.8f", strategy.ID, currentPrice, strategy.Price)
 	} else if strategy.Side == "BUY" && currentPrice <= strategy.Price {
 		shouldExecute = true
-		log.Printf("策略 %d 触发: 当前价格 %.2f <= 目标价格 %.2f (买入)", strategy.ID, currentPrice, strategy.Price)
+		log.Printf("买入策略 %d 触发: 当前价格 %.8f <= 目标价格 %.8f", strategy.ID, currentPrice, strategy.Price)
 	}
 
 	if !shouldExecute {
@@ -209,7 +211,7 @@ func (m *WebSocketManager) executeStrategy(client *binance.Client, strategy mode
 		return
 	}
 
-	// 获取市场深度用于计算下单价格
+	// 获取市场深度用于获取基准价格
 	depth, err := client.NewDepthService().Symbol(strategy.Symbol).Limit(20).Do(context.Background())
 	if err != nil {
 		log.Printf("获取 %s 深度失败: %v", strategy.Symbol, err)
@@ -217,13 +219,38 @@ func (m *WebSocketManager) executeStrategy(client *binance.Client, strategy mode
 		return
 	}
 
-	// 执行下单
+	// 获取基准价格：买单使用买1价格，卖单使用卖1价格
+	var basePrice float64
 	if strategy.Side == "SELL" {
-		err = placeOrders(client, strategy, userID, depth.Asks, "SELL", m.cfg)
+		if len(depth.Asks) == 0 {
+			log.Printf("策略 %d: 没有卖1价格", strategy.ID)
+			m.cfg.DB.Model(&strategy).Update("pending_batch", false)
+			return
+		}
+		basePrice, err = strconv.ParseFloat(depth.Asks[0].Price, 64)
+		if err != nil {
+			log.Printf("策略 %d: 解析卖1价格失败: %v", strategy.ID, err)
+			m.cfg.DB.Model(&strategy).Update("pending_batch", false)
+			return
+		}
+		log.Printf("卖出策略 %d: 使用卖1价格作为基准价格: %.8f", strategy.ID, basePrice)
 	} else {
-		err = placeOrders(client, strategy, userID, depth.Bids, "BUY", m.cfg)
+		if len(depth.Bids) == 0 {
+			log.Printf("策略 %d: 没有买1价格", strategy.ID)
+			m.cfg.DB.Model(&strategy).Update("pending_batch", false)
+			return
+		}
+		basePrice, err = strconv.ParseFloat(depth.Bids[0].Price, 64)
+		if err != nil {
+			log.Printf("策略 %d: 解析买1价格失败: %v", strategy.ID, err)
+			m.cfg.DB.Model(&strategy).Update("pending_batch", false)
+			return
+		}
+		log.Printf("买入策略 %d: 使用买1价格作为基准价格: %.8f", strategy.ID, basePrice)
 	}
 
+	// 执行下单，使用基准价格而不是深度数据
+	err = placeOrders(client, strategy, userID, basePrice, depth, strategy.Side, m.cfg)
 	if err != nil {
 		log.Printf("策略 %d 下单失败: %v", strategy.ID, err)
 		m.cfg.DB.Model(&strategy).Update("pending_batch", false)
@@ -315,13 +342,13 @@ func cleanupInactiveConnections(cfg *config.Config) {
 	}
 }
 
-// placeOrders 下单函数（保持原有逻辑，但优化价格计算）
-func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, levels interface{}, side string, cfg *config.Config) error {
+// placeOrders 下单函数 - 修改后使用基准价格计算
+func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, basePrice float64, depth *binance.DepthResponse, side string, cfg *config.Config) error {
 	var quantities []float64
 	var depthLevels []float64
 	var placedOrders []models.Order
 
-	log.Printf("执行 %s 策略: ID=%d, 类型=%s", side, strategy.ID, strategy.StrategyType)
+	log.Printf("执行 %s 策略: ID=%d, 类型=%s, 基准价格=%.8f", side, strategy.ID, strategy.StrategyType, basePrice)
 
 	// 获取交易所信息
 	exchangeInfo, err := client.NewExchangeInfoService().Symbol(strategy.Symbol).Do(context.Background())
@@ -361,8 +388,8 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 		depthLevels = []float64{0.0}
 	}
 
-	// 根据策略类型计算价格
-	priceLevels, err := calculatePriceLevels(strategy, side, levels, quantities, depthLevels, pricePrecision)
+	// 根据策略类型和基准价格计算各层订单价格
+	priceLevels, err := calculatePriceLevelsFromBase(strategy, side, basePrice, quantities, depthLevels, pricePrecision)
 	if err != nil {
 		return err
 	}
@@ -386,8 +413,8 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 		priceStr := fmt.Sprintf("%.*f", pricePrecision, price)
 		quantityStr := fmt.Sprintf("%.*f", quantityPrecision, quantity)
 
-		log.Printf("下单: 策略ID=%d, %s %s, 价格=%s, 数量=%s",
-			strategy.ID, side, strategy.Symbol, priceStr, quantityStr)
+		log.Printf("下单: 策略ID=%d, %s %s, 价格=%s, 数量=%s, 层级=%d",
+			strategy.ID, side, strategy.Symbol, priceStr, quantityStr, int(depthLevels[i]))
 
 		order, err := client.NewCreateOrderService().
 			Symbol(strategy.Symbol).
@@ -440,126 +467,73 @@ type PriceLevel struct {
 	Price float64
 }
 
-// calculatePriceLevels 计算价格级别
-// backend/tasks/price.go - 价格计算部分的修改
-
-// calculatePriceLevels 计算价格级别
-func calculatePriceLevels(strategy models.Strategy, side string, levels interface{},
+// calculatePriceLevelsFromBase 根据基准价格计算各层价格
+func calculatePriceLevelsFromBase(strategy models.Strategy, side string, basePrice float64,
 	quantities []float64, depthLevels []float64, pricePrecision int) ([]PriceLevel, error) {
 
 	var priceLevels []PriceLevel
 
 	switch strategy.StrategyType {
 	case "simple":
-		// 简单策略：使用策略设定的价格
-		priceLevels = append(priceLevels, PriceLevel{Price: strategy.Price})
+		// 简单策略：直接使用基准价格
+		priceLevels = append(priceLevels, PriceLevel{Price: basePrice})
 
 	case "iceberg":
-		// 冰山策略：在市场价附近分层下单
-		basePrice := strategy.Price
+		// 冰山策略：在基准价格附近分层下单
 		if side == "SELL" {
-			// 卖单：在目标价格及以上分层
-			factors := []float64{1.0, 1.0001, 1.0003, 1.0005, 1.0007}
-			for i := 0; i < len(quantities) && i < len(factors); i++ {
+			// 卖单：从基准价格开始，价格递增
+			priceFactors := []float64{1.0, 1.0002, 1.0005, 1.0008, 1.0012}
+			for i := 0; i < len(quantities) && i < len(priceFactors); i++ {
 				priceLevels = append(priceLevels, PriceLevel{
-					Price: basePrice * factors[i],
+					Price: basePrice * priceFactors[i],
 				})
 			}
 		} else {
-			// 买单：在目标价格及以下分层
-			factors := []float64{1.0, 0.9999, 0.9997, 0.9995, 0.9993}
-			for i := 0; i < len(quantities) && i < len(factors); i++ {
+			// 买单：从基准价格开始，价格递减
+			priceFactors := []float64{1.0, 0.9998, 0.9995, 0.9992, 0.9988}
+			for i := 0; i < len(quantities) && i < len(priceFactors); i++ {
 				priceLevels = append(priceLevels, PriceLevel{
-					Price: basePrice * factors[i],
+					Price: basePrice * priceFactors[i],
 				})
 			}
 		}
 
 	case "custom":
-		// 自定义策略：基于基准价格和万分比计算
-		basePrice := strategy.Price
-		var basisPoints []float64
-
-		// 解析万分比配置
-		if side == "SELL" && strategy.SellBasisPoints != "" {
-			for _, bp := range strings.Split(strategy.SellBasisPoints, ",") {
-				if bpValue, err := strconv.ParseFloat(strings.TrimSpace(bp), 64); err == nil {
-					basisPoints = append(basisPoints, bpValue)
-				}
-			}
-		} else if side == "BUY" && strategy.BuyBasisPoints != "" {
-			for _, bp := range strings.Split(strategy.BuyBasisPoints, ",") {
-				if bpValue, err := strconv.ParseFloat(strings.TrimSpace(bp), 64); err == nil {
-					basisPoints = append(basisPoints, bpValue)
-				}
-			}
+		// 自定义策略：根据深度级别计算价格偏移
+		if len(depthLevels) == 0 {
+			return nil, fmt.Errorf("自定义策略需要深度级别配置")
 		}
 
-		// 如果没有配置万分比，使用默认值
-		if len(basisPoints) == 0 {
+		for i := 0; i < len(quantities) && i < len(depthLevels); i++ {
+			level := depthLevels[i]
+			var price float64
+
 			if side == "SELL" {
-				basisPoints = []float64{0, 5, 10, 15, 20} // 默认卖单万分比：0, +5, +10, +15, +20
+				// 卖单：基准价格 + (深度级别 - 1) * 价格步长
+				// 深度级别1表示基准价格，2表示基准价格+1个步长，以此类推
+				priceStep := basePrice * 0.0001 // 0.01% 作为价格步长
+				price = basePrice + (level-1)*priceStep
 			} else {
-				basisPoints = []float64{0, -5, -10, -15, -20} // 默认买单万分比：0, -5, -10, -15, -20
+				// 买单：基准价格 - (深度级别 - 1) * 价格步长
+				priceStep := basePrice * 0.0001 // 0.01% 作为价格步长
+				price = basePrice - (level-1)*priceStep
 			}
-		}
 
-		// 根据万分比计算价格
-		for i := 0; i < len(quantities) && i < len(basisPoints); i++ {
-			// 万分比转换为乘数：万分比 / 10000
-			multiplier := 1.0 + (basisPoints[i] / 10000.0)
-			calculatedPrice := basePrice * multiplier
+			// 确保价格为正数
+			if price <= 0 {
+				price = basePrice * 0.9999 // 使用一个接近基准价格的小值
+			}
 
-			// 确保价格精度符合交易所要求
-			priceLevels = append(priceLevels, PriceLevel{
-				Price: calculatedPrice,
-			})
+			priceLevels = append(priceLevels, PriceLevel{Price: price})
 		}
+	}
+
+	// 对价格进行精度处理
+	for i := range priceLevels {
+		priceLevels[i].Price = math.Round(priceLevels[i].Price*math.Pow(10, float64(pricePrecision))) / math.Pow(10, float64(pricePrecision))
 	}
 
 	return priceLevels, nil
-}
-
-// parseQuantitiesAndBasisPoints 解析数量和万分比配置
-func parseQuantitiesAndBasisPoints(quantitiesStr, basisPointsStr string, strategyID uint) ([]float64, []float64, error) {
-	var quantities, basisPoints []float64
-
-	// 去除可能的方括号
-	quantitiesStr = strings.Trim(quantitiesStr, "[]")
-	basisPointsStr = strings.Trim(basisPointsStr, "[]")
-
-	// 解析数量
-	if quantitiesStr != "" {
-		for _, q := range strings.Split(quantitiesStr, ",") {
-			q = strings.TrimSpace(q)
-			if q == "" {
-				continue
-			}
-			if qty, err := strconv.ParseFloat(q, 64); err == nil && qty > 0 {
-				quantities = append(quantities, qty)
-			}
-		}
-	}
-
-	// 解析万分比
-	if basisPointsStr != "" {
-		for _, bp := range strings.Split(basisPointsStr, ",") {
-			bp = strings.TrimSpace(bp)
-			if bp == "" {
-				continue
-			}
-			if bpValue, err := strconv.ParseFloat(bp, 64); err == nil {
-				basisPoints = append(basisPoints, bpValue)
-			}
-		}
-	}
-
-	// 验证长度匹配
-	if len(quantities) > 0 && len(basisPoints) > 0 && len(quantities) != len(basisPoints) {
-		return nil, nil, fmt.Errorf("数量和万分比数量不匹配: %d vs %d", len(quantities), len(basisPoints))
-	}
-
-	return quantities, basisPoints, nil
 }
 
 // parseSymbolInfo 解析交易对信息
@@ -639,4 +613,38 @@ func parseQuantitiesAndDepthLevels(quantitiesStr, depthLevelsStr string, strateg
 	}
 
 	return quantities, depthLevels, nil
+}
+
+// StopSymbolMonitoring 停止对特定用户的交易对监控
+// StopSymbolMonitoring 停止对特定用户的交易对监控
+func StopSymbolMonitoring(symbol string, userID uint) {
+	key := fmt.Sprintf("%s|%d", symbol, userID)
+
+	// 从监控列表中移除
+	MonitoredSymbols.Delete(key)
+	PriceMonitor.Delete(key)
+
+	// 检查是否还有其他用户在监控这个交易对
+	if manager, ok := wsConnections.Load(symbol); ok {
+		wsManager := manager.(*WebSocketManager)
+		wsManager.users.Delete(userID)
+
+		// 检查是否还有其他用户
+		activeUsers := 0
+		wsManager.users.Range(func(_, _ interface{}) bool {
+			activeUsers++
+			return true
+		})
+
+		// 如果没有其他用户，关闭WebSocket连接
+		if activeUsers == 0 {
+			close(wsManager.stopChan)
+			wsConnections.Delete(symbol)
+			log.Printf("停止 %s WebSocket 连接（用户 %d 移除后无其他用户）", symbol, userID)
+		} else {
+			log.Printf("用户 %d 停止监控 %s，还有 %d 个其他用户在监控", userID, symbol, activeUsers)
+		}
+	}
+
+	log.Printf("用户 %d 停止监控交易对 %s", userID, symbol)
 }
