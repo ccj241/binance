@@ -1,359 +1,520 @@
 <template>
-  <div class="strategy">
-    <h1>策略管理</h1>
-
-    <!-- 错误提示 -->
-    <div v-if="errorMessage" class="error-message">
-      {{ errorMessage }}
+  <div class="strategy-container">
+    <!-- 页面标题 -->
+    <div class="page-header">
+      <h1 class="page-title">
+        <span class="gradient-text">策略管理中心</span>
+      </h1>
+      <p class="page-subtitle">创建和管理您的交易策略</p>
     </div>
 
-    <!-- 成功提示 -->
-    <div v-if="successMessage" class="success-message">
-      {{ successMessage }}
+    <!-- 统计卡片 -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
+          <i>📊</i>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ strategies.length }}</div>
+          <div class="stat-label">总策略数</div>
+        </div>
+        <div class="stat-bg"></div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">
+          <i>✅</i>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ activeStrategiesCount }}</div>
+          <div class="stat-label">活跃策略</div>
+        </div>
+        <div class="stat-bg"></div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%)">
+          <i>⚡</i>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ executingStrategiesCount }}</div>
+          <div class="stat-label">执行中策略</div>
+        </div>
+        <div class="stat-bg"></div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">
+          <i>🎯</i>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ completedStrategiesCount }}</div>
+          <div class="stat-label">已完成策略</div>
+        </div>
+        <div class="stat-bg"></div>
+      </div>
+    </div>
+
+    <!-- 消息提示 -->
+    <transition name="toast">
+      <div v-if="toastMessage" :class="['toast', toastType]">
+        <i class="toast-icon">{{ toastType === 'success' ? '✅' : '❌' }}</i>
+        <span>{{ toastMessage }}</span>
+      </div>
+    </transition>
+
+    <!-- 创建策略区域 -->
+    <div class="create-section">
+      <div class="section-header">
+        <h2 class="section-title">创建新策略</h2>
+        <button @click="toggleCreateForm" class="toggle-btn">
+          <i>{{ showCreateForm ? '🔽' : '➕' }}</i>
+          {{ showCreateForm ? '收起' : '创建策略' }}
+        </button>
+      </div>
+
+      <transition name="form-slide">
+        <div v-if="showCreateForm" class="create-form">
+          <form @submit.prevent="createStrategy">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>交易对</label>
+                <select v-model="newStrategy.symbol" required>
+                  <option value="">选择交易对</option>
+                  <option v-for="symbol in availableSymbols" :key="symbol" :value="symbol">
+                    {{ symbol }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>策略类型</label>
+                <select v-model="newStrategy.strategyType" @change="onStrategyTypeChange" required>
+                  <option value="">选择策略类型</option>
+                  <option value="simple">简单策略</option>
+                  <option value="iceberg">冰山策略</option>
+                  <option value="custom">自定义策略</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>交易方向</label>
+                <select v-model="newStrategy.side" @change="onSideChange" required>
+                  <option value="">选择方向</option>
+                  <option value="BUY">买入</option>
+                  <option value="SELL">卖出</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>基准价格</label>
+                <input v-model.number="newStrategy.price"
+                       type="number"
+                       step="0.00000001"
+                       placeholder="基准价格"
+                       required />
+              </div>
+
+              <div class="form-group">
+                <label>总数量</label>
+                <input v-model.number="newStrategy.totalQuantity"
+                       type="number"
+                       step="0.00000001"
+                       placeholder="交易总数量"
+                       required />
+              </div>
+            </div>
+
+            <!-- 策略说明 -->
+            <div v-if="newStrategy.strategyType" class="strategy-description">
+              <div v-if="newStrategy.strategyType === 'simple'" class="description-card">
+                <div class="description-icon">🎯</div>
+                <div class="description-content">
+                  <h4>简单策略</h4>
+                  <p>当价格达到触发条件时，以基准价格一次性下单全部数量。</p>
+                </div>
+              </div>
+
+              <div v-if="newStrategy.strategyType === 'iceberg'" class="description-card">
+                <div class="description-icon">🧊</div>
+                <div class="description-content">
+                  <h4>冰山策略</h4>
+                  <p>将订单分成多个小订单，基于基准价格按固定万分比在不同价格层级分批下单。</p>
+                  <small>默认万分比：买单[0, -1, -3, -5, -7]，卖单[0, 1, 3, 5, 7]</small>
+                </div>
+              </div>
+
+              <div v-if="newStrategy.strategyType === 'custom'" class="description-card">
+                <div class="description-icon">⚙️</div>
+                <div class="description-content">
+                  <h4>自定义策略</h4>
+                  <p>基于基准价格，按自定义万分比计算各档位价格进行分批下单。</p>
+                  <small>万分比说明：正数表示高于基准价格，负数表示低于基准价格。例如：+50表示基准价格+0.5%，-30表示基准价格-0.3%</small>
+                </div>
+              </div>
+            </div>
+
+            <!-- 自定义策略配置 -->
+            <div v-if="newStrategy.strategyType === 'custom'" class="custom-config">
+              <h3>📝 自定义配置</h3>
+
+              <div v-if="newStrategy.side === 'BUY'" class="config-section">
+                <h4>🟢 买入配置</h4>
+                <div class="config-grid">
+                  <div class="form-group">
+                    <label>数量比例</label>
+                    <input v-model="buyQuantitiesInput"
+                           placeholder="如: 0.3,0.3,0.2,0.2"
+                           @blur="validateQuantities('buy')" />
+                    <small>每个值表示占总数量的比例，总和应为1</small>
+                  </div>
+                  <div class="form-group">
+                    <label>万分比偏移</label>
+                    <input v-model="buyBasisPointsInput"
+                           placeholder="如: 0,-10,-20,-30" />
+                    <small>相对于基准价格的万分比偏移（负数表示更低价格）</small>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="newStrategy.side === 'SELL'" class="config-section">
+                <h4>🔴 卖出配置</h4>
+                <div class="config-grid">
+                  <div class="form-group">
+                    <label>数量比例</label>
+                    <input v-model="sellQuantitiesInput"
+                           placeholder="如: 0.3,0.3,0.2,0.2"
+                           @blur="validateQuantities('sell')" />
+                    <small>每个值表示占总数量的比例，总和应为1</small>
+                  </div>
+                  <div class="form-group">
+                    <label>万分比偏移</label>
+                    <input v-model="sellBasisPointsInput"
+                           placeholder="如: 0,10,20,30" />
+                    <small>相对于基准价格的万分比偏移（正数表示更高价格）</small>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="quantityWarning" class="warning-message">
+                <i>⚠️</i> {{ quantityWarning }}
+              </div>
+            </div>
+
+            <!-- 订单预览 -->
+            <div v-if="orderPreview.length > 0" class="order-preview">
+              <h3>📋 订单预览</h3>
+              <div class="preview-grid">
+                <div v-for="(order, index) in orderPreview" :key="index" class="preview-card">
+                  <div class="preview-header">
+                    <span class="order-number">订单 {{ index + 1 }}</span>
+                    <span class="order-ratio">{{ (order.ratio * 100).toFixed(1) }}%</span>
+                  </div>
+                  <div class="preview-details">
+                    <div class="detail-row">
+                      <span class="label">数量:</span>
+                      <span class="value">{{ order.quantity.toFixed(8) }}</span>
+                    </div>
+                    <div v-if="newStrategy.strategyType === 'custom'" class="detail-row">
+                      <span class="label">万分比:</span>
+                      <span class="value">{{ order.basisPoint > 0 ? '+' : '' }}{{ order.basisPoint }}bp</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="label">预估价格:</span>
+                      <span class="value">{{ order.price.toFixed(8) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" :disabled="isCreatingStrategy || !isFormValid" class="create-btn">
+                <i>{{ isCreatingStrategy ? '⏳' : '🚀' }}</i>
+                {{ isCreatingStrategy ? '创建中...' : '创建策略' }}
+              </button>
+              <button type="button" @click="resetForm" class="reset-btn">
+                <i>🔄</i> 重置表单
+              </button>
+            </div>
+          </form>
+        </div>
+      </transition>
     </div>
 
     <!-- 策略列表 -->
-    <div v-if="strategies.length === 0" class="no-data">无策略记录</div>
-    <table v-else>
-      <thead>
-      <tr>
-        <th>交易对</th>
-        <th>类型</th>
-        <th>方向</th>
-        <th>基准价格</th>
-        <th>总数量</th>
-        <th>状态</th>
-        <th>启用</th>
-        <th>执行状态</th>
-        <th>创建时间</th>
-        <th>操作</th>
-      </tr>
-      </thead>
-      <tbody>
-      <tr v-for="strategy in paginatedStrategies" :key="strategy.id">
-        <td>{{ strategy.symbol }}</td>
-        <td>{{ getStrategyTypeText(strategy.strategyType) }}</td>
-        <td>
-          <span :class="strategy.side === 'BUY' ? 'buy-side' : 'sell-side'">
-            {{ strategy.side === 'BUY' ? '买入' : '卖出' }}
-          </span>
-        </td>
-        <td>{{ formatPrice(strategy.price) }}</td>
-        <td>{{ strategy.totalQuantity }}</td>
-        <td>
-          <span :class="`status-${strategy.status}`">
-            {{ getStatusText(strategy.status) }}
-          </span>
-        </td>
-        <td>
-          <span :class="strategy.enabled ? 'enabled' : 'disabled'">
-            {{ strategy.enabled ? '启用' : '禁用' }}
-          </span>
-        </td>
-        <td>
-          <span :class="strategy.pendingBatch ? 'executing' : 'idle'">
-            {{ strategy.pendingBatch ? '执行中' : '空闲' }}
-          </span>
-        </td>
-        <td>{{ formatDate(strategy.createdAt) }}</td>
-        <td>
-          <button @click="toggleStrategy(strategy)"
-                  :class="strategy.enabled ? 'disable-btn' : 'enable-btn'">
-            {{ strategy.enabled ? '禁用' : '启用' }}
-          </button>
-          <button @click="viewStrategyDetails(strategy)" class="view-btn">
-            查看
-          </button>
-          <button @click="viewStrategyStats(strategy)" class="stats-btn">
-            统计
-          </button>
-          <button @click="deleteStrategy(strategy.id)" class="delete-btn">
-            删除
-          </button>
-        </td>
-      </tr>
-      </tbody>
-    </table>
+    <div class="strategies-section">
+      <div class="section-header">
+        <h2 class="section-title">策略列表</h2>
+        <div class="search-box">
+          <i class="search-icon">🔍</i>
+          <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="搜索策略..."
+              class="search-input"
+          />
+        </div>
+      </div>
 
-    <div class="pagination" v-if="strategies.length > pageSize">
-      <button :disabled="currentPage === 1" @click="currentPage--">上一页</button>
-      <span>第 {{ currentPage }} 页 / 共 {{ totalPages }} 页</span>
-      <button :disabled="currentPage === totalPages" @click="currentPage++">下一页</button>
+      <div v-if="filteredStrategies.length === 0" class="empty-state">
+        <div class="empty-icon">📊</div>
+        <p class="empty-text">暂无策略记录</p>
+        <button @click="showCreateForm = true" class="empty-action">
+          <i>➕</i> 创建第一个策略
+        </button>
+      </div>
+
+      <div v-else class="strategies-grid">
+        <div v-for="strategy in paginatedStrategies" :key="strategy.id" class="strategy-card">
+          <div class="strategy-header">
+            <div class="strategy-symbol">
+              {{ strategy.symbol }}
+            </div>
+            <div class="strategy-status">
+              <span :class="['status-chip', strategy.status]">
+                <span class="status-dot"></span>
+                {{ getStatusText(strategy.status) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="strategy-meta">
+            <div class="meta-item">
+              <span class="meta-label">类型</span>
+              <span class="meta-value">{{ getStrategyTypeText(strategy.strategyType) }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">方向</span>
+              <span :class="['side-chip', strategy.side.toLowerCase()]">
+                <i>{{ strategy.side === 'BUY' ? '📈' : '📉' }}</i>
+                {{ strategy.side === 'BUY' ? '买入' : '卖出' }}
+              </span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">基准价格</span>
+              <span class="meta-value">{{ formatPrice(strategy.price) }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">总数量</span>
+              <span class="meta-value">{{ strategy.totalQuantity }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">启用状态</span>
+              <span :class="['enable-chip', strategy.enabled ? 'enabled' : 'disabled']">
+                <i>{{ strategy.enabled ? '✅' : '❌' }}</i>
+                {{ strategy.enabled ? '启用' : '禁用' }}
+              </span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">执行状态</span>
+              <span :class="['exec-chip', strategy.pendingBatch ? 'executing' : 'idle']">
+                <i>{{ strategy.pendingBatch ? '⚡' : '💤' }}</i>
+                {{ strategy.pendingBatch ? '执行中' : '空闲' }}
+              </span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">创建时间</span>
+              <span class="meta-value">{{ formatDate(strategy.createdAt) }}</span>
+            </div>
+          </div>
+
+          <div class="strategy-actions">
+            <button
+                @click="toggleStrategy(strategy)"
+                :class="['action-btn', strategy.enabled ? 'disable' : 'enable']"
+            >
+              <i>{{ strategy.enabled ? '⏸️' : '▶️' }}</i>
+              {{ strategy.enabled ? '禁用' : '启用' }}
+            </button>
+
+            <button @click="viewStrategyDetails(strategy)" class="action-btn view">
+              <i>👁️</i> 查看详情
+            </button>
+
+            <button @click="viewStrategyStats(strategy)" class="action-btn stats">
+              <i>📊</i> 统计信息
+            </button>
+
+            <button @click="deleteStrategy(strategy.id)" class="action-btn delete">
+              <i>🗑️</i> 删除
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 分页 -->
+      <div class="pagination" v-if="strategies.length > pageSize">
+        <button :disabled="currentPage === 1" @click="currentPage--" class="page-btn">
+          <i>◀️</i> 上一页
+        </button>
+        <span class="page-info">第 {{ currentPage }} 页 / 共 {{ totalPages }} 页</span>
+        <button :disabled="currentPage === totalPages" @click="currentPage++" class="page-btn">
+          下一页 <i>▶️</i>
+        </button>
+      </div>
     </div>
 
     <!-- 策略详情弹窗 -->
     <div v-if="showDetails" class="modal-overlay" @click="closeDetails">
       <div class="modal-content" @click.stop>
-        <h3>策略详情</h3>
-        <div class="detail-item">
-          <label>策略ID:</label>
-          <span>{{ selectedStrategy.id }}</span>
+        <div class="modal-header">
+          <h3>策略详情</h3>
+          <button @click="closeDetails" class="close-btn">✕</button>
         </div>
-        <div class="detail-item">
-          <label>交易对:</label>
-          <span>{{ selectedStrategy.symbol }}</span>
-        </div>
-        <div class="detail-item">
-          <label>策略类型:</label>
-          <span>{{ getStrategyTypeText(selectedStrategy.strategyType) }}</span>
-        </div>
-        <div class="detail-item">
-          <label>方向:</label>
-          <span>{{ selectedStrategy.side === 'BUY' ? '买入' : '卖出' }}</span>
-        </div>
-        <div class="detail-item">
-          <label>基准价格:</label>
-          <span>{{ formatPrice(selectedStrategy.price) }}</span>
-        </div>
-        <div class="detail-item">
-          <label>总数量:</label>
-          <span>{{ selectedStrategy.totalQuantity }}</span>
-        </div>
-        <div v-if="selectedStrategy.buyQuantities && selectedStrategy.buyQuantities.length > 0" class="detail-item">
-          <label>买入配置:</label>
-          <div>
-            <p>数量分配: {{ selectedStrategy.buyQuantities.join(', ') }}</p>
-            <p v-if="selectedStrategy.strategyType !== 'custom'">深度级别: {{ selectedStrategy.buyDepthLevels ? selectedStrategy.buyDepthLevels.join(', ') : '' }}</p>
-            <p v-if="selectedStrategy.strategyType === 'custom' && selectedStrategy.buyBasisPoints">
-              万分比: {{ selectedStrategy.buyBasisPoints.map(bp => bp > 0 ? '+' + bp : bp).join(', ') }}bp
-            </p>
+
+        <div class="modal-body">
+          <div class="detail-grid">
+            <div class="detail-card">
+              <div class="detail-label">策略ID</div>
+              <div class="detail-value">{{ selectedStrategy.id }}</div>
+            </div>
+            <div class="detail-card">
+              <div class="detail-label">交易对</div>
+              <div class="detail-value">{{ selectedStrategy.symbol }}</div>
+            </div>
+            <div class="detail-card">
+              <div class="detail-label">策略类型</div>
+              <div class="detail-value">{{ getStrategyTypeText(selectedStrategy.strategyType) }}</div>
+            </div>
+            <div class="detail-card">
+              <div class="detail-label">方向</div>
+              <div class="detail-value">{{ selectedStrategy.side === 'BUY' ? '买入' : '卖出' }}</div>
+            </div>
+            <div class="detail-card">
+              <div class="detail-label">基准价格</div>
+              <div class="detail-value">{{ formatPrice(selectedStrategy.price) }}</div>
+            </div>
+            <div class="detail-card">
+              <div class="detail-label">总数量</div>
+              <div class="detail-value">{{ selectedStrategy.totalQuantity }}</div>
+            </div>
+          </div>
+
+          <div v-if="selectedStrategy.buyQuantities && selectedStrategy.buyQuantities.length > 0" class="config-display">
+            <h4>🟢 买入配置</h4>
+            <div class="config-info">
+              <p><strong>数量分配:</strong> {{ selectedStrategy.buyQuantities.join(', ') }}</p>
+              <p v-if="selectedStrategy.strategyType !== 'custom'">
+                <strong>深度级别:</strong> {{ selectedStrategy.buyDepthLevels ? selectedStrategy.buyDepthLevels.join(', ') : '' }}
+              </p>
+              <p v-if="selectedStrategy.strategyType === 'custom' && selectedStrategy.buyBasisPoints">
+                <strong>万分比:</strong> {{ selectedStrategy.buyBasisPoints.map(bp => bp > 0 ? '+' + bp : bp).join(', ') }}bp
+              </p>
+            </div>
+          </div>
+
+          <div v-if="selectedStrategy.sellQuantities && selectedStrategy.sellQuantities.length > 0" class="config-display">
+            <h4>🔴 卖出配置</h4>
+            <div class="config-info">
+              <p><strong>数量分配:</strong> {{ selectedStrategy.sellQuantities.join(', ') }}</p>
+              <p v-if="selectedStrategy.strategyType !== 'custom'">
+                <strong>深度级别:</strong> {{ selectedStrategy.sellDepthLevels ? selectedStrategy.sellDepthLevels.join(', ') : '' }}
+              </p>
+              <p v-if="selectedStrategy.strategyType === 'custom' && selectedStrategy.sellBasisPoints">
+                <strong>万分比:</strong> {{ selectedStrategy.sellBasisPoints.map(bp => bp > 0 ? '+' + bp : bp).join(', ') }}bp
+              </p>
+            </div>
           </div>
         </div>
-        <div v-if="selectedStrategy.sellQuantities && selectedStrategy.sellQuantities.length > 0" class="detail-item">
-          <label>卖出配置:</label>
-          <div>
-            <p>数量分配: {{ selectedStrategy.sellQuantities.join(', ') }}</p>
-            <p v-if="selectedStrategy.strategyType !== 'custom'">深度级别: {{ selectedStrategy.sellDepthLevels ? selectedStrategy.sellDepthLevels.join(', ') : '' }}</p>
-            <p v-if="selectedStrategy.strategyType === 'custom' && selectedStrategy.sellBasisPoints">
-              万分比: {{ selectedStrategy.sellBasisPoints.map(bp => bp > 0 ? '+' + bp : bp).join(', ') }}bp
-            </p>
-          </div>
-        </div>
-        <button @click="closeDetails" class="close-btn">关闭</button>
       </div>
     </div>
 
     <!-- 策略统计弹窗 -->
     <div v-if="showStats" class="modal-overlay" @click="closeStats">
       <div class="modal-content large" @click.stop>
-        <h3>策略统计 - {{ statsData.strategy?.symbol }}</h3>
-
-        <div class="stats-grid">
-          <div class="stat-card">
-            <h4>总订单数</h4>
-            <p class="stat-value">{{ statsData.stats?.totalOrders || 0 }}</p>
-          </div>
-          <div class="stat-card">
-            <h4>待处理订单</h4>
-            <p class="stat-value pending">{{ statsData.stats?.pendingOrders || 0 }}</p>
-          </div>
-          <div class="stat-card">
-            <h4>已成交订单</h4>
-            <p class="stat-value success">{{ statsData.stats?.filledOrders || 0 }}</p>
-          </div>
-          <div class="stat-card">
-            <h4>已取消订单</h4>
-            <p class="stat-value cancelled">{{ statsData.stats?.cancelledOrders || 0 }}</p>
-          </div>
-          <div class="stat-card">
-            <h4>总交易额</h4>
-            <p class="stat-value">{{ formatVolume(statsData.stats?.totalVolume || 0) }}</p>
-          </div>
-          <div class="stat-card">
-            <h4>已成交额</h4>
-            <p class="stat-value success">{{ formatVolume(statsData.stats?.filledVolume || 0) }}</p>
-          </div>
+        <div class="modal-header">
+          <h3>策略统计 - {{ statsData.strategy?.symbol }}</h3>
+          <button @click="closeStats" class="close-btn">✕</button>
         </div>
 
-        <div class="recent-orders">
-          <h4>最近订单</h4>
-          <table v-if="statsData.recentOrders && statsData.recentOrders.length > 0">
-            <thead>
-            <tr>
-              <th>订单ID</th>
-              <th>方向</th>
-              <th>价格</th>
-              <th>数量</th>
-              <th>状态</th>
-              <th>创建时间</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr v-for="order in statsData.recentOrders" :key="order.id">
-              <td>{{ order.orderId }}</td>
-              <td>
-                  <span :class="order.side === 'BUY' ? 'buy-side' : 'sell-side'">
-                    {{ order.side === 'BUY' ? '买入' : '卖出' }}
-                  </span>
-              </td>
-              <td>{{ formatPrice(order.price) }}</td>
-              <td>{{ formatQuantity(order.quantity) }}</td>
-              <td>
-                  <span :class="`status-${order.status}`">
-                    {{ getOrderStatusText(order.status) }}
-                  </span>
-              </td>
-              <td>{{ formatDate(order.createdAt) }}</td>
-            </tr>
-            </tbody>
-          </table>
-          <p v-else class="no-orders">暂无订单记录</p>
-        </div>
+        <div class="modal-body">
+          <div class="stats-overview">
+            <div class="overview-card">
+              <div class="overview-icon">📊</div>
+              <div class="overview-content">
+                <div class="overview-value">{{ statsData.stats?.totalOrders || 0 }}</div>
+                <div class="overview-label">总订单数</div>
+              </div>
+            </div>
+            <div class="overview-card">
+              <div class="overview-icon">⏳</div>
+              <div class="overview-content">
+                <div class="overview-value pending">{{ statsData.stats?.pendingOrders || 0 }}</div>
+                <div class="overview-label">待处理订单</div>
+              </div>
+            </div>
+            <div class="overview-card">
+              <div class="overview-icon">✅</div>
+              <div class="overview-content">
+                <div class="overview-value success">{{ statsData.stats?.filledOrders || 0 }}</div>
+                <div class="overview-label">已成交订单</div>
+              </div>
+            </div>
+            <div class="overview-card">
+              <div class="overview-icon">❌</div>
+              <div class="overview-content">
+                <div class="overview-value cancelled">{{ statsData.stats?.cancelledOrders || 0 }}</div>
+                <div class="overview-label">已取消订单</div>
+              </div>
+            </div>
+            <div class="overview-card">
+              <div class="overview-icon">💰</div>
+              <div class="overview-content">
+                <div class="overview-value">{{ formatVolume(statsData.stats?.totalVolume || 0) }}</div>
+                <div class="overview-label">总交易额</div>
+              </div>
+            </div>
+            <div class="overview-card">
+              <div class="overview-icon">🎯</div>
+              <div class="overview-content">
+                <div class="overview-value success">{{ formatVolume(statsData.stats?.filledVolume || 0) }}</div>
+                <div class="overview-label">已成交额</div>
+              </div>
+            </div>
+          </div>
 
-        <div class="modal-actions">
-          <button @click="viewAllStrategyOrders" class="view-all-btn">查看所有订单</button>
-          <button @click="closeStats" class="close-btn">关闭</button>
+          <div class="recent-orders">
+            <h4>最近订单</h4>
+            <div v-if="statsData.recentOrders && statsData.recentOrders.length > 0" class="orders-table">
+              <div class="table-header">
+                <span>订单ID</span>
+                <span>方向</span>
+                <span>价格</span>
+                <span>数量</span>
+                <span>状态</span>
+                <span>创建时间</span>
+              </div>
+              <div v-for="order in statsData.recentOrders" :key="order.id" class="table-row">
+                <span>{{ order.orderId }}</span>
+                <span :class="['side-badge', order.side.toLowerCase()]">
+                  {{ order.side === 'BUY' ? '买入' : '卖出' }}
+                </span>
+                <span>{{ formatPrice(order.price) }}</span>
+                <span>{{ formatQuantity(order.quantity) }}</span>
+                <span :class="['status-badge', order.status]">
+                  {{ getOrderStatusText(order.status) }}
+                </span>
+                <span>{{ formatDate(order.createdAt) }}</span>
+              </div>
+            </div>
+            <div v-else class="no-orders">
+              <div class="no-orders-icon">📄</div>
+              <p>暂无订单记录</p>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button @click="viewAllStrategyOrders" class="action-btn view-all">
+              <i>📋</i> 查看所有订单
+            </button>
+            <button @click="closeStats" class="action-btn secondary">
+              <i>✕</i> 关闭
+            </button>
+          </div>
         </div>
       </div>
     </div>
-
-    <!-- 创建策略表单 -->
-    <section class="create-strategy">
-      <h2>创建新策略</h2>
-      <form @submit.prevent="createStrategy">
-        <div class="form-row">
-          <div class="form-group">
-            <label>交易对</label>
-            <select v-model="newStrategy.symbol" required>
-              <option value="">选择交易对</option>
-              <option v-for="symbol in availableSymbols" :key="symbol" :value="symbol">
-                {{ symbol }}
-              </option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>策略类型</label>
-            <select v-model="newStrategy.strategyType" @change="onStrategyTypeChange" required>
-              <option value="">选择策略类型</option>
-              <option value="simple">简单策略</option>
-              <option value="iceberg">冰山策略</option>
-              <option value="custom">自定义策略</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label>交易方向</label>
-            <select v-model="newStrategy.side" @change="onSideChange" required>
-              <option value="">选择方向</option>
-              <option value="BUY">买入</option>
-              <option value="SELL">卖出</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>基准价格</label>
-            <input v-model.number="newStrategy.price"
-                   type="number"
-                   step="0.00000001"
-                   placeholder="基准价格"
-                   required />
-          </div>
-          <div class="form-group">
-            <label>总数量</label>
-            <input v-model.number="newStrategy.totalQuantity"
-                   type="number"
-                   step="0.00000001"
-                   placeholder="交易总数量"
-                   required />
-          </div>
-        </div>
-
-        <!-- 策略说明 -->
-        <div class="strategy-description">
-          <p v-if="newStrategy.strategyType === 'simple'">
-            <strong>简单策略：</strong>当价格达到触发条件时，以基准价格一次性下单全部数量。
-          </p>
-          <p v-if="newStrategy.strategyType === 'iceberg'">
-            <strong>冰山策略：</strong>将订单分成多个小订单，基于基准价格按固定万分比在不同价格层级分批下单。
-            <br>默认万分比：买单[0, -1, -3, -5, -7]，卖单[0, 1, 3, 5, 7]
-          </p>
-          <p v-if="newStrategy.strategyType === 'custom'">
-            <strong>自定义策略：</strong>基于基准价格，按自定义万分比计算各档位价格进行分批下单。
-            <br><strong>万分比说明：</strong>正数表示高于基准价格，负数表示低于基准价格。例如：+50表示基准价格+0.5%，-30表示基准价格-0.3%
-          </p>
-        </div>
-
-        <!-- 自定义策略的额外配置 -->
-        <div v-if="newStrategy.strategyType === 'custom'" class="custom-config">
-          <h3>自定义配置</h3>
-          <p class="config-hint">配置每个订单的数量比例和相对于基准价格的万分比偏移</p>
-
-          <div v-if="newStrategy.side === 'BUY'" class="config-section">
-            <h4>买入配置</h4>
-            <div class="form-row">
-              <div class="form-group">
-                <label>数量比例</label>
-                <input v-model="buyQuantitiesInput"
-                       placeholder="如: 0.3,0.3,0.2,0.2"
-                       @blur="validateQuantities('buy')" />
-                <small>每个值表示占总数量的比例，总和应为1</small>
-              </div>
-              <div class="form-group">
-                <label>万分比偏移</label>
-                <input v-model="buyBasisPointsInput"
-                       placeholder="如: 0,-10,-20,-30" />
-                <small>相对于基准价格的万分比偏移（负数表示更低价格）</small>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="newStrategy.side === 'SELL'" class="config-section">
-            <h4>卖出配置</h4>
-            <div class="form-row">
-              <div class="form-group">
-                <label>数量比例</label>
-                <input v-model="sellQuantitiesInput"
-                       placeholder="如: 0.3,0.3,0.2,0.2"
-                       @blur="validateQuantities('sell')" />
-                <small>每个值表示占总数量的比例，总和应为1</small>
-              </div>
-              <div class="form-group">
-                <label>万分比偏移</label>
-                <input v-model="sellBasisPointsInput"
-                       placeholder="如: 0,10,20,30" />
-                <small>相对于基准价格的万分比偏移（正数表示更高价格）</small>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="quantityWarning" class="warning-message">
-            {{ quantityWarning }}
-          </div>
-        </div>
-
-        <!-- 预览订单分配 -->
-        <div v-if="orderPreview.length > 0" class="order-preview">
-          <h3>订单预览</h3>
-          <table>
-            <thead>
-            <tr>
-              <th>订单</th>
-              <th>数量</th>
-              <th>占比</th>
-              <th v-if="newStrategy.strategyType === 'custom'">万分比</th>
-              <th>预估价格</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr v-for="(order, index) in orderPreview" :key="index">
-              <td>订单 {{ index + 1 }}</td>
-              <td>{{ order.quantity.toFixed(8) }}</td>
-              <td>{{ (order.ratio * 100).toFixed(1) }}%</td>
-              <td v-if="newStrategy.strategyType === 'custom'">
-                {{ order.basisPoint > 0 ? '+' : '' }}{{ order.basisPoint }}bp
-              </td>
-              <td>{{ order.price.toFixed(8) }}</td>
-            </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <button type="submit" :disabled="isCreatingStrategy || !isFormValid">
-          {{ isCreatingStrategy ? '创建中...' : '创建策略' }}
-        </button>
-      </form>
-    </section>
   </div>
 </template>
 
@@ -377,31 +538,50 @@ export default {
       sellQuantitiesInput: '',
       sellBasisPointsInput: '',
       currentPage: 1,
-      pageSize: 10,
-      errorMessage: '',
-      successMessage: '',
+      pageSize: 9,
+      searchQuery: '',
       isCreatingStrategy: false,
       showDetails: false,
+      showStats: false,
+      showCreateForm: false,
       selectedStrategy: {},
       quantityWarning: '',
       orderPreview: [],
       availableSymbols: [],
-      showStats: false,
       statsData: {
         stats: {},
         recentOrders: [],
         strategy: {}
-      }
+      },
+      toastMessage: '',
+      toastType: 'success'
     };
   },
   computed: {
+    filteredStrategies() {
+      if (!this.searchQuery) return this.strategies;
+
+      return this.strategies.filter(strategy =>
+          strategy.symbol.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+          this.getStrategyTypeText(strategy.strategyType).includes(this.searchQuery)
+      );
+    },
     paginatedStrategies() {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
-      return this.strategies.slice(start, end);
+      return this.filteredStrategies.slice(start, end);
     },
     totalPages() {
-      return Math.ceil(this.strategies.length / this.pageSize);
+      return Math.ceil(this.filteredStrategies.length / this.pageSize);
+    },
+    activeStrategiesCount() {
+      return this.strategies.filter(s => s.enabled && s.status === 'active').length;
+    },
+    executingStrategiesCount() {
+      return this.strategies.filter(s => s.pendingBatch).length;
+    },
+    completedStrategiesCount() {
+      return this.strategies.filter(s => s.status === 'completed').length;
     },
     isFormValid() {
       if (!this.newStrategy.symbol || !this.newStrategy.strategyType ||
@@ -460,19 +640,16 @@ export default {
       };
     },
 
-    showMessage(message, isError = false) {
-      if (isError) {
-        this.errorMessage = message;
-        this.successMessage = '';
-      } else {
-        this.successMessage = message;
-        this.errorMessage = '';
-      }
-
+    showToast(message, type = 'success') {
+      this.toastMessage = message;
+      this.toastType = type;
       setTimeout(() => {
-        this.errorMessage = '';
-        this.successMessage = '';
-      }, 5000);
+        this.toastMessage = '';
+      }, 3000);
+    },
+
+    toggleCreateForm() {
+      this.showCreateForm = !this.showCreateForm;
     },
 
     formatPrice(price) {
@@ -493,7 +670,18 @@ export default {
     },
 
     formatDate(dateString) {
-      return new Date(dateString).toLocaleString('zh-CN');
+      const date = new Date(dateString);
+      const now = new Date();
+      const diff = now - date;
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+      if (days === 0) return '今天';
+      if (days === 1) return '昨天';
+      if (days < 7) return `${days}天前`;
+      if (days < 30) return `${Math.floor(days / 7)}周前`;
+      if (days < 365) return `${Math.floor(days / 30)}个月前`;
+
+      return date.toLocaleDateString('zh-CN');
     },
 
     getStrategyTypeText(type) {
@@ -535,7 +723,7 @@ export default {
         this.currentPage = 1;
       } catch (error) {
         console.error('获取策略失败:', error);
-        this.showMessage(error.response?.data?.error || '获取策略失败', true);
+        this.showToast(error.response?.data?.error || '获取策略失败', 'error');
       }
     },
 
@@ -547,11 +735,11 @@ export default {
         this.availableSymbols = response.data.symbols || [];
 
         if (this.availableSymbols.length === 0) {
-          this.showMessage('请先在仪表盘中添加交易对', true);
+          this.showToast('请先在仪表盘中添加交易对', 'error');
         }
       } catch (error) {
         console.error('获取交易对失败:', error);
-        this.showMessage(error.response?.data?.error || '获取交易对失败', true);
+        this.showToast(error.response?.data?.error || '获取交易对失败', 'error');
       }
     },
 
@@ -652,12 +840,12 @@ export default {
 
     async createStrategy() {
       if (!this.isFormValid) {
-        this.showMessage('请填写所有必需字段', true);
+        this.showToast('请填写所有必需字段', 'error');
         return;
       }
 
       if (!this.availableSymbols.includes(this.newStrategy.symbol)) {
-        this.showMessage('请选择有效的交易对', true);
+        this.showToast('请选择有效的交易对', 'error');
         return;
       }
 
@@ -679,12 +867,13 @@ export default {
           headers: this.getAuthHeaders(),
         });
 
-        this.showMessage(response.data.message || '策略创建成功');
+        this.showToast(response.data.message || '策略创建成功 🎉');
         this.resetForm();
+        this.showCreateForm = false;
         this.fetchStrategies();
       } catch (error) {
         console.error('创建策略失败:', error);
-        this.showMessage(error.response?.data?.error || '创建策略失败', true);
+        this.showToast(error.response?.data?.error || '创建策略失败', 'error');
       } finally {
         this.isCreatingStrategy = false;
       }
@@ -696,11 +885,11 @@ export default {
           headers: this.getAuthHeaders(),
         });
 
-        this.showMessage(response.data.message || '策略状态切换成功');
+        this.showToast(response.data.message || '策略状态切换成功 ✅');
         this.fetchStrategies();
       } catch (error) {
         console.error('切换策略失败:', error);
-        this.showMessage(error.response?.data?.error || '切换策略失败', true);
+        this.showToast(error.response?.data?.error || '切换策略失败', 'error');
       }
     },
 
@@ -724,7 +913,7 @@ export default {
         this.showStats = true;
       } catch (error) {
         console.error('获取策略统计失败:', error);
-        this.showMessage(error.response?.data?.error || '获取策略统计失败', true);
+        this.showToast(error.response?.data?.error || '获取策略统计失败', 'error');
       }
     },
 
@@ -754,11 +943,11 @@ export default {
           headers: this.getAuthHeaders(),
         });
 
-        this.showMessage(response.data.message || '策略删除成功');
+        this.showToast(response.data.message || '策略删除成功 🗑️');
         this.fetchStrategies();
       } catch (error) {
         console.error('删除策略失败:', error);
-        this.showMessage(error.response?.data?.error || '删除策略失败', true);
+        this.showToast(error.response?.data?.error || '删除策略失败', 'error');
       }
     },
 
@@ -782,306 +971,830 @@ export default {
 </script>
 
 <style scoped>
-.strategy {
-  padding: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
+/* 全局样式 */
+.strategy-container {
+  min-height: 100vh;
+  background: #0f0f0f;
+  color: #ffffff;
+  padding: 2rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+/* 页面标题 */
+.page-header {
+  text-align: center;
+  margin-bottom: 3rem;
 }
 
-th, td {
-  border: 1px solid #ddd;
-  padding: 12px;
-  text-align: left;
+.page-title {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
 }
 
-th {
-  background-color: #f2f2f2;
-  font-weight: bold;
+.gradient-text {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-tr:hover {
-  background-color: #f5f5f5;
-}
-
-.create-strategy {
-  margin-top: 40px;
-  padding: 30px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  background-color: #f9f9f9;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.custom-config {
-  margin-top: 20px;
-  padding: 20px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background-color: #fff;
-}
-
-.config-section {
-  margin-bottom: 20px;
-}
-
-.config-hint {
+.page-subtitle {
   color: #666;
-  font-size: 14px;
-  margin-bottom: 15px;
+  font-size: 1.1rem;
 }
 
-.form-row {
+/* 统计卡片 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+.stat-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 2rem;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-5px);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.stat-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
   display: flex;
-  gap: 15px;
-  margin-bottom: 15px;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.stat-content {
+  position: relative;
+  z-index: 1;
+}
+
+.stat-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.stat-label {
+  color: #999;
+  font-size: 0.9rem;
+}
+
+.stat-bg {
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%);
+  transform: rotate(45deg);
+}
+
+/* Toast 消息 */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 1rem 1.5rem;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-weight: 500;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+}
+
+.toast.success {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.toast.error {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.toast-icon {
+  font-size: 1.2rem;
+}
+
+.toast-enter-active, .toast-leave-active {
+  transition: all 0.3s ease;
+}
+
+.toast-enter-from {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.toast-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+/* 创建策略区域 */
+.create-section {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 24px;
+  padding: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 3rem;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.toggle-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+}
+
+.form-slide-enter-active, .form-slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.form-slide-enter-from {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+.form-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+.create-form {
+  margin-top: 2rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
 }
 
 .form-group {
-  flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 0.5rem;
 }
 
 .form-group label {
-  font-weight: bold;
-  margin-bottom: 5px;
-  color: #333;
+  font-weight: 600;
+  color: #ccc;
+  font-size: 0.9rem;
+}
+
+.form-group input, .form-group select {
+  padding: 0.8rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.form-group input:focus, .form-group select:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #667eea;
+}
+
+.form-group input::placeholder {
+  color: #666;
 }
 
 .form-group small {
-  color: #666;
-  font-size: 12px;
-  margin-top: 5px;
+  color: #999;
+  font-size: 0.8rem;
 }
 
-input, select, button {
-  padding: 10px;
-  font-size: 14px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+/* 策略说明 */
+.strategy-description {
+  margin: 2rem 0;
 }
 
-input:focus, select:focus {
-  outline: none;
-  border-color: #007bff;
-  box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+.description-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
 }
 
-button {
-  background-color: #007bff;
+.description-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.description-content h4 {
+  margin: 0 0 0.5rem 0;
+  color: #667eea;
+  font-size: 1.1rem;
+}
+
+.description-content p {
+  margin: 0 0 0.5rem 0;
+  color: #ccc;
+  line-height: 1.5;
+}
+
+.description-content small {
+  color: #999;
+  font-size: 0.85rem;
+}
+
+/* 自定义配置 */
+.custom-config {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 2rem;
+  margin: 2rem 0;
+}
+
+.custom-config h3 {
+  margin: 0 0 1.5rem 0;
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.config-section {
+  margin-bottom: 2rem;
+}
+
+.config-section h4 {
+  margin: 0 0 1rem 0;
+  color: #ccc;
+  font-size: 1rem;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.warning-message {
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  color: #fbbf24;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 订单预览 */
+.order-preview {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 2rem;
+  margin: 2rem 0;
+}
+
+.order-preview h3 {
+  margin: 0 0 1.5rem 0;
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.preview-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1rem;
+  transition: all 0.3s ease;
+}
+
+.preview-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.order-number {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.order-ratio {
+  background: rgba(102, 126, 234, 0.2);
+  color: #a78bfa;
+  padding: 0.2rem 0.5rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+}
+
+.preview-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.detail-row .label {
+  color: #999;
+  font-size: 0.8rem;
+}
+
+.detail-row .value {
+  color: #ccc;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* 表单操作 */
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.create-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   color: white;
   border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.3s ease;
 }
 
-button:hover {
-  background-color: #0056b3;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+.create-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(34, 197, 94, 0.4);
 }
 
-button:disabled {
-  background-color: #6c757d;
+.create-btn:disabled {
+  background: #6c757d;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
 }
 
-.enable-btn {
-  background-color: #28a745;
-  padding: 6px 12px;
-  font-size: 12px;
-  margin-right: 5px;
-}
-
-.enable-btn:hover {
-  background-color: #218838;
-}
-
-.disable-btn {
-  background-color: #ffc107;
-  padding: 6px 12px;
-  font-size: 12px;
-  margin-right: 5px;
-}
-
-.disable-btn:hover {
-  background-color: #e0a800;
-}
-
-.view-btn {
-  background-color: #17a2b8;
-  padding: 6px 12px;
-  font-size: 12px;
-  margin-right: 5px;
-}
-
-.view-btn:hover {
-  background-color: #138496;
-}
-
-.stats-btn {
-  background-color: #6c757d;
-  padding: 6px 12px;
-  font-size: 12px;
-  margin-right: 5px;
-}
-
-.stats-btn:hover {
-  background-color: #5a6268;
-}
-
-.delete-btn {
-  background-color: #dc3545;
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.delete-btn:hover {
-  background-color: #c82333;
-}
-
-.no-data {
-  color: #888;
-  font-style: italic;
-  padding: 40px;
-  text-align: center;
-  font-size: 18px;
-}
-
-.pagination {
-  margin-top: 20px;
+.reset-btn {
   display: flex;
-  gap: 10px;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem 2rem;
+  background: rgba(108, 117, 125, 0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(108, 117, 125, 0.3);
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
 }
 
-.pagination span {
-  font-size: 14px;
+.reset-btn:hover {
+  background: rgba(108, 117, 125, 0.2);
 }
 
-.error-message {
-  background-color: #f8d7da;
-  color: #721c24;
-  padding: 15px;
-  border: 1px solid #f5c6cb;
-  border-radius: 4px;
-  margin-bottom: 20px;
+/* 策略列表区域 */
+.strategies-section {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 24px;
+  padding: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.success-message {
-  background-color: #d4edda;
-  color: #155724;
-  padding: 15px;
-  border: 1px solid #c3e6cb;
-  border-radius: 4px;
-  margin-bottom: 20px;
+/* 搜索框 */
+.search-box {
+  position: relative;
+  width: 300px;
 }
 
-.warning-message {
-  background-color: #fff3cd;
-  color: #856404;
-  padding: 10px;
-  border: 1px solid #ffeaa7;
-  border-radius: 4px;
-  margin-top: 10px;
+.search-icon {
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.2rem;
 }
 
-.strategy-description {
-  background-color: #e9ecef;
-  padding: 15px;
-  border-radius: 4px;
-  margin: 15px 0;
+.search-input {
+  width: 100%;
+  padding: 0.8rem 1rem 0.8rem 3rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
 }
 
-.strategy-description p {
-  margin: 0;
-  color: #495057;
+.search-input:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #667eea;
 }
 
-.strategy-description strong {
-  color: #007bff;
+.search-input::placeholder {
+  color: #666;
 }
 
-.order-preview {
-  margin-top: 20px;
-  padding: 15px;
-  background-color: #fff;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 4rem 2rem;
 }
 
-.order-preview h3 {
-  margin-top: 0;
-  color: #333;
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  opacity: 0.3;
 }
 
-.order-preview table {
-  box-shadow: none;
+.empty-text {
+  color: #666;
+  font-size: 1.1rem;
+  margin-bottom: 2rem;
 }
 
-.buy-side {
-  color: #28a745;
-  font-weight: bold;
+.empty-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
 }
 
-.sell-side {
-  color: #dc3545;
-  font-weight: bold;
+.empty-action:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
 }
 
-.enabled {
-  color: #28a745;
-  font-weight: bold;
+/* 策略卡片网格 */
+.strategies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
 }
 
-.disabled {
-  color: #6c757d;
+.strategy-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
 }
 
-.executing {
-  color: #ffc107;
-  font-weight: bold;
+.strategy-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
-.idle {
-  color: #6c757d;
+.strategy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.status-active {
-  color: #28a745;
-  font-weight: bold;
+.strategy-symbol {
+  font-size: 1.3rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.status-inactive {
-  color: #6c757d;
+/* 状态和标签样式 */
+.status-chip, .side-chip, .enable-chip, .exec-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
 }
 
-.status-completed {
-  color: #007bff;
+.status-chip {
+  position: relative;
+  padding-left: 1.5rem;
 }
 
-.status-cancelled {
-  color: #dc3545;
+.status-dot {
+  position: absolute;
+  left: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
 }
 
-.status-pending {
-  color: #ffc107;
-  font-weight: bold;
+.status-chip.active {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
-.status-filled {
-  color: #28a745;
-  font-weight: bold;
+.status-chip.active .status-dot {
+  background: #22c55e;
+}
+
+.status-chip.inactive {
+  background: rgba(108, 117, 125, 0.2);
+  color: #94a3b8;
+  border: 1px solid rgba(108, 117, 125, 0.3);
+}
+
+.status-chip.inactive .status-dot {
+  background: #94a3b8;
+}
+
+.status-chip.completed {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.status-chip.completed .status-dot {
+  background: #3b82f6;
+}
+
+.status-chip.cancelled {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-chip.cancelled .status-dot {
+  background: #ef4444;
+}
+
+.side-chip.buy {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.side-chip.sell {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.enable-chip.enabled {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.enable-chip.disabled {
+  background: rgba(108, 117, 125, 0.2);
+  color: #94a3b8;
+  border: 1px solid rgba(108, 117, 125, 0.3);
+}
+
+.exec-chip.executing {
+  background: rgba(255, 193, 7, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.exec-chip.idle {
+  background: rgba(108, 117, 125, 0.2);
+  color: #94a3b8;
+  border: 1px solid rgba(108, 117, 125, 0.3);
+}
+
+/* 策略元信息 */
+.strategy-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.meta-label {
+  color: #666;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.meta-value {
+  color: #ccc;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* 策略操作按钮 */
+.strategy-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  flex: 1;
+  min-width: 100px;
+  padding: 0.6rem 0.8rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.action-btn i {
+  font-style: normal;
+  font-size: 0.9rem;
+}
+
+.action-btn.enable {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.action-btn.enable:hover {
+  background: rgba(34, 197, 94, 0.2);
+  transform: translateY(-1px);
+}
+
+.action-btn.disable {
+  background: rgba(255, 193, 7, 0.1);
+  color: #fbbf24;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.action-btn.disable:hover {
+  background: rgba(255, 193, 7, 0.2);
+  transform: translateY(-1px);
+}
+
+.action-btn.view {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.action-btn.view:hover {
+  background: rgba(59, 130, 246, 0.2);
+  transform: translateY(-1px);
+}
+
+.action-btn.stats {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.action-btn.stats:hover {
+  background: rgba(139, 92, 246, 0.2);
+  transform: translateY(-1px);
+}
+
+.action-btn.delete {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.action-btn.delete:hover {
+  background: rgba(239, 68, 68, 0.2);
+  transform: translateY(-1px);
+}
+
+/* 分页 */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.page-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8rem 1.2rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: #ccc;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  color: #999;
+  font-size: 0.9rem;
 }
 
 /* 弹窗样式 */
@@ -1091,133 +1804,411 @@ button:disabled {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(5px);
 }
 
 .modal-content {
-  background-color: white;
-  padding: 30px;
-  border-radius: 8px;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
   max-width: 600px;
   width: 90%;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
 }
 
 .modal-content.large {
   max-width: 900px;
 }
 
-.modal-content h3 {
-  margin-top: 0;
-  color: #333;
-  border-bottom: 2px solid #007bff;
-  padding-bottom: 10px;
-}
-
-.detail-item {
-  margin: 15px 0;
+.modal-header {
   display: flex;
-  align-items: flex-start;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2rem 2rem 1rem 2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.detail-item label {
-  font-weight: bold;
-  min-width: 120px;
-  color: #666;
-}
-
-.detail-item span, .detail-item div {
-  color: #333;
+.modal-header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 600;
 }
 
 .close-btn {
-  background-color: #6c757d;
-  margin-top: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
 }
 
 .close-btn:hover {
-  background-color: #5a6268;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 
-/* 统计相关样式 */
-.stats-grid {
+.modal-body {
+  padding: 2rem;
+}
+
+/* 详情网格 */
+.detail-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 20px;
-  margin: 20px 0;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
 }
 
-.stat-card {
-  background-color: #f8f9fa;
-  padding: 20px;
-  border-radius: 8px;
+.detail-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.detail-label {
+  color: #999;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.detail-value {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* 配置显示 */
+.config-display {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.config-display h4 {
+  margin: 0 0 1rem 0;
+  color: #fff;
+  font-size: 1.1rem;
+}
+
+.config-info p {
+  margin: 0.5rem 0;
+  color: #ccc;
+  line-height: 1.5;
+}
+
+.config-info strong {
+  color: #667eea;
+}
+
+/* 统计概览 */
+.stats-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.overview-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1rem;
   text-align: center;
-  border: 1px solid #dee2e6;
 }
 
-.stat-card h4 {
-  margin: 0 0 10px 0;
-  color: #666;
-  font-size: 14px;
+.overview-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
 }
 
-.stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #333;
+.overview-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
 }
 
-.stat-value.pending {
-  color: #ffc107;
+.overview-value.pending {
+  color: #fbbf24;
 }
 
-.stat-value.success {
-  color: #28a745;
+.overview-value.success {
+  color: #22c55e;
 }
 
-.stat-value.cancelled {
-  color: #dc3545;
+.overview-value.cancelled {
+  color: #ef4444;
 }
 
+.overview-label {
+  color: #999;
+  font-size: 0.8rem;
+}
+
+/* 最近订单 */
 .recent-orders {
-  margin-top: 30px;
+  margin-top: 2rem;
 }
 
 .recent-orders h4 {
-  margin-bottom: 15px;
-  color: #333;
+  margin: 0 0 1rem 0;
+  color: #fff;
+  font-size: 1.2rem;
 }
 
-.recent-orders table {
-  width: 100%;
-  box-shadow: none;
-  font-size: 14px;
+.orders-table {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.table-header {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 1fr 1fr 0.8fr 1.2fr;
+  gap: 1rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+  color: #ccc;
+  font-size: 0.9rem;
+}
+
+.table-row {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 1fr 1fr 0.8fr 1.2fr;
+  gap: 1rem;
+  padding: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.table-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.side-badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.side-badge.buy {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.side-badge.sell {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.status-badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.status-badge.pending {
+  background: rgba(255, 193, 7, 0.2);
+  color: #fbbf24;
+}
+
+.status-badge.filled {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.status-badge.cancelled {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.status-badge.expired {
+  background: rgba(108, 117, 125, 0.2);
+  color: #94a3b8;
+}
+
+.status-badge.rejected {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
 }
 
 .no-orders {
   text-align: center;
+  padding: 3rem;
   color: #666;
-  padding: 20px;
-  font-style: italic;
 }
 
+.no-orders-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+/* 弹窗操作按钮 */
 .modal-actions {
   display: flex;
   justify-content: space-between;
-  margin-top: 20px;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.view-all-btn {
-  background-color: #007bff;
+.action-btn.view-all {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 0.8rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
 }
 
-.view-all-btn:hover {
-  background-color: #0056b3;
+.action-btn.view-all:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+}
+
+.action-btn.secondary {
+  background: rgba(108, 117, 125, 0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(108, 117, 125, 0.3);
+  padding: 0.8rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.action-btn.secondary:hover {
+  background: rgba(108, 117, 125, 0.2);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .strategy-container {
+    padding: 1rem;
+  }
+
+  .page-title {
+    font-size: 2rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .stat-card {
+    padding: 1.5rem;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+
+  .search-box {
+    width: 100%;
+  }
+
+  .strategies-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-actions {
+    flex-direction: column;
+  }
+
+  .action-btn {
+    width: 100%;
+  }
+
+  .modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .modal-header {
+    padding: 1.5rem 1.5rem 1rem 1.5rem;
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-overview {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .table-header,
+  .table-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .table-header span,
+  .table-row span {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .modal-actions {
+    flex-direction: column;
+  }
+
+  .toast {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+  }
 }
 </style>
