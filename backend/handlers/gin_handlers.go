@@ -789,6 +789,7 @@ func GinDeleteSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 
 // 其他handler保持不变...
 
+// GinCreateWithdrawalRuleHandler 创建提币规则处理器
 func GinCreateWithdrawalRuleHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -797,22 +798,56 @@ func GinCreateWithdrawalRuleHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		var rule models.Withdrawal
-		if err := c.ShouldBindJSON(&rule); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求体"})
+		// 使用自定义结构体接收请求数据
+		var req struct {
+			Asset     string  `json:"asset" binding:"required"`
+			Threshold float64 `json:"threshold" binding:"required,gt=0"`
+			Amount    float64 `json:"amount" binding:"min=0"` // 允许为0，表示提取最大值
+			Address   string  `json:"address" binding:"required"`
+			Enabled   bool    `json:"enabled"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("绑定提币规则请求失败: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求体", "details": err.Error()})
 			return
 		}
 
-		rule.UserID = user.ID
+		// 创建提币规则
+		rule := models.Withdrawal{
+			UserID:    user.ID,
+			Asset:     req.Asset,
+			Threshold: req.Threshold,
+			Amount:    req.Amount, // 如果为0，表示提取最大可用金额
+			Address:   req.Address,
+			Enabled:   req.Enabled,
+			Status:    "active",
+		}
+
 		if err := cfg.DB.Create(&rule).Error; err != nil {
+			log.Printf("创建提币规则失败: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建提币规则失败"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "提币规则创建成功"})
+		log.Printf("用户 %d 创建提币规则成功: %s, 阈值=%.8f, 金额=%.8f",
+			user.ID, rule.Asset, rule.Threshold, rule.Amount)
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "提币规则创建成功",
+			"rule": map[string]interface{}{
+				"id":        rule.ID,
+				"asset":     rule.Asset,
+				"threshold": rule.Threshold,
+				"amount":    rule.Amount,
+				"address":   rule.Address,
+				"enabled":   rule.Enabled,
+			},
+		})
 	}
 }
 
+// GinListWithdrawalRulesHandler 获取提币规则列表处理器
 func GinListWithdrawalRulesHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -823,14 +858,32 @@ func GinListWithdrawalRulesHandler(cfg *config.Config) gin.HandlerFunc {
 
 		var rules []models.Withdrawal
 		if err := cfg.DB.Where("user_id = ? AND deleted_at IS NULL", user.ID).Find(&rules).Error; err != nil {
+			log.Printf("获取用户 %d 的提币规则失败: %v", user.ID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取提币规则失败"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"rules": rules})
+		// 格式化返回数据
+		formattedRules := make([]map[string]interface{}, 0, len(rules))
+		for _, rule := range rules {
+			formattedRules = append(formattedRules, map[string]interface{}{
+				"id":        rule.ID,
+				"asset":     rule.Asset,
+				"threshold": rule.Threshold,
+				"amount":    rule.Amount,
+				"address":   rule.Address,
+				"enabled":   rule.Enabled,
+				"status":    rule.Status,
+				"createdAt": rule.CreatedAt,
+				"updatedAt": rule.UpdatedAt,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"rules": formattedRules})
 	}
 }
 
+// GinUpdateWithdrawalRuleHandler 更新提币规则处理器
 func GinUpdateWithdrawalRuleHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -846,27 +899,52 @@ func GinUpdateWithdrawalRuleHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		var updatedRule models.Withdrawal
-		if err := c.ShouldBindJSON(&updatedRule); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求体"})
+		// 使用自定义结构体接收更新数据
+		var updateReq struct {
+			Asset     string  `json:"asset"`
+			Threshold float64 `json:"threshold"`
+			Amount    float64 `json:"amount"`
+			Address   string  `json:"address"`
+			Enabled   bool    `json:"enabled"`
+		}
+
+		if err := c.ShouldBindJSON(&updateReq); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求体", "details": err.Error()})
 			return
 		}
 
-		rule.Asset = updatedRule.Asset
-		rule.Address = updatedRule.Address
-		rule.Threshold = updatedRule.Threshold
-		rule.Amount = updatedRule.Amount
-		rule.Enabled = updatedRule.Enabled
+		// 更新规则
+		updates := map[string]interface{}{
+			"asset":     updateReq.Asset,
+			"threshold": updateReq.Threshold,
+			"amount":    updateReq.Amount,
+			"address":   updateReq.Address,
+			"enabled":   updateReq.Enabled,
+		}
 
-		if err := cfg.DB.Save(&rule).Error; err != nil {
+		if err := cfg.DB.Model(&rule).Updates(updates).Error; err != nil {
+			log.Printf("更新提币规则失败: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新提币规则失败"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "提币规则更新成功"})
+		log.Printf("用户 %d 更新提币规则 %d 成功", user.ID, rule.ID)
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "提币规则更新成功",
+			"rule": map[string]interface{}{
+				"id":        rule.ID,
+				"asset":     updateReq.Asset,
+				"threshold": updateReq.Threshold,
+				"amount":    updateReq.Amount,
+				"address":   updateReq.Address,
+				"enabled":   updateReq.Enabled,
+			},
+		})
 	}
 }
 
+// GinDeleteWithdrawalRuleHandler 删除提币规则处理器
 func GinDeleteWithdrawalRuleHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -883,9 +961,12 @@ func GinDeleteWithdrawalRuleHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if err := cfg.DB.Delete(&rule).Error; err != nil {
+			log.Printf("删除提币规则失败: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "删除提币规则失败"})
 			return
 		}
+
+		log.Printf("用户 %d 删除提币规则 %d 成功", user.ID, rule.ID)
 
 		c.JSON(http.StatusOK, gin.H{"message": "提币规则删除成功"})
 	}

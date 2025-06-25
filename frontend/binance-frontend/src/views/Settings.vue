@@ -211,7 +211,7 @@
                   <div class="input-wrapper">
                     <i class="input-icon">🪙</i>
                     <input
-                        v-model="newWithdrawal.symbol"
+                        v-model="newWithdrawal.asset"
                         type="text"
                         placeholder="例如: BTC, ETH, USDT"
                         required
@@ -220,34 +220,33 @@
                 </div>
 
                 <div class="form-group">
-                  <label>提币网络</label>
-                  <div class="input-wrapper">
-                    <i class="input-icon">🌐</i>
-                    <select v-model="newWithdrawal.network" required>
-                      <option value="">选择网络</option>
-                      <option value="BSC">BSC (BEP20)</option>
-                      <option value="ETH">Ethereum (ERC20)</option>
-                      <option value="POLYGON">Polygon</option>
-                      <option value="ARBITRUM">Arbitrum</option>
-                      <option value="TRX">TRON (TRC20)</option>
-                      <option value="SOLANA">Solana</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="form-group">
                   <label>触发阈值</label>
                   <div class="input-wrapper">
                     <i class="input-icon">📊</i>
                     <input
-                        v-model.number="newWithdrawal.min_amount"
+                        v-model.number="newWithdrawal.threshold"
                         type="number"
                         step="0.00000001"
-                        placeholder="余额超过此数量时自动提币"
+                        placeholder="余额超过此数量时触发"
                         required
                     />
                   </div>
-                  <small class="form-hint">当余额超过此阈值时，系统将自动提取最大可用金额</small>
+                </div>
+
+                <div class="form-group">
+                  <label>提币金额</label>
+                  <div class="input-wrapper">
+                    <i class="input-icon">💰</i>
+                    <input
+                        v-model.number="newWithdrawal.amount"
+                        type="number"
+                        step="0.00000001"
+                        min="0"
+                        placeholder="每次提币数量（0表示提取最大可用金额）"
+                        required
+                    />
+                  </div>
+                  <small class="form-hint">设置为0将自动提取所有可用余额</small>
                 </div>
 
                 <div class="form-group">
@@ -270,8 +269,8 @@
                   <div class="description-icon">💡</div>
                   <div class="description-content">
                     <h4>自动提币规则说明</h4>
-                    <p>当您的 <strong>{{ newWithdrawal.symbol || '[币种]' }}</strong> 余额超过 <strong>{{ newWithdrawal.min_amount || '[阈值]' }}</strong> 时，系统将自动提取 <strong>最大可用金额</strong> 到指定地址。</p>
-                    <small>⚠️ 提示：请确保提币地址正确，提币操作无法撤回。系统会自动计算并扣除网络手续费。</small>
+                    <p>当您的 <strong>{{ newWithdrawal.asset || '[币种]' }}</strong> 余额超过 <strong>{{ newWithdrawal.threshold || '[阈值]' }}</strong> 时，系统将自动提取 <strong>{{ newWithdrawal.amount > 0 ? formatNumber(newWithdrawal.amount) : '最大可用金额' }}</strong> 到指定地址。</p>
+                    <small>⚠️ 提示：请确保提币地址正确，提币操作无法撤回。</small>
                   </div>
                 </div>
               </div>
@@ -305,7 +304,7 @@
                   <div class="rule-asset">
                     <div class="asset-icon">🪙</div>
                     <div class="asset-info">
-                      <h4>{{ rule.symbol }}</h4>
+                      <h4>{{ rule.asset }}</h4>
                       <span :class="['status-chip', rule.enabled ? 'enabled' : 'disabled']">
                         <span class="status-dot"></span>
                         {{ rule.enabled ? '启用' : '禁用' }}
@@ -317,12 +316,12 @@
 
                 <div class="rule-details">
                   <div class="detail-item">
-                    <span class="detail-label">网络</span>
-                    <span class="detail-value">{{ rule.network || 'BSC' }}</span>
+                    <span class="detail-label">触发阈值</span>
+                    <span class="detail-value">{{ formatNumber(rule.threshold) }}</span>
                   </div>
                   <div class="detail-item">
-                    <span class="detail-label">最小金额</span>
-                    <span class="detail-value">{{ formatNumber(rule.min_amount) }}</span>
+                    <span class="detail-label">提币金额</span>
+                    <span class="detail-value">{{ rule.amount > 0 ? formatNumber(rule.amount) : '最大可用' }}</span>
                   </div>
                   <div class="detail-item">
                     <span class="detail-label">提币地址</span>
@@ -331,11 +330,11 @@
                 </div>
 
                 <div class="rule-actions">
-                  <button @click="viewRuleDetails(rule)" class="action-btn view">
-                    <i>👁️</i> 查看详情
+                  <button @click="toggleRuleStatus(rule)" class="action-btn toggle">
+                    <i>{{ rule.enabled ? '⏸️' : '▶️' }}</i> {{ rule.enabled ? '禁用' : '启用' }}
                   </button>
                   <button @click="deleteWithdrawalRule(rule.id)" class="action-btn delete">
-                    <i>🗑️</i> 删除规则
+                    <i>🗑️</i> 删除
                   </button>
                 </div>
               </div>
@@ -343,60 +342,6 @@
           </div>
         </div>
       </transition>
-    </div>
-
-    <!-- 规则详情弹窗 -->
-    <div v-if="showRuleDetails" class="modal-overlay" @click="closeRuleDetails">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>提币规则详情</h3>
-          <button @click="closeRuleDetails" class="close-btn">✕</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="detail-grid">
-            <div class="detail-card">
-              <div class="detail-label">规则ID</div>
-              <div class="detail-value">{{ selectedRule.id }}</div>
-            </div>
-            <div class="detail-card">
-              <div class="detail-label">币种</div>
-              <div class="detail-value">{{ selectedRule.symbol }}</div>
-            </div>
-            <div class="detail-card">
-              <div class="detail-label">网络</div>
-              <div class="detail-value">{{ selectedRule.network || 'BSC' }}</div>
-            </div>
-            <div class="detail-card">
-              <div class="detail-label">触发阈值</div>
-              <div class="detail-value">{{ formatNumber(selectedRule.min_amount) }}</div>
-            </div>
-            <div class="detail-card">
-              <div class="detail-label">提币方式</div>
-              <div class="detail-value">提取最大可用金额</div>
-            </div>
-            <div class="detail-card">
-              <div class="detail-label">状态</div>
-              <div class="detail-value">
-                <span :class="['status-chip', selectedRule.enabled ? 'enabled' : 'disabled']">
-                  <span class="status-dot"></span>
-                  {{ selectedRule.enabled ? '启用' : '禁用' }}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div class="address-section">
-            <h4>提币地址</h4>
-            <div class="address-display">
-              <span class="full-address">{{ selectedRule.address }}</span>
-              <button @click="copyAddress" class="copy-btn">
-                <i>📋</i> 复制地址
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -418,16 +363,14 @@ export default {
       showApiSection: true,
       showWithdrawalSection: true,
       newWithdrawal: {
-        symbol: '',
-        network: '',
-        min_amount: 0,
+        asset: '',
+        threshold: 0,
+        amount: 0,
         address: '',
       },
       withdrawalRules: [],
       toastMessage: '',
-      toastType: 'success',
-      showRuleDetails: false,
-      selectedRule: {}
+      toastType: 'success'
     };
   },
   computed: {
@@ -497,9 +440,9 @@ export default {
 
     resetWithdrawalForm() {
       this.newWithdrawal = {
-        symbol: '',
-        network: '',
-        min_amount: 0,
+        asset: '',
+        threshold: 0,
+        amount: 0,
         address: '',
       };
     },
@@ -565,21 +508,22 @@ export default {
     },
 
     async createWithdrawalRule() {
-      const { symbol, network, min_amount, address } = this.newWithdrawal;
+      const { asset, threshold, amount, address } = this.newWithdrawal;
 
-      if (!symbol.trim() || !network || min_amount <= 0 || !address.trim()) {
-        this.showToast('请填写所有必需字段，且阈值必须大于0', 'error');
+      if (!asset.trim() || threshold <= 0 || amount < 0 || !address.trim()) {
+        this.showToast('请填写所有必需字段，阈值必须大于0，金额不能为负数', 'error');
         return;
       }
 
       try {
+        // 修复API路径：使用正确的路径 /withdrawals
         const response = await axios.post(
-            '/auto_withdraw_rule',
+            '/withdrawals',
             {
-              symbol: symbol.toUpperCase(),
-              network: network,
+              asset: asset.toUpperCase(),
+              threshold: Number(threshold),
+              amount: Number(amount),
               address: address,
-              min_amount: Number(min_amount),
               enabled: true,
             },
             {
@@ -597,7 +541,8 @@ export default {
 
     async fetchWithdrawalRules() {
       try {
-        const response = await axios.get('/auto_withdraw_rules', {
+        // 修复API路径：使用正确的路径 /withdrawals
+        const response = await axios.get('/withdrawals', {
           headers: this.getAuthHeaders(),
         });
         this.withdrawalRules = response.data.rules || [];
@@ -607,13 +552,35 @@ export default {
       }
     },
 
+    async toggleRuleStatus(rule) {
+      try {
+        // 修复API路径：使用正确的路径 /withdrawals/:id
+        const response = await axios.put(
+            `/withdrawals/${rule.id}`,
+            {
+              ...rule,
+              enabled: !rule.enabled,
+            },
+            {
+              headers: this.getAuthHeaders(),
+            }
+        );
+        this.showToast(response.data.message || `规则已${!rule.enabled ? '启用' : '禁用'}`);
+        await this.fetchWithdrawalRules();
+      } catch (err) {
+        console.error('toggleRuleStatus error:', err);
+        this.showToast(err.response?.data?.error || '更新规则状态失败', 'error');
+      }
+    },
+
     async deleteWithdrawalRule(ruleId) {
       if (!window.confirm(`确定要删除提币规则 ID ${ruleId} 吗？`)) {
         return;
       }
 
       try {
-        const response = await axios.delete(`/auto_withdraw_rule/${ruleId}`, {
+        // 修复API路径：使用正确的路径 /withdrawals/:id
+        const response = await axios.delete(`/withdrawals/${ruleId}`, {
           headers: this.getAuthHeaders(),
         });
         this.showToast(response.data.message || '提币规则删除成功 🗑️');
@@ -621,26 +588,6 @@ export default {
       } catch (err) {
         console.error('deleteWithdrawalRule error:', err);
         this.showToast(err.response?.data?.error || '删除提币规则失败', 'error');
-      }
-    },
-
-    viewRuleDetails(rule) {
-      this.selectedRule = rule;
-      this.showRuleDetails = true;
-    },
-
-    closeRuleDetails() {
-      this.showRuleDetails = false;
-      this.selectedRule = {};
-    },
-
-    async copyAddress() {
-      try {
-        await navigator.clipboard.writeText(this.selectedRule.address);
-        this.showToast('地址已复制到剪贴板 📋');
-      } catch (err) {
-        console.error('复制失败:', err);
-        this.showToast('复制失败，请手动复制', 'error');
       }
     }
   },
@@ -1056,36 +1003,6 @@ export default {
   color: #666;
 }
 
-/* 修复下拉框选项样式 */
-.input-wrapper select {
-  cursor: pointer;
-  /* 确保选项文字可见 */
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 1rem center;
-  background-size: 1.2rem;
-  padding-right: 3rem;
-}
-
-.input-wrapper select option {
-  background-color: #1a1a1a;
-  color: #fff;
-  padding: 0.5rem;
-}
-
-.input-wrapper select option:hover {
-  background-color: #2a2a2a;
-}
-
-/* 确保下拉框在聚焦时的样式 */
-.input-wrapper select:focus option {
-  background-color: #1a1a1a;
-  color: #fff;
-}
-
 .form-hint {
   color: #999;
   font-size: 0.8rem;
@@ -1130,11 +1047,6 @@ export default {
   font-size: 0.85rem;
   display: block;
   margin-top: 0.5rem;
-}
-
-.detail-value.withdraw-type {
-  color: #22c55e;
-  font-weight: 600;
 }
 
 .password-toggle {
@@ -1200,14 +1112,14 @@ export default {
   transform: translateY(-2px);
 }
 
-.action-btn.view {
+.action-btn.toggle {
   background: rgba(59, 130, 246, 0.1);
   color: #3b82f6;
   border: 1px solid rgba(59, 130, 246, 0.3);
   flex: 1;
 }
 
-.action-btn.view:hover {
+.action-btn.toggle:hover {
   background: rgba(59, 130, 246, 0.2);
   transform: translateY(-2px);
 }
@@ -1388,148 +1300,6 @@ export default {
   gap: 0.5rem;
 }
 
-/* 弹窗样式 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  backdrop-filter: blur(5px);
-}
-
-.modal-content {
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  max-width: 600px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 2rem 2rem 1rem 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.modal-header h3 {
-  margin: 0;
-  color: #fff;
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.close-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #ccc;
-  border: none;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.2rem;
-}
-
-.close-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-}
-
-.modal-body {
-  padding: 2rem;
-}
-
-/* 详情网格 */
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.detail-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 1rem;
-}
-
-.detail-card .detail-label {
-  color: #999;
-  font-size: 0.8rem;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-.detail-card .detail-value {
-  color: #fff;
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-/* 地址显示 */
-.address-section {
-  margin-top: 2rem;
-  padding-top: 2rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.address-section h4 {
-  margin: 0 0 1rem 0;
-  color: #fff;
-  font-size: 1.1rem;
-}
-
-.address-display {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 1rem;
-}
-
-.full-address {
-  flex: 1;
-  font-family: 'Courier New', monospace;
-  color: #a78bfa;
-  font-size: 0.9rem;
-  word-break: break-all;
-}
-
-.copy-btn {
-  background: rgba(167, 139, 250, 0.1);
-  color: #a78bfa;
-  border: 1px solid rgba(167, 139, 250, 0.3);
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.copy-btn:hover {
-  background: rgba(167, 139, 250, 0.2);
-}
-
 /* 响应式设计 */
 @media (max-width: 768px) {
   .settings-container {
@@ -1577,28 +1347,6 @@ export default {
 
   .action-btn {
     width: 100%;
-  }
-
-  .modal-content {
-    width: 95%;
-    max-height: 90vh;
-  }
-
-  .modal-header {
-    padding: 1.5rem 1.5rem 1rem 1.5rem;
-  }
-
-  .modal-body {
-    padding: 1.5rem;
-  }
-
-  .detail-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .address-display {
-    flex-direction: column;
-    align-items: stretch;
   }
 
   .toast {
