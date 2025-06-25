@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -14,6 +15,22 @@ import (
 	"github.com/ccj241/binance/tasks"
 )
 
+// getUserFromRequest 从请求中获取用户信息
+func getUserFromRequest(r *http.Request, cfg *config.Config) (*models.User, error) {
+	// 从Gin中间件设置的header获取用户名
+	username := r.Header.Get("username")
+	if username == "" {
+		return nil, fmt.Errorf("用户名未找到")
+	}
+
+	var user models.User
+	if err := cfg.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 func PricesHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -21,18 +38,14 @@ func PricesHandler(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, `{"error": "方法不允许"}`, http.StatusMethodNotAllowed)
 			return
 		}
-		username := r.Header.Get("username")
-		if username == "" {
-			log.Printf("请求头缺少 username")
-			http.Error(w, `{"error": "未授权"}`, http.StatusUnauthorized)
-			return
-		}
-		var user models.User
-		if err := cfg.DB.Where("username = ?", username).First(&user).Error; err != nil {
-			log.Printf("用户未找到: %s, error: %v", username, err)
+
+		user, err := getUserFromRequest(r, cfg)
+		if err != nil {
+			log.Printf("获取用户失败: %v", err)
 			http.Error(w, `{"error": "用户未找到"}`, http.StatusNotFound)
 			return
 		}
+
 		priceMap := make(map[string]float64)
 		tasks.PriceMonitor.Range(func(key, value any) bool {
 			symbolUser, ok := key.(string)
@@ -61,6 +74,7 @@ func PricesHandler(cfg *config.Config) http.HandlerFunc {
 			}
 			return true
 		})
+
 		response := map[string]interface{}{
 			"prices": priceMap,
 		}
@@ -78,30 +92,28 @@ func BalanceHandler(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, `{"error": "方法不允许"}`, http.StatusMethodNotAllowed)
 			return
 		}
-		username := r.Header.Get("username")
-		if username == "" {
-			log.Printf("请求头缺少 username")
-			http.Error(w, `{"error": "未授权"}`, http.StatusUnauthorized)
-			return
-		}
-		var user models.User
-		if err := cfg.DB.Where("username = ?", username).First(&user).Error; err != nil {
-			log.Printf("用户未找到: %s, error: %v", username, err)
+
+		user, err := getUserFromRequest(r, cfg)
+		if err != nil {
+			log.Printf("获取用户失败: %v", err)
 			http.Error(w, `{"error": "用户未找到"}`, http.StatusNotFound)
 			return
 		}
+
 		if user.APIKey == "" || user.SecretKey == "" {
-			log.Printf("用户 %s 未设置 API 密钥", username)
+			log.Printf("用户 %s 未设置 API 密钥", user.Username)
 			http.Error(w, `{"error": "API 密钥未设置"}`, http.StatusBadRequest)
 			return
 		}
-		client := binance.NewClient(user.APIKey, user.SecretKey) // 修改：从 user.APISecret 改为 user.SecretKey
+
+		client := binance.NewClient(user.APIKey, user.SecretKey)
 		account, err := client.NewGetAccountService().Do(context.Background())
 		if err != nil {
 			log.Printf("获取余额失败，用户 %d: %v", user.ID, err)
 			http.Error(w, `{"error": "获取余额失败"}`, http.StatusInternalServerError)
 			return
 		}
+
 		balances := make([]map[string]interface{}, 0)
 		for _, b := range account.Balances {
 			free, _ := strconv.ParseFloat(b.Free, 64)
@@ -114,6 +126,7 @@ func BalanceHandler(cfg *config.Config) http.HandlerFunc {
 				})
 			}
 		}
+
 		response := map[string]interface{}{
 			"balances": balances,
 		}
@@ -131,24 +144,21 @@ func TradesHandler(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, `{"error": "方法不允许"}`, http.StatusMethodNotAllowed)
 			return
 		}
-		username := r.Header.Get("username")
-		if username == "" {
-			log.Printf("请求头缺少 username")
-			http.Error(w, `{"error": "未授权"}`, http.StatusUnauthorized)
-			return
-		}
-		var user models.User
-		if err := cfg.DB.Where("username = ?", username).First(&user).Error; err != nil {
-			log.Printf("用户未找到: %s, error: %v", username, err)
+
+		user, err := getUserFromRequest(r, cfg)
+		if err != nil {
+			log.Printf("获取用户失败: %v", err)
 			http.Error(w, `{"error": "用户未找到"}`, http.StatusNotFound)
 			return
 		}
+
 		var trades []models.Trade
 		if err := cfg.DB.Where("user_id = ?", user.ID).Find(&trades).Error; err != nil {
 			log.Printf("获取用户 %d 的交易记录失败: %v", user.ID, err)
 			http.Error(w, `{"error": "获取交易记录失败"}`, http.StatusInternalServerError)
 			return
 		}
+
 		response := map[string]interface{}{
 			"trades": trades,
 		}
@@ -166,18 +176,14 @@ func AddSymbolHandler(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, `{"error": "方法不允许"}`, http.StatusMethodNotAllowed)
 			return
 		}
-		username := r.Header.Get("username")
-		if username == "" {
-			log.Printf("请求头缺少 username")
-			http.Error(w, `{"error": "未授权"}`, http.StatusUnauthorized)
-			return
-		}
-		var user models.User
-		if err := cfg.DB.Where("username = ?", username).First(&user).Error; err != nil {
-			log.Printf("用户未找到: %s, error: %v", username, err)
+
+		user, err := getUserFromRequest(r, cfg)
+		if err != nil {
+			log.Printf("获取用户失败: %v", err)
 			http.Error(w, `{"error": "用户未找到"}`, http.StatusNotFound)
 			return
 		}
+
 		var request struct {
 			Symbol string `json:"symbol"`
 		}
@@ -186,21 +192,35 @@ func AddSymbolHandler(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, `{"error": "无效的请求体"}`, http.StatusBadRequest)
 			return
 		}
+
 		if request.Symbol == "" {
 			log.Printf("请求中 symbol 为空")
 			http.Error(w, `{"error": "需要提供 symbol"}`, http.StatusBadRequest)
 			return
 		}
+
+		// 检查是否已存在
+		var existingSymbol models.CustomSymbol
+		if err := cfg.DB.Where("user_id = ? AND symbol = ?", user.ID, request.Symbol).First(&existingSymbol).Error; err == nil {
+			// 已存在，直接返回成功
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{"message": "Symbol 已存在"}); err != nil {
+				log.Printf("编码响应失败: %v", err)
+			}
+			return
+		}
+
 		symbol := models.CustomSymbol{
 			UserID: user.ID,
-			Symbol: request.Symbol,
+			Symbol: strings.ToUpper(request.Symbol),
 		}
 		if err := cfg.DB.Create(&symbol).Error; err != nil {
 			log.Printf("为用户 %d 添加 symbol %s 失败: %v", user.ID, request.Symbol, err)
 			http.Error(w, `{"error": "添加 symbol 失败"}`, http.StatusInternalServerError)
 			return
 		}
-		tasks.MonitorNewSymbol(request.Symbol, user.ID, cfg) // 确保 tasks 包中定义了此函数
+
+		tasks.MonitorNewSymbol(strings.ToUpper(request.Symbol), user.ID, cfg)
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]interface{}{"message": "Symbol 添加成功"}); err != nil {
 			log.Printf("编码响应失败: %v", err)
@@ -216,24 +236,21 @@ func WithdrawalHistoryHandler(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, `{"error": "方法不允许"}`, http.StatusMethodNotAllowed)
 			return
 		}
-		username := r.Header.Get("username")
-		if username == "" {
-			log.Printf("请求头缺少 username")
-			http.Error(w, `{"error": "未授权"}`, http.StatusUnauthorized)
-			return
-		}
-		var user models.User
-		if err := cfg.DB.Where("username = ?", username).First(&user).Error; err != nil {
-			log.Printf("用户未找到: %s, error: %v", username, err)
+
+		user, err := getUserFromRequest(r, cfg)
+		if err != nil {
+			log.Printf("获取用户失败: %v", err)
 			http.Error(w, `{"error": "用户未找到"}`, http.StatusNotFound)
 			return
 		}
+
 		var history []models.WithdrawalHistory
 		if err := cfg.DB.Where("user_id = ?", user.ID).Find(&history).Error; err != nil {
 			log.Printf("获取用户 %d 的取款历史失败: %v", user.ID, err)
 			http.Error(w, `{"error": "获取取款历史失败"}`, http.StatusInternalServerError)
 			return
 		}
+
 		response := map[string]interface{}{
 			"history": history,
 		}

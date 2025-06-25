@@ -7,7 +7,7 @@ import (
 
 	"github.com/ccj241/binance/config"
 	"github.com/ccj241/binance/models"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"log"
 )
@@ -28,9 +28,26 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
+// JWT Claims 结构体
+type Claims struct {
+	UserID   uint   `json:"user_id"`
+	Username string `json:"username"`
+	jwt.RegisteredClaims
+}
+
 // RegisterHandler 用户注册处理器
 func RegisterHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 设置CORS头
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		if r.Method != http.MethodPost {
 			writeErrorResponse(w, http.StatusMethodNotAllowed, "方法不允许")
 			return
@@ -97,6 +114,16 @@ func RegisterHandler(cfg *config.Config) http.HandlerFunc {
 // LoginHandler 用户登录处理器
 func LoginHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 设置CORS头
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		if r.Method != http.MethodPost {
 			writeErrorResponse(w, http.StatusMethodNotAllowed, "方法不允许")
 			return
@@ -131,13 +158,16 @@ func LoginHandler(cfg *config.Config) http.HandlerFunc {
 		}
 
 		// 生成JWT令牌
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"user_id":  float64(user.ID),
-			"username": user.Username,
-			"exp":      time.Now().Add(time.Hour * 24).Unix(),
-			"iat":      time.Now().Unix(),
-		})
+		claims := Claims{
+			UserID:   user.ID,
+			Username: user.Username,
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
+		}
 
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, err := token.SignedString([]byte(cfg.JWTSecret))
 		if err != nil {
 			log.Printf("JWT生成失败: %v", err)

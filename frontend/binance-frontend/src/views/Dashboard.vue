@@ -134,6 +134,11 @@
         </tbody>
       </table>
     </section>
+
+    <!-- 错误提示 -->
+    <div v-if="errorMessage" class="error-message">
+      {{ errorMessage }}
+    </div>
   </div>
 </template>
 
@@ -152,6 +157,8 @@ export default {
       newSymbol: '',
       currentPage: 1,
       pageSize: 10,
+      errorMessage: '',
+      priceInterval: null,
     };
   },
   computed: {
@@ -172,70 +179,100 @@ export default {
     this.fetchStrategies();
     this.priceInterval = setInterval(this.fetchPrices, 10000);
   },
-  beforeDestroy() {
-    clearInterval(this.priceInterval);
+  beforeUnmount() {
+    if (this.priceInterval) {
+      clearInterval(this.priceInterval);
+    }
   },
   methods: {
+    getAuthHeaders() {
+      const token = localStorage.getItem('token');
+      return {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+    },
+
+    handleApiError(error, defaultMessage = '操作失败') {
+      console.error(defaultMessage + ':', error);
+      this.errorMessage = error.response?.data?.error || error.response?.data?.message || defaultMessage;
+      setTimeout(() => {
+        this.errorMessage = '';
+      }, 5000);
+    },
+
     async fetchPrices() {
       try {
         const response = await axios.get('/prices', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          headers: this.getAuthHeaders(),
         });
         this.prices = response.data.prices || {};
       } catch (error) {
-        console.error('获取价格失败:', error);
+        this.handleApiError(error, '获取价格失败');
       }
     },
+
     async fetchBalances() {
       try {
         const response = await axios.get('/balance', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          headers: this.getAuthHeaders(),
         });
         this.balances = response.data.balances || [];
       } catch (error) {
-        console.error('获取余额失败:', error);
+        this.handleApiError(error, '获取余额失败');
       }
     },
+
     async fetchTrades() {
       try {
         const response = await axios.get('/trades', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          headers: this.getAuthHeaders(),
         });
         this.trades = response.data.trades || [];
         this.currentPage = 1;
       } catch (error) {
-        console.error('获取交易记录失败:', error);
+        this.handleApiError(error, '获取交易记录失败');
       }
     },
+
     async fetchWithdrawalHistory() {
       try {
         const response = await axios.get('/withdrawalhistory', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          headers: this.getAuthHeaders(),
         });
         this.withdrawalHistory = response.data.history || [];
       } catch (error) {
-        console.error('获取取款历史失败:', error);
+        this.handleApiError(error, '获取取款历史失败');
       }
     },
+
     async fetchStrategies() {
       try {
         const response = await axios.get('/strategies', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          headers: this.getAuthHeaders(),
         });
         this.strategies = response.data.strategies || [];
       } catch (error) {
-        console.error('获取策略失败:', error);
+        this.handleApiError(error, '获取策略失败');
       }
     },
+
     async addSymbol() {
+      if (!this.newSymbol.trim()) {
+        this.errorMessage = '请输入有效的交易对';
+        return;
+      }
+
       try {
-        await axios.post('/symbols', { symbol: this.newSymbol }, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        });
+        await axios.post('/symbols',
+            { symbol: this.newSymbol.toUpperCase() },
+            { headers: this.getAuthHeaders() }
+        );
         this.newSymbol = '';
         this.fetchPrices();
+        this.errorMessage = '';
       } catch (error) {
-        console.error('添加交易对失败:', error);
+        this.handleApiError(error, '添加交易对失败');
       }
     },
   },
@@ -289,6 +326,7 @@ button {
   color: white;
   border: none;
   cursor: pointer;
+  border-radius: 4px;
 }
 
 button:hover {
@@ -303,6 +341,8 @@ button:disabled {
 .no-data {
   color: #888;
   font-style: italic;
+  padding: 20px;
+  text-align: center;
 }
 
 .pagination {
@@ -314,5 +354,24 @@ button:disabled {
 
 .pagination span {
   font-size: 14px;
+}
+
+.error-message {
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 12px;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  margin-top: 20px;
+}
+
+input {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+input:focus {
+  outline: none;
+  border-color: #007bff;
 }
 </style>
