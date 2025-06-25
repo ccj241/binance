@@ -6,6 +6,7 @@ import Settings from './views/Settings.vue';
 import Login from './views/Login.vue';
 import Register from './views/Register.vue';
 import Admin from './views/Admin.vue';
+import AuthWithdrawal from './views/AutoWithdrawal.vue'
 
 const routes = [
     { path: '/', component: Dashboard, meta: { requiresAuth: true } },
@@ -15,6 +16,11 @@ const routes = [
     { path: '/admin', component: Admin, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: '/login', component: Login },
     { path: '/register', component: Register },
+    {
+        path: '/authwithdrawal',
+        name: 'AuthWithdrawal',
+        component: AuthWithdrawal
+    },
 ];
 
 const router = createRouter({
