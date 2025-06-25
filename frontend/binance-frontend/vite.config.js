@@ -1,5 +1,3 @@
-// frontend/binance-frontend/vite.config.js - 添加删除路由的代理配置
-
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
