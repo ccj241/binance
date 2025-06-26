@@ -2,23 +2,62 @@
 package models
 
 import (
-	"time"
-
 	"github.com/adshao/go-binance/v2"
+	"github.com/ccj241/binance/utils"
 	"gorm.io/gorm"
+	"time"
 )
 
 type User struct {
 	gorm.Model
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Username  string    `gorm:"type:varchar(255);uniqueIndex" json:"username"`
-	Password  string    `gorm:"type:varchar(255)" json:"-"` // 不序列化
-	APIKey    string    `gorm:"type:varchar(500)" json:"apiKey"`
-	SecretKey string    `gorm:"type:varchar(500)" json:"secretKey"`
+	Password  string    `gorm:"type:varchar(255)" json:"-"`                       // 不序列化
+	APIKey    string    `gorm:"type:varchar(500)" json:"-"`                       // 加密存储，不序列化
+	SecretKey string    `gorm:"type:varchar(500)" json:"-"`                       // 加密存储，不序列化
 	Role      string    `gorm:"type:varchar(20);default:'user'" json:"role"`      // admin, user
 	Status    string    `gorm:"type:varchar(20);default:'pending'" json:"status"` // pending, active, disabled
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// BeforeSave 保存前加密API密钥
+func (u *User) BeforeSave(tx *gorm.DB) error {
+	// 如果APIKey不为空且看起来不是加密的（base64编码通常更长）
+	if u.APIKey != "" && len(u.APIKey) < 100 {
+		encrypted, err := utils.Encrypt(u.APIKey)
+		if err != nil {
+			return err
+		}
+		u.APIKey = encrypted
+	}
+
+	// 如果SecretKey不为空且看起来不是加密的
+	if u.SecretKey != "" && len(u.SecretKey) < 100 {
+		encrypted, err := utils.Encrypt(u.SecretKey)
+		if err != nil {
+			return err
+		}
+		u.SecretKey = encrypted
+	}
+
+	return nil
+}
+
+// GetDecryptedAPIKey 获取解密后的API Key
+func (u *User) GetDecryptedAPIKey() (string, error) {
+	if u.APIKey == "" {
+		return "", nil
+	}
+	return utils.Decrypt(u.APIKey)
+}
+
+// GetDecryptedSecretKey 获取解密后的Secret Key
+func (u *User) GetDecryptedSecretKey() (string, error) {
+	if u.SecretKey == "" {
+		return "", nil
+	}
+	return utils.Decrypt(u.SecretKey)
 }
 
 type Symbol struct {

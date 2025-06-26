@@ -59,8 +59,11 @@ func (ctrl *UserController) SetAPIKey(c *gin.Context) {
 	}
 
 	log.Printf("为用户 %d 保存 API 密钥: APIKey=%s", userID, maskAPIKey(input.APIKey))
+
+	// 直接赋值，BeforeSave钩子会自动加密
 	user.APIKey = input.APIKey
 	user.SecretKey = input.APISecret
+
 	if err := ctrl.Config.DB.Save(&user).Error; err != nil {
 		log.Printf("保存 API 密钥失败，用户 %d: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 API 密钥失败"})
@@ -86,11 +89,27 @@ func (ctrl *UserController) GetAPIKey(c *gin.Context) {
 	}
 
 	var maskedAPIKey, maskedSecretKey string
+
+	// 解密API Key
 	if user.APIKey != "" {
-		maskedAPIKey = maskAPIKey(user.APIKey)
+		decryptedAPIKey, err := user.GetDecryptedAPIKey()
+		if err != nil {
+			log.Printf("解密API Key失败: %v", err)
+			maskedAPIKey = "解密失败"
+		} else {
+			maskedAPIKey = maskAPIKey(decryptedAPIKey)
+		}
 	}
+
+	// 解密Secret Key
 	if user.SecretKey != "" {
-		maskedSecretKey = maskAPIKey(user.SecretKey)
+		decryptedSecretKey, err := user.GetDecryptedSecretKey()
+		if err != nil {
+			log.Printf("解密Secret Key失败: %v", err)
+			maskedSecretKey = "解密失败"
+		} else {
+			maskedSecretKey = maskAPIKey(decryptedSecretKey)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

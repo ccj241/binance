@@ -5,9 +5,10 @@ import (
 	"github.com/ccj241/binance/models"
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"strconv"
 )
 
-// GinStrategyStatsHandler 获取策略统计信息
+// GinStrategyStatsHandler 获取策略统计信息（带权限验证）
 func GinStrategyStatsHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -16,13 +17,18 @@ func GinStrategyStatsHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		strategyID := c.Param("id")
+		strategyIDStr := c.Param("id")
+		strategyID, err := strconv.ParseUint(strategyIDStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的策略ID"})
+			return
+		}
 
-		// 查询策略
+		// 查询策略并验证所有权
 		var strategy models.Strategy
-		if err := cfg.DB.Where("id = ? AND user_id = ?", strategyID, user.ID).
+		if err := cfg.DB.Where("id = ? AND user_id = ? AND deleted_at IS NULL", strategyID, user.ID).
 			First(&strategy).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "策略未找到"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "策略未找到或无权访问"})
 			return
 		}
 
@@ -107,7 +113,7 @@ func GinStrategyStatsHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-// GinStrategyOrdersHandler 获取策略的所有订单
+// GinStrategyOrdersHandler 获取策略的所有订单（带权限验证）
 func GinStrategyOrdersHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -116,13 +122,18 @@ func GinStrategyOrdersHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		strategyID := c.Param("id")
+		strategyIDStr := c.Param("id")
+		strategyID, err := strconv.ParseUint(strategyIDStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的策略ID"})
+			return
+		}
 
 		// 验证策略所有权
 		var strategy models.Strategy
-		if err := cfg.DB.Where("id = ? AND user_id = ?", strategyID, user.ID).
+		if err := cfg.DB.Where("id = ? AND user_id = ? AND deleted_at IS NULL", strategyID, user.ID).
 			First(&strategy).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "策略未找到"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "策略未找到或无权访问"})
 			return
 		}
 

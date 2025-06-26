@@ -78,6 +78,7 @@ func GinPricesHandler(cfg *config.Config) gin.HandlerFunc {
 }
 
 // GinBalanceHandler Gin版本的余额处理器 - 修复版本
+// GinBalanceHandler Gin版本的余额处理器 - 修复版本（使用解密的API密钥）
 func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -89,14 +90,29 @@ func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 
 		log.Printf("获取用户 %d (%s) 的余额", user.ID, user.Username)
 
-		if user.APIKey == "" || user.SecretKey == "" {
+		// 解密API密钥
+		apiKey, err := user.GetDecryptedAPIKey()
+		if err != nil {
+			log.Printf("解密用户 %d API Key失败: %v", user.ID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "API密钥解密失败"})
+			return
+		}
+
+		secretKey, err := user.GetDecryptedSecretKey()
+		if err != nil {
+			log.Printf("解密用户 %d Secret Key失败: %v", user.ID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Secret密钥解密失败"})
+			return
+		}
+
+		if apiKey == "" || secretKey == "" {
 			log.Printf("用户 %d 未设置 API 密钥", user.ID)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "API 密钥未设置"})
 			return
 		}
 
 		// 创建币安客户端
-		client := binance.NewClient(user.APIKey, user.SecretKey)
+		client := binance.NewClient(apiKey, secretKey)
 
 		// 设置超时上下文
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

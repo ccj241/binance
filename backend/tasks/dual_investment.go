@@ -419,7 +419,7 @@ func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestm
 	}
 }
 
-// findBestProduct 查找最佳产品
+// findBestProduct 查找最佳产品 - 修复SQL注入
 func findBestProduct(cfg *config.Config, strategy models.DualInvestmentStrategy, symbol string) *models.DualInvestmentProduct {
 	query := cfg.DB.Model(&models.DualInvestmentProduct{}).
 		Where("symbol = ? AND status = ?", symbol, "active")
@@ -445,10 +445,33 @@ func findBestProduct(cfg *config.Config, strategy models.DualInvestmentStrategy,
 		query = query.Where("duration <= ?", strategy.MaxDuration)
 	}
 
-	// 执行价格偏离度筛选
+	// 执行价格偏离度筛选 - 修复SQL注入
 	if strategy.MaxStrikePriceOffset > 0 {
-		query = query.Where("ABS((strike_price - current_price) / current_price * 100) <= ?",
-			strategy.MaxStrikePriceOffset)
+		// 先获取产品，然后在应用层过滤
+		var products []models.DualInvestmentProduct
+		if err := query.Find(&products).Error; err != nil {
+			return nil
+		}
+
+		// 在应用层进行价格偏离度过滤
+		var filteredProducts []models.DualInvestmentProduct
+		for _, product := range products {
+			if product.CurrentPrice > 0 {
+				offset := abs((product.StrikePrice - product.CurrentPrice) / product.CurrentPrice * 100)
+				if offset <= strategy.MaxStrikePriceOffset {
+					filteredProducts = append(filteredProducts, product)
+				}
+			}
+		}
+
+		// 按APY排序选择最佳
+		if len(filteredProducts) > 0 {
+			sort.Slice(filteredProducts, func(i, j int) bool {
+				return filteredProducts[i].APY > filteredProducts[j].APY
+			})
+			return &filteredProducts[0]
+		}
+		return nil
 	}
 
 	var product models.DualInvestmentProduct
@@ -457,6 +480,14 @@ func findBestProduct(cfg *config.Config, strategy models.DualInvestmentStrategy,
 	}
 
 	return &product
+}
+
+// abs 计算绝对值
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // calculateInvestAmount 计算投资金额

@@ -1,4 +1,4 @@
-// backend/tasks/price.go - 完整版本
+// backend/tasks/price.go - 完整版本（修复并发问题）
 
 package tasks
 
@@ -19,8 +19,61 @@ import (
 
 var PriceMonitor sync.Map
 var MonitoredSymbols sync.Map
-var strategyLocks sync.Map
 var wsConnections sync.Map // 管理WebSocket连接
+
+// StrategyExecutionManager 策略执行管理器
+type StrategyExecutionManager struct {
+	locks          sync.Map // strategyID -> *StrategyLock
+	executionTimes sync.Map // strategyID -> time.Time
+	mu             sync.Mutex
+}
+
+// StrategyLock 策略锁
+type StrategyLock struct {
+	mu              sync.Mutex
+	executing       bool
+	lastExecuteTime time.Time
+	minInterval     time.Duration
+}
+
+var strategyManager = &StrategyExecutionManager{}
+
+// TryExecuteStrategy 尝试执行策略（带并发控制）
+func (m *StrategyExecutionManager) TryExecuteStrategy(strategyID uint, minInterval time.Duration) (unlock func(), canExecute bool) {
+	// 获取或创建策略锁
+	lockInterface, _ := m.locks.LoadOrStore(strategyID, &StrategyLock{
+		minInterval: minInterval,
+	})
+	lock := lockInterface.(*StrategyLock)
+
+	lock.mu.Lock()
+
+	// 检查是否正在执行
+	if lock.executing {
+		lock.mu.Unlock()
+		return nil, false
+	}
+
+	// 检查执行间隔
+	if time.Since(lock.lastExecuteTime) < lock.minInterval {
+		lock.mu.Unlock()
+		return nil, false
+	}
+
+	// 标记为正在执行
+	lock.executing = true
+	lock.lastExecuteTime = time.Now()
+
+	// 返回解锁函数
+	unlock = func() {
+		lock.mu.Lock()
+		lock.executing = false
+		lock.mu.Unlock()
+	}
+
+	lock.mu.Unlock()
+	return unlock, true
+}
 
 // WebSocketManager 管理WebSocket连接
 type WebSocketManager struct {
@@ -178,7 +231,7 @@ func (m *WebSocketManager) updatePriceInDB(price float64) {
 	}()
 }
 
-// checkStrategies 检查并执行策略
+// checkStrategies 检查并执行策略（使用新的并发控制）
 func (m *WebSocketManager) checkStrategies(userID uint, currentPrice float64) {
 	// 获取用户信息
 	var user models.User
@@ -187,7 +240,19 @@ func (m *WebSocketManager) checkStrategies(userID uint, currentPrice float64) {
 		return
 	}
 
-	if user.APIKey == "" || user.SecretKey == "" {
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		log.Printf("解密用户 %d API Key失败: %v", userID, err)
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		log.Printf("解密用户 %d Secret Key失败: %v", userID, err)
+		return
+	}
+
+	if apiKey == "" || secretKey == "" {
 		return
 	}
 
@@ -205,20 +270,18 @@ func (m *WebSocketManager) checkStrategies(userID uint, currentPrice float64) {
 		return
 	}
 
-	client := binance.NewClient(user.APIKey, user.SecretKey)
+	client := binance.NewClient(apiKey, secretKey)
 
 	for _, strategy := range strategies {
-		// 使用策略锁防止重复执行
-		lockKey := fmt.Sprintf("strategy_%d", strategy.ID)
-		lock, _ := strategyLocks.LoadOrStore(lockKey, &sync.Mutex{})
-		mutex := lock.(*sync.Mutex)
-
-		if !mutex.TryLock() {
+		// 使用新的并发控制机制
+		unlock, canExecute := strategyManager.TryExecuteStrategy(strategy.ID, 30*time.Second)
+		if !canExecute {
 			continue
 		}
 
+		// 在goroutine中执行策略
 		go func(s models.Strategy) {
-			defer mutex.Unlock()
+			defer unlock()
 			m.executeStrategy(client, s, userID, currentPrice)
 		}(strategy)
 	}
@@ -240,21 +303,238 @@ func (m *WebSocketManager) executeStrategy(client *binance.Client, strategy mode
 		return
 	}
 
-	// 双重检查策略状态
+	// 双重检查策略状态（使用事务）
+	tx := m.cfg.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("策略执行恐慌: %v", r)
+		}
+	}()
+
 	var currentStrategy models.Strategy
-	if err := m.cfg.DB.First(&currentStrategy, strategy.ID).Error; err != nil {
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&currentStrategy, strategy.ID).Error; err != nil {
+		tx.Rollback()
 		log.Printf("查询策略 %d 失败: %v", strategy.ID, err)
 		return
 	}
 
 	if currentStrategy.PendingBatch || !currentStrategy.Enabled {
+		tx.Rollback()
 		log.Printf("策略 %d 已在执行中或已禁用，跳过", strategy.ID)
 		return
 	}
 
 	// 标记策略正在执行
-	if err := m.cfg.DB.Model(&strategy).Update("pending_batch", true).Error; err != nil {
+	if err := tx.Model(&currentStrategy).Update("pending_batch", true).Error; err != nil {
+		tx.Rollback()
 		log.Printf("更新策略 %d pending_batch 失败: %v", strategy.ID, err)
+		return
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("提交事务失败: %v", err)
+		return
+	}
+
+	// 获取市场深度
+	depth, err := client.NewDepthService().Symbol(strategy.Symbol).Limit(20).Do(context.Background())
+	if err != nil {
+		log.Printf("获取 %s 深度失败: %v", strategy.Symbol, err)
+		m.cfg.DB.Model(&strategy).Update("pending_batch", false)
+		return
+	}
+
+	// 执行下单
+	err = placeOrders(client, strategy, userID, currentPrice, depth, strategy.Side, m.cfg)
+	if err != nil {
+		log.Printf("策略 %d 下单失败: %v", strategy.ID, err)
+		m.cfg.DB.Model(&strategy).Update("pending_batch", false)
+	}
+}
+
+// StartPriceMonitoring 开始监控价格
+func StartPriceMonitoring(cfg *config.Config) {
+	if cfg.DB == nil {
+		log.Println("数据库未初始化，跳过价格监控")
+		return
+	}
+
+	// 查询所有需要监控的交易对
+	var symbols []models.CustomSymbol
+	if err := cfg.DB.Select("DISTINCT symbol, user_id").Where("deleted_at IS NULL").Find(&symbols).Error; err != nil {
+		log.Printf("获取自定义交易对失败: %v", err)
+		return
+	}
+
+	// 按交易对分组
+	symbolUsers := make(map[string][]uint)
+	for _, s := range symbols {
+		symbolUsers[s.Symbol] = append(symbolUsers[s.Symbol], s.UserID)
+	}
+
+	// 为每个交易对创建一个WebSocket连接
+	for symbol, users := range symbolUsers {
+		wsManager := &WebSocketManager{
+			symbol:   symbol,
+			stopChan: make(chan struct{}),
+			cfg:      cfg,
+		}
+
+		// 添加所有用户
+		for _, userID := range users {
+			wsManager.users.Store(userID, true)
+			MonitoredSymbols.Store(fmt.Sprintf("%s|%d", symbol, userID), true)
+		}
+
+		wsConnections.Store(symbol, wsManager)
+		go wsManager.start()
+
+		log.Printf("启动 %s 价格监控，共 %d 个用户", symbol, len(users))
+	}
+
+	// 启动清理任务
+	go cleanupInactiveConnections(cfg)
+}
+
+// cleanupInactiveConnections 清理不活跃的连接
+func cleanupInactiveConnections(cfg *config.Config) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		wsConnections.Range(func(symbol, value interface{}) bool {
+			manager := value.(*WebSocketManager)
+			activeUsers := 0
+
+			manager.users.Range(func(userID, _ interface{}) bool {
+				uid := userID.(uint)
+				// 检查用户是否还有活跃的策略
+				var count int64
+				cfg.DB.Model(&models.Strategy{}).Where(
+					"user_id = ? AND symbol = ? AND enabled = ? AND deleted_at IS NULL",
+					uid, symbol, true,
+				).Count(&count)
+
+				if count == 0 {
+					manager.users.Delete(userID)
+					MonitoredSymbols.Delete(fmt.Sprintf("%s|%d", symbol, uid))
+					log.Printf("移除用户 %d 对 %s 的监控", uid, symbol)
+				} else {
+					activeUsers++
+				}
+				return true
+			})
+
+			// 如果没有活跃用户，关闭连接
+			if activeUsers == 0 {
+				close(manager.stopChan)
+				wsConnections.Delete(symbol)
+				log.Printf("关闭 %s WebSocket 连接（无活跃用户）", symbol)
+			}
+
+			return true
+		})
+	}
+}
+// price.go 续...
+
+// 解密API密钥
+apiKey, err := user.GetDecryptedAPIKey()
+if err != nil {
+log.Printf("解密用户 %d API Key失败: %v", userID, err)
+return
+}
+secretKey, err := user.GetDecryptedSecretKey()
+if err != nil {
+log.Printf("解密用户 %d Secret Key失败: %v", userID, err)
+return
+}
+
+if apiKey == "" || secretKey == "" {
+return
+}
+
+// 查询用户的活跃策略
+var strategies []models.Strategy
+if err := m.cfg.DB.Where(
+"user_id = ? AND symbol = ? AND status = ? AND enabled = ? AND deleted_at IS NULL AND pending_batch = ?",
+userID, m.symbol, "active", true, false,
+).Find(&strategies).Error; err != nil {
+log.Printf("获取用户 %d 的 %s 策略失败: %v", userID, m.symbol, err)
+return
+}
+
+if len(strategies) == 0 {
+return
+}
+
+client := binance.NewClient(apiKey, secretKey)
+
+for _, strategy := range strategies {
+// 使用新的并发控制机制
+unlock, canExecute := strategyManager.TryExecuteStrategy(strategy.ID, 30*time.Second)
+if !canExecute {
+continue
+}
+
+// 在goroutine中执行策略
+go func(s models.Strategy) {
+defer unlock()
+m.executeStrategy(client, s, userID, currentPrice)
+}(strategy)
+}
+}
+
+// executeStrategy 执行策略 - 修复版本
+func (m *WebSocketManager) executeStrategy(client *binance.Client, strategy models.Strategy, userID uint, currentPrice float64) {
+	// 检查策略触发条件
+	shouldExecute := false
+	if strategy.Side == "SELL" && currentPrice >= strategy.Price {
+		shouldExecute = true
+		log.Printf("卖出策略 %d 触发: 当前价格 %.8f >= 触发价格 %.8f", strategy.ID, currentPrice, strategy.Price)
+	} else if strategy.Side == "BUY" && currentPrice <= strategy.Price {
+		shouldExecute = true
+		log.Printf("买入策略 %d 触发: 当前价格 %.8f <= 触发价格 %.8f", strategy.ID, currentPrice, strategy.Price)
+	}
+
+	if !shouldExecute {
+		return
+	}
+
+	// 双重检查策略状态（使用事务）
+	tx := m.cfg.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("策略执行恐慌: %v", r)
+		}
+	}()
+
+	var currentStrategy models.Strategy
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&currentStrategy, strategy.ID).Error; err != nil {
+		tx.Rollback()
+		log.Printf("查询策略 %d 失败: %v", strategy.ID, err)
+		return
+	}
+
+	if currentStrategy.PendingBatch || !currentStrategy.Enabled {
+		tx.Rollback()
+		log.Printf("策略 %d 已在执行中或已禁用，跳过", strategy.ID)
+		return
+	}
+
+	// 标记策略正在执行
+	if err := tx.Model(&currentStrategy).Update("pending_batch", true).Error; err != nil {
+		tx.Rollback()
+		log.Printf("更新策略 %d pending_batch 失败: %v", strategy.ID, err)
+		return
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("提交事务失败: %v", err)
 		return
 	}
 
@@ -359,7 +639,7 @@ func cleanupInactiveConnections(cfg *config.Config) {
 	}
 }
 
-// placeOrders 下单函数 - 支持自定义取消时间
+// placeOrders 下单函数 - 支持自定义取消时间（使用解密后的API密钥）
 func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, currentPrice float64, depth *binance.DepthResponse, side string, cfg *config.Config) error {
 	var quantities []float64
 	var depthLevels []float64
@@ -498,6 +778,7 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 		strategy.ID, successCount, len(priceLevels), cancelAfterMinutes)
 	return nil
 }
+// price.go 续...
 
 // PriceLevel 价格级别
 type PriceLevel struct {
