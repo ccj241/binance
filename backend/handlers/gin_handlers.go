@@ -77,32 +77,72 @@ func GinPricesHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-// GinBalanceHandler Gin版本的余额处理器
+// GinBalanceHandler Gin版本的余额处理器 - 修复版本
 func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
 		if err != nil {
+			log.Printf("获取用户失败: %v", err)
 			c.JSON(http.StatusNotFound, gin.H{"error": "用户未找到"})
 			return
 		}
 
+		log.Printf("获取用户 %d (%s) 的余额", user.ID, user.Username)
+
 		if user.APIKey == "" || user.SecretKey == "" {
+			log.Printf("用户 %d 未设置 API 密钥", user.ID)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "API 密钥未设置"})
 			return
 		}
 
+		// 创建币安客户端
 		client := binance.NewClient(user.APIKey, user.SecretKey)
-		account, err := client.NewGetAccountService().Do(context.Background())
+
+		// 设置超时上下文
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// 获取账户信息
+		account, err := client.NewGetAccountService().Do(ctx)
 		if err != nil {
-			log.Printf("获取账户信息失败: %v", err)
+			log.Printf("获取用户 %d 的账户信息失败: %v", user.ID, err)
+
+			// 检查具体的错误类型
+			errStr := err.Error()
+			if strings.Contains(errStr, "Invalid API-key") || strings.Contains(errStr, "API-key format invalid") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "API 密钥无效，请检查您的密钥"})
+				return
+			} else if strings.Contains(errStr, "Signature for this request is not valid") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Secret 密钥无效，请检查您的密钥"})
+				return
+			} else if strings.Contains(errStr, "Timestamp for this request") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "时间同步错误，请检查系统时间"})
+				return
+			} else if strings.Contains(errStr, "IP address is not allowed") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "IP 地址未在白名单中，请检查 API 设置"})
+				return
+			}
+
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取余额失败"})
 			return
 		}
 
+		// 处理余额数据
 		balances := make([]map[string]interface{}, 0)
 		for _, b := range account.Balances {
-			free, _ := strconv.ParseFloat(b.Free, 64)
-			locked, _ := strconv.ParseFloat(b.Locked, 64)
+			free, err := strconv.ParseFloat(b.Free, 64)
+			if err != nil {
+				log.Printf("解析 free 余额失败: asset=%s, value=%s, error=%v", b.Asset, b.Free, err)
+				continue
+			}
+
+			locked, err := strconv.ParseFloat(b.Locked, 64)
+			if err != nil {
+				log.Printf("解析 locked 余额失败: asset=%s, value=%s, error=%v", b.Asset, b.Locked, err)
+				continue
+			}
+
+			// 只返回有余额的资产
 			if free > 0 || locked > 0 {
 				balances = append(balances, map[string]interface{}{
 					"asset":  b.Asset,
@@ -112,6 +152,7 @@ func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 			}
 		}
 
+		log.Printf("成功获取用户 %d 的余额，共 %d 个资产有余额", user.ID, len(balances))
 		c.JSON(http.StatusOK, gin.H{"balances": balances})
 	}
 }
@@ -709,7 +750,6 @@ func GinAddSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-// GinDeleteSymbolHandler 删除交易对处理器
 // GinDeleteSymbolHandler 删除交易对处理器 - 修复版本
 func GinDeleteSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {

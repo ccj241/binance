@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"io"
@@ -31,8 +32,7 @@ func ValidationMiddleware() gin.HandlerFunc {
 		case strings.HasSuffix(path, "/api-key"):
 			validateAPIKey(c)
 		case strings.HasSuffix(path, "/strategy"):
-			// 策略验证交给处理器，中间件只做基本检查
-			c.Next()
+			validateStrategy(c)
 		case strings.HasSuffix(path, "/order"):
 			validateOrder(c)
 		case strings.HasSuffix(path, "/withdrawals") || strings.Contains(path, "/withdrawals/"):
@@ -45,8 +45,23 @@ func ValidationMiddleware() gin.HandlerFunc {
 
 // validateAPIKey 验证API密钥
 func validateAPIKey(c *gin.Context) {
+	// 读取请求体
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "读取请求体失败",
+			"details": err.Error(),
+		})
+		c.Abort()
+		return
+	}
+
+	// 重新设置请求体以供后续使用
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	// 解析JSON
 	var data map[string]interface{}
-	if err := c.ShouldBindJSON(&data); err != nil {
+	if err := json.Unmarshal(body, &data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "无效的请求数据",
 			"details": err.Error(),
@@ -94,8 +109,6 @@ func validateAPIKey(c *gin.Context) {
 		return
 	}
 
-	// 重新绑定数据以供后续使用
-	c.Set("validated_data", data)
 	c.Next()
 }
 
@@ -109,6 +122,9 @@ func validateStrategy(c *gin.Context) {
 		c.Abort()
 		return
 	}
+
+	// 重新设置请求体
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
@@ -181,8 +197,7 @@ func validateStrategy(c *gin.Context) {
 		})
 	}
 
-	// 验证自定义策略的额外参数 - 跳过中间件验证，让后端处理器处理
-	// 因为 Gin 的 JSON binding 会处理数组类型转换
+	// 验证自定义策略的额外参数
 	if strategyType == "custom" {
 		// 基本检查 - 确保至少有数量配置
 		if side == "BUY" {
@@ -211,15 +226,25 @@ func validateStrategy(c *gin.Context) {
 		return
 	}
 
-	// 重新设置请求体
-	c.Request.Body = &bodyReader{data: body}
 	c.Next()
 }
 
 // validateOrder 验证订单
 func validateOrder(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "读取请求体失败",
+		})
+		c.Abort()
+		return
+	}
+
+	// 重新设置请求体
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
 	var data map[string]interface{}
-	if err := c.ShouldBindJSON(&data); err != nil {
+	if err := json.Unmarshal(body, &data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "无效的请求数据",
 		})
@@ -279,7 +304,6 @@ func validateOrder(c *gin.Context) {
 		return
 	}
 
-	c.Set("validated_data", data)
 	c.Next()
 }
 
@@ -294,6 +318,9 @@ func validateWithdrawal(c *gin.Context) {
 		c.Abort()
 		return
 	}
+
+	// 重新设置请求体
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
@@ -371,9 +398,6 @@ func validateWithdrawal(c *gin.Context) {
 		return
 	}
 
-	// 重新设置请求体以供后续使用
-	c.Request.Body = &bodyReader{data: body}
-	c.Set("validated_data", data)
 	c.Next()
 }
 
@@ -416,23 +440,4 @@ func getFloat64(v interface{}) (float64, bool) {
 	default:
 		return 0, false
 	}
-}
-
-// bodyReader 用于重新读取请求体
-type bodyReader struct {
-	data []byte
-	pos  int
-}
-
-func (r *bodyReader) Read(p []byte) (n int, err error) {
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
-	}
-	n = copy(p, r.data[r.pos:])
-	r.pos += n
-	return n, nil
-}
-
-func (r *bodyReader) Close() error {
-	return nil
 }

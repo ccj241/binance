@@ -40,8 +40,8 @@ func (ctrl *UserController) getUserIDFromContext(c *gin.Context) (uint, error) {
 func (ctrl *UserController) SetAPIKey(c *gin.Context) {
 	var input APIKeyInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		log.Printf("无效的请求体: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误", "details": err.Error()})
+		log.Printf("绑定API密钥请求失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据", "details": err.Error()})
 		return
 	}
 

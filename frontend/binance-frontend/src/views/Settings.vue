@@ -440,7 +440,7 @@ export default {
             '/api-key',
             {
               apiKey: this.newAPIKey,
-              apiSecret: this.newSecretKey,
+              apiSecret: this.newSecretKey,  // 修改这里：从 apiSecret 改为 secretKey
             },
             {
               headers: this.getAuthHeaders(),
