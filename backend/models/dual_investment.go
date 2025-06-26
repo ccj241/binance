@@ -22,6 +22,7 @@ type DualInvestmentProduct struct {
 	BaseAsset      string    `gorm:"type:varchar(20)" json:"baseAsset"`               // 基础资产
 	QuoteAsset     string    `gorm:"type:varchar(20)" json:"quoteAsset"`              // 计价资产
 	CurrentPrice   float64   `json:"currentPrice" gorm:"comment:当前价格"`            // 当前市场价格
+	DepthLevel     int       `json:"depthLevel" gorm:"comment:深度级别"`              // 深度级别
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 }
@@ -50,15 +51,24 @@ type DualInvestmentStrategy struct {
 	// 价格触发策略参数
 	TriggerPrice float64 `json:"triggerPrice" gorm:"comment:触发价格"` // 触发价格
 	TriggerType  string  `gorm:"type:varchar(20)" json:"triggerType"`  // above/below
-	// 梯度策略参数 - 修改：不再使用百分比
-	LadderSteps       int        `json:"ladderSteps" gorm:"comment:梯度层数"`             // 梯度层数
-	LadderStepPercent float64    `json:"ladderStepPercent" gorm:"comment:已弃用"`         // 已弃用，保留字段兼容性
-	BasePrice         float64    `json:"basePrice" gorm:"comment:基准价格"`               // 梯度投资的基准价格
-	Enabled           bool       `gorm:"default:true" json:"enabled"`                     // 是否启用
-	Status            string     `gorm:"type:varchar(20);default:'active'" json:"status"` // active/paused/completed
-	LastExecutedAt    *time.Time `json:"lastExecutedAt" gorm:"comment:最后执行时间"`      // 最后执行时间
-	CreatedAt         time.Time  `json:"createdAt"`
-	UpdatedAt         time.Time  `json:"updatedAt"`
+	// 梯度策略参数 - 修改为JSON存储
+	LadderConfig   string     `gorm:"type:text" json:"ladderConfig" gorm:"comment:梯度配置JSON"` // 梯度配置JSON
+	BasePrice      float64    `json:"basePrice" gorm:"comment:基准价格"`                         // 梯度投资的基准价格
+	Enabled        bool       `gorm:"default:true" json:"enabled"`                               // 是否启用
+	Status         string     `gorm:"type:varchar(20);default:'active'" json:"status"`           // active/paused/completed
+	LastExecutedAt *time.Time `json:"lastExecutedAt" gorm:"comment:最后执行时间"`                // 最后执行时间
+	NextCheckTime  *time.Time `json:"nextCheckTime" gorm:"comment:下次检查时间"`                 // 下次检查时间
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+	// 废弃字段
+	LadderSteps       int     `json:"ladderSteps" gorm:"comment:已弃用"`       // 已弃用
+	LadderStepPercent float64 `json:"ladderStepPercent" gorm:"comment:已弃用"` // 已弃用
+}
+
+// LadderConfigItem 梯度配置项
+type LadderConfigItem struct {
+	MinDepth   int     `json:"minDepth"`   // 最小深度级别
+	Percentage float64 `json:"percentage"` // 投资百分比
 }
 
 // DualInvestmentOrder 双币投资订单

@@ -2,8 +2,10 @@ package tasks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -100,6 +102,9 @@ func doSyncProducts(cfg *config.Config) {
 				apyMultiplier := 1 + (float64(i) * 0.1) // 每层增加10%
 				apy := baseAPY * apyMultiplier
 
+				// 计算深度级别
+				depthLevel := i + 1
+
 				// 创建或更新产品
 				product := models.DualInvestmentProduct{
 					Symbol:         symbol,
@@ -115,6 +120,7 @@ func doSyncProducts(cfg *config.Config) {
 					BaseAsset:      baseAsset,
 					QuoteAsset:     quoteAsset,
 					CurrentPrice:   currentPrice,
+					DepthLevel:     depthLevel,
 				}
 
 				// 使用 ProductID 作为唯一标识
@@ -143,9 +149,11 @@ func executeDualInvestmentStrategies(cfg *config.Config) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// 查询所有启用的策略
+		// 查询所有启用的策略，需要检查的策略
 		var strategies []models.DualInvestmentStrategy
-		if err := cfg.DB.Where("enabled = ? AND status = ?", true, "active").
+		now := time.Now()
+		if err := cfg.DB.Where("enabled = ? AND status = ? AND (next_check_time IS NULL OR next_check_time <= ?)",
+			true, "active", now).
 			Find(&strategies).Error; err != nil {
 			log.Printf("查询双币投资策略失败: %v", err)
 			continue
@@ -236,84 +244,135 @@ func executeAutoReinvestStrategy(cfg *config.Config, strategy models.DualInvestm
 	}
 }
 
-// executeLadderStrategy 执行梯度投资策略 - 修复版本，使用币安的深度价格
+// executeLadderStrategy 执行梯度投资策略 - 完全重写版本
 func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStrategy, user models.User, symbol string) {
 	// 获取当前价格
 	client := binance.NewClient(user.APIKey, user.SecretKey)
 	prices, err := client.NewListPricesService().Symbol(symbol).Do(context.Background())
 	if err != nil || len(prices) == 0 {
+		log.Printf("获取 %s 价格失败: %v", symbol, err)
 		return
 	}
 
 	currentPrice, _ := strconv.ParseFloat(prices[0].Price, 64)
+	log.Printf("梯度策略 %d: %s 当前价格 %.2f, 基准价格 %.2f",
+		strategy.ID, symbol, currentPrice, strategy.BasePrice)
 
-	// 检查是否已经有足够的活跃订单
-	var existingOrders int64
-	cfg.DB.Model(&models.DualInvestmentOrder{}).
-		Where("strategy_id = ? AND status IN ? AND created_at > ?",
-			strategy.ID, []string{"pending", "active"}, time.Now().Add(-24*time.Hour)).
-		Count(&existingOrders)
-
-	if existingOrders >= int64(strategy.LadderSteps) {
-		return // 已经有足够的梯度订单
-	}
-
-	// 计算每层投资金额
-	totalAvailable := strategy.TotalInvestmentLimit - strategy.CurrentInvested
-	if totalAvailable <= 0 {
+	// 解析梯度配置
+	var ladderConfig []models.LadderConfigItem
+	if err := json.Unmarshal([]byte(strategy.LadderConfig), &ladderConfig); err != nil {
+		log.Printf("解析梯度配置失败: %v", err)
 		return
 	}
 
-	amountPerStep := totalAvailable / float64(strategy.LadderSteps-int(existingOrders))
-	if amountPerStep > strategy.MaxSingleAmount {
-		amountPerStep = strategy.MaxSingleAmount
+	if len(ladderConfig) == 0 {
+		log.Printf("梯度策略 %d 没有配置梯度参数", strategy.ID)
+		return
 	}
 
-	// 查询符合梯度要求的产品
-	var products []models.DualInvestmentProduct
+	// 根据方向偏好查询产品
 	query := cfg.DB.Where("symbol = ? AND status = ?", symbol, "active")
 
-	// 根据方向偏好筛选
+	// 基准价格过滤
 	if strategy.DirectionPreference == "UP" {
-		// 看涨：查找执行价低于当前价的产品
-		query = query.Where("direction = ? AND strike_price < ?", "UP", currentPrice)
-		query = query.Order("strike_price desc") // 从高到低排序
+		// 看涨：只选择执行价格 <= 基准价格的产品
+		query = query.Where("direction = ? AND strike_price <= ?", "UP", strategy.BasePrice)
 	} else if strategy.DirectionPreference == "DOWN" {
-		// 看跌：查找执行价高于当前价的产品
-		query = query.Where("direction = ? AND strike_price > ?", "DOWN", currentPrice)
-		query = query.Order("strike_price asc") // 从低到高排序
+		// 看跌：只选择执行价格 >= 基准价格的产品
+		query = query.Where("direction = ? AND strike_price >= ?", "DOWN", strategy.BasePrice)
 	} else {
-		// 双向：查找所有产品
-		query = query.Where("(direction = ? AND strike_price < ?) OR (direction = ? AND strike_price > ?)",
-			"UP", currentPrice, "DOWN", currentPrice)
-		// 按照与当前价格的距离排序
-		query = query.Order("ABS(strike_price - " + fmt.Sprintf("%.8f", currentPrice) + ") asc")
+		// 双向：根据方向选择
+		query = query.Where(
+			"(direction = ? AND strike_price <= ?) OR (direction = ? AND strike_price >= ?)",
+			"UP", strategy.BasePrice, "DOWN", strategy.BasePrice)
 	}
 
-	// 限制查询数量
-	query = query.Limit(strategy.LadderSteps - int(existingOrders))
+	// APY筛选
+	if strategy.TargetAPYMin > 0 {
+		query = query.Where("apy >= ?", strategy.TargetAPYMin)
+	}
+	if strategy.TargetAPYMax > 0 {
+		query = query.Where("apy <= ?", strategy.TargetAPYMax)
+	}
 
+	// 期限筛选
+	if strategy.MinDuration > 0 {
+		query = query.Where("duration >= ?", strategy.MinDuration)
+	}
+	if strategy.MaxDuration > 0 {
+		query = query.Where("duration <= ?", strategy.MaxDuration)
+	}
+
+	var products []models.DualInvestmentProduct
 	if err := query.Find(&products).Error; err != nil {
 		log.Printf("查询梯度产品失败: %v", err)
 		return
 	}
 
-	// 为每个产品创建订单
-	for i, product := range products {
-		if i >= strategy.LadderSteps-int(existingOrders) {
-			break
+	if len(products) == 0 {
+		log.Printf("没有找到符合条件的产品")
+		return
+	}
+
+	// 按深度级别排序产品
+	sort.Slice(products, func(i, j int) bool {
+		return products[i].DepthLevel < products[j].DepthLevel
+	})
+
+	// 根据梯度配置进行投资
+	totalInvested := 0.0
+	successCount := 0
+
+	for _, config := range ladderConfig {
+		// 查找符合深度要求的产品
+		var targetProduct *models.DualInvestmentProduct
+		for i := range products {
+			if products[i].DepthLevel >= config.MinDepth {
+				targetProduct = &products[i]
+				break
+			}
 		}
 
-		// 检查产品是否符合其他条件
-		if product.APY < strategy.TargetAPYMin ||
-			(strategy.TargetAPYMax > 0 && product.APY > strategy.TargetAPYMax) {
+		if targetProduct == nil {
+			log.Printf("没有找到深度 >= %d 的产品", config.MinDepth)
 			continue
 		}
 
-		createDualInvestmentOrder(cfg, user, strategy, &product, amountPerStep)
+		// 计算投资金额
+		investAmount := strategy.MaxSingleAmount * (config.Percentage / 100.0)
+
+		// 确保不超过剩余限额
+		remainingLimit := strategy.TotalInvestmentLimit - strategy.CurrentInvested - totalInvested
+		if investAmount > remainingLimit {
+			investAmount = remainingLimit
+		}
+
+		// 确保满足产品最小投资额
+		if investAmount < targetProduct.MinAmount {
+			log.Printf("投资金额 %.2f 小于产品最小额 %.2f，跳过", investAmount, targetProduct.MinAmount)
+			continue
+		}
+
+		// 确保不超过产品最大投资额
+		if investAmount > targetProduct.MaxAmount {
+			investAmount = targetProduct.MaxAmount
+		}
+
+		// 创建订单
+		if createDualInvestmentOrder(cfg, user, strategy, targetProduct, investAmount) {
+			totalInvested += investAmount
+			successCount++
+			log.Printf("梯度投资成功: 深度=%d, 执行价=%.2f, 年化=%.2f%%, 金额=%.2f",
+				targetProduct.DepthLevel, targetProduct.StrikePrice, targetProduct.APY, investAmount)
+		}
 	}
 
-	log.Printf("梯度策略 %d 执行完成，当前价格：%.2f", strategy.ID, currentPrice)
+	// 更新下次检查时间（10分钟后）
+	nextCheckTime := time.Now().Add(10 * time.Minute)
+	cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
+
+	log.Printf("梯度策略 %d 执行完成: 成功投资 %d 笔，总金额 %.2f，下次检查时间 %s",
+		strategy.ID, successCount, totalInvested, nextCheckTime.Format("15:04:05"))
 }
 
 // executePriceTriggerStrategy 执行价格触发策略

@@ -519,18 +519,79 @@
               </div>
 
               <!-- 梯度策略参数 -->
+              <!-- 替换原有的梯度策略参数部分 -->
               <template v-if="strategyForm.strategyType === 'ladder'">
-                <div class="form-group">
-                  <label class="form-label">梯度深度层数</label>
+                <div class="form-group full-width">
+                  <label class="form-label">基准价格（必填）</label>
                   <input
-                      v-model.number="strategyForm.ladderSteps"
+                      v-model.number="strategyForm.basePrice"
                       type="number"
                       class="form-control"
-                      min="1"
-                      max="10"
+                      min="0"
+                      step="0.01"
                       required
                   />
-                  <small class="form-hint">策略将自动选择币安提供的不同价格深度的产品进行投资</small>
+                  <small class="form-hint">
+                    看涨时只投资执行价格低于基准价格的产品，看跌时只投资执行价格高于基准价格的产品
+                  </small>
+                </div>
+
+                <div class="form-group full-width">
+                  <label class="form-label">梯度配置</label>
+                  <div class="ladder-config-container">
+                    <div v-for="(config, index) in strategyForm.ladderConfig" :key="index" class="ladder-config-item">
+                      <div class="config-inputs">
+                        <div class="input-group">
+                          <label>深度 ≥</label>
+                          <input
+                              v-model.number="config.minDepth"
+                              type="number"
+                              class="form-control"
+                              min="1"
+                              max="20"
+                              required
+                          />
+                        </div>
+                        <div class="input-group">
+                          <label>投资</label>
+                          <input
+                              v-model.number="config.percentage"
+                              type="number"
+                              class="form-control"
+                              min="0"
+                              max="100"
+                              step="0.1"
+                              required
+                          />
+                          <span class="input-suffix">%</span>
+                        </div>
+                      </div>
+                      <button
+                          type="button"
+                          @click="removeLadderConfig(index)"
+                          class="btn btn-sm btn-danger"
+                          :disabled="strategyForm.ladderConfig.length <= 1"
+                      >
+                        删除
+                      </button>
+                    </div>
+
+                    <button
+                        type="button"
+                        @click="addLadderConfig"
+                        class="btn btn-sm btn-outline"
+                    >
+                      + 添加梯度
+                    </button>
+
+                    <div class="ladder-summary">
+                      总投资百分比：{{ totalLadderPercentage.toFixed(1) }}%
+                      <span v-if="totalLadderPercentage > 100" class="text-danger">（超过100%）</span>
+                    </div>
+                  </div>
+                  <small class="form-hint">
+                    配置示例：深度≥1投资10%，深度≥2投资20%，深度≥4投资30%，深度≥6投资40%
+                  </small>
                 </div>
               </template>
 
@@ -695,6 +756,12 @@ export default {
           this.investAmount <= (this.selectedProduct.maxAmount || Infinity);
     }
   },
+  totalLadderPercentage() {
+    if (!this.strategyForm.ladderConfig || this.strategyForm.ladderConfig.length === 0) {
+      return 0;
+    }
+    return this.strategyForm.ladderConfig.reduce((sum, config) => sum + (config.percentage || 0), 0);
+  },
 
   mounted() {
     this.fetchStrategies();
@@ -703,6 +770,7 @@ export default {
     this.updateSymbolPrices();
     this.fetchSymbolProductCounts();
   },
+
 
   methods: {
     // 通用方法
@@ -913,17 +981,43 @@ export default {
         basePrice: null,
         triggerPrice: null,
         triggerType: 'above',
-        ladderSteps: 5
+        ladderConfig: [
+          { minDepth: 1, percentage: 40 },
+          { minDepth: 2, percentage: 30 },
+          { minDepth: 4, percentage: 20 },
+          { minDepth: 6, percentage: 10 }
+        ]
       };
     },
 
     async saveStrategy() {
       try {
+        // 验证梯度配置
+        if (this.strategyForm.strategyType === 'ladder') {
+          if (!this.strategyForm.basePrice || this.strategyForm.basePrice <= 0) {
+            this.showToast('梯度策略必须设置基准价格', 'error');
+            return;
+          }
+
+          if (this.totalLadderPercentage > 100) {
+            this.showToast('梯度投资总百分比不能超过100%', 'error');
+            return;
+          }
+
+          // 验证梯度配置有效性
+          for (let config of this.strategyForm.ladderConfig) {
+            if (config.minDepth <= 0 || config.percentage <= 0) {
+              this.showToast('梯度配置无效，请检查深度和百分比', 'error');
+              return;
+            }
+          }
+        }
+
         // 根据策略类型清理不必要的参数
         const formData = { ...this.strategyForm };
 
         if (formData.strategyType !== 'ladder') {
-          delete formData.ladderSteps;
+          delete formData.ladderConfig;
         }
 
         if (formData.strategyType !== 'price_trigger') {
@@ -951,6 +1045,14 @@ export default {
         this.showToast(error.response?.data?.error || '保存策略失败', 'error');
       }
     },
+    // 修改显示梯度信息的方法
+    getStrategyInfoDisplay(strategy) {
+      if (strategy.strategyType === 'ladder' && strategy.basePrice > 0) {
+        return `基准价格: ${this.formatPrice(strategy.basePrice)}`;
+      }
+      return '';
+    }
+  },
 
     editStrategy(strategy) {
       this.showStrategyModal(strategy);
@@ -1018,8 +1120,23 @@ export default {
       } catch (error) {
         console.error('获取统计信息失败:', error);
       }
-    }
-  }
+    },
+    // 添加梯度配置
+    addLadderConfig() {
+      const lastConfig = this.strategyForm.ladderConfig[this.strategyForm.ladderConfig.length - 1];
+      const newDepth = lastConfig ? lastConfig.minDepth + 1 : 1;
+      this.strategyForm.ladderConfig.push({
+        minDepth: newDepth,
+        percentage: 10
+      });
+    },
+
+    // 删除梯度配置
+    removeLadderConfig(index) {
+      if (this.strategyForm.ladderConfig.length > 1) {
+        this.strategyForm.ladderConfig.splice(index, 1);
+      }
+    },
 };
 </script>
 <style scoped>
@@ -2047,6 +2164,85 @@ export default {
   .btn-sm {
     flex: 1;
     min-width: 80px;
+  }
+}
+/* 梯度配置样式 */
+.ladder-config-container {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.ladder-config-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ladder-config-item:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.config-inputs {
+  flex: 1;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.config-inputs .input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.config-inputs .input-group label {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.config-inputs .input-group .form-control {
+  width: 80px;
+}
+
+.ladder-summary {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.text-danger {
+  color: var(--color-danger);
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .ladder-config-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .config-inputs {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .config-inputs .input-group {
+    justify-content: space-between;
+  }
+
+  .config-inputs .input-group .form-control {
+    width: auto;
+    flex: 1;
   }
 }
 </style>

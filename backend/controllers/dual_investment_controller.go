@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -69,11 +70,12 @@ func (ctrl *DualInvestmentController) CreateStrategy(c *gin.Context) {
 		MaxDuration          int     `json:"maxDuration" binding:"min=1"`
 		MaxPositionRatio     float64 `json:"maxPositionRatio" binding:"min=0,max=100"`
 		AutoReinvest         bool    `json:"autoReinvest"`
+		BasePrice            float64 `json:"basePrice"` // 基准价格
 		// 价格触发策略参数
 		TriggerPrice float64 `json:"triggerPrice"`
 		TriggerType  string  `json:"triggerType"`
-		// 梯度策略参数 - 修改：移除百分比，使用深度层数
-		LadderSteps int `json:"ladderSteps"`
+		// 梯度策略参数 - 新的配置方式
+		LadderConfig []models.LadderConfigItem `json:"ladderConfig"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -106,10 +108,46 @@ func (ctrl *DualInvestmentController) CreateStrategy(c *gin.Context) {
 
 	// 梯度策略验证
 	if req.StrategyType == "ladder" {
-		if req.LadderSteps <= 0 || req.LadderSteps > 10 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "梯度层数必须在1-10之间"})
+		if len(req.LadderConfig) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "梯度策略需要配置梯度参数"})
 			return
 		}
+
+		// 验证梯度配置
+		totalPercentage := 0.0
+		for _, config := range req.LadderConfig {
+			if config.MinDepth <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "深度级别必须大于0"})
+				return
+			}
+			if config.Percentage <= 0 || config.Percentage > 100 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "投资百分比必须在0-100之间"})
+				return
+			}
+			totalPercentage += config.Percentage
+		}
+
+		if totalPercentage > 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "总投资百分比不能超过100%"})
+			return
+		}
+
+		// 梯度策略必须设置基准价格
+		if req.BasePrice <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "梯度策略必须设置基准价格"})
+			return
+		}
+	}
+
+	// 将梯度配置转换为JSON字符串
+	var ladderConfigJSON string
+	if req.StrategyType == "ladder" && len(req.LadderConfig) > 0 {
+		configBytes, err := json.Marshal(req.LadderConfig)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "处理梯度配置失败"})
+			return
+		}
+		ladderConfigJSON = string(configBytes)
 	}
 
 	// 创建策略
@@ -131,8 +169,8 @@ func (ctrl *DualInvestmentController) CreateStrategy(c *gin.Context) {
 		AutoReinvest:         req.AutoReinvest,
 		TriggerPrice:         req.TriggerPrice,
 		TriggerType:          req.TriggerType,
-		LadderSteps:          req.LadderSteps,
-		LadderStepPercent:    0, // 不再使用百分比
+		LadderConfig:         ladderConfigJSON,
+		BasePrice:            req.BasePrice,
 		Enabled:              true,
 		Status:               "active",
 	}
@@ -163,6 +201,17 @@ func (ctrl *DualInvestmentController) GetStrategies(c *gin.Context) {
 		return
 	}
 
+	// 解析梯度配置
+	for i := range strategies {
+		if strategies[i].StrategyType == "ladder" && strategies[i].LadderConfig != "" {
+			var config []models.LadderConfigItem
+			if err := json.Unmarshal([]byte(strategies[i].LadderConfig), &config); err == nil {
+				// 将解析后的配置作为额外字段返回
+				strategies[i].LadderConfig = "" // 清空原始JSON
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"strategies": strategies})
 }
 
@@ -179,13 +228,14 @@ func (ctrl *DualInvestmentController) UpdateStrategy(c *gin.Context) {
 	}
 
 	var req struct {
-		Enabled              *bool    `json:"enabled"`
-		TargetAPYMin         *float64 `json:"targetApyMin"`
-		TargetAPYMax         *float64 `json:"targetApyMax"`
-		MaxSingleAmount      *float64 `json:"maxSingleAmount"`
-		TotalInvestmentLimit *float64 `json:"totalInvestmentLimit"`
-		AutoReinvest         *bool    `json:"autoReinvest"`
-		LadderSteps          *int     `json:"ladderSteps"`
+		Enabled              *bool                     `json:"enabled"`
+		TargetAPYMin         *float64                  `json:"targetApyMin"`
+		TargetAPYMax         *float64                  `json:"targetApyMax"`
+		MaxSingleAmount      *float64                  `json:"maxSingleAmount"`
+		TotalInvestmentLimit *float64                  `json:"totalInvestmentLimit"`
+		AutoReinvest         *bool                     `json:"autoReinvest"`
+		BasePrice            *float64                  `json:"basePrice"`
+		LadderConfig         []models.LadderConfigItem `json:"ladderConfig"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -213,8 +263,33 @@ func (ctrl *DualInvestmentController) UpdateStrategy(c *gin.Context) {
 	if req.AutoReinvest != nil {
 		updates["auto_reinvest"] = *req.AutoReinvest
 	}
-	if req.LadderSteps != nil && strategy.StrategyType == "ladder" {
-		updates["ladder_steps"] = *req.LadderSteps
+	if req.BasePrice != nil {
+		updates["base_price"] = *req.BasePrice
+	}
+
+	// 更新梯度配置
+	if strategy.StrategyType == "ladder" && len(req.LadderConfig) > 0 {
+		// 验证梯度配置
+		totalPercentage := 0.0
+		for _, config := range req.LadderConfig {
+			if config.MinDepth <= 0 || config.Percentage <= 0 || config.Percentage > 100 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "无效的梯度配置"})
+				return
+			}
+			totalPercentage += config.Percentage
+		}
+
+		if totalPercentage > 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "总投资百分比不能超过100%"})
+			return
+		}
+
+		configBytes, err := json.Marshal(req.LadderConfig)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "处理梯度配置失败"})
+			return
+		}
+		updates["ladder_config"] = string(configBytes)
 	}
 
 	if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
