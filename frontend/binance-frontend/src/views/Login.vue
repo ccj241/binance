@@ -98,32 +98,6 @@
           <span>还没有账号？</span>
           <router-link to="/register" class="link">立即注册</router-link>
         </div>
-
-        <!-- 分隔线 -->
-        <div class="divider">
-          <span>或</span>
-        </div>
-
-        <!-- 演示账号 -->
-        <div class="demo-accounts">
-          <h3 class="demo-title">演示账号</h3>
-          <div class="demo-grid">
-            <div class="demo-card" @click="fillDemoAccount('admin', 'admin123')">
-              <span class="demo-icon">👨‍💼</span>
-              <div class="demo-info">
-                <p class="demo-role">管理员</p>
-                <p class="demo-credentials">admin / admin123</p>
-              </div>
-            </div>
-            <div class="demo-card" @click="fillDemoAccount('testuser', 'testpass')">
-              <span class="demo-icon">👤</span>
-              <div class="demo-info">
-                <p class="demo-role">测试用户</p>
-                <p class="demo-credentials">testuser / testpass</p>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- 页脚信息 -->
@@ -195,17 +169,6 @@ export default {
       } finally {
         this.isLoading = false;
       }
-    },
-
-    fillDemoAccount(username, password) {
-      this.username = username;
-      this.password = password;
-      this.error = '';
-      // 自动聚焦到登录按钮
-      this.$nextTick(() => {
-        const submitBtn = this.$el.querySelector('.submit-btn');
-        if (submitBtn) submitBtn.focus();
-      });
     },
   },
 };
@@ -475,89 +438,6 @@ export default {
   text-decoration: underline;
 }
 
-/* 分隔线 */
-.divider {
-  position: relative;
-  text-align: center;
-  margin: 1.5rem 0;
-}
-
-.divider::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background-color: var(--color-border);
-}
-
-.divider span {
-  position: relative;
-  padding: 0 1rem;
-  background-color: var(--color-bg);
-  color: var(--color-text-tertiary);
-  font-size: 0.75rem;
-}
-
-/* 演示账号 */
-.demo-accounts {
-  margin-top: 1.5rem;
-}
-
-.demo-title {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  margin: 0 0 0.75rem 0;
-  text-align: center;
-}
-
-.demo-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-
-.demo-card {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-normal);
-}
-
-.demo-card:hover {
-  background-color: var(--color-bg-tertiary);
-  border-color: var(--color-primary);
-}
-
-.demo-icon {
-  font-size: 1.5rem;
-}
-
-.demo-info {
-  flex: 1;
-}
-
-.demo-role {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  margin: 0 0 0.125rem 0;
-}
-
-.demo-credentials {
-  font-size: 0.75rem;
-  color: var(--color-text-tertiary);
-  margin: 0;
-  font-family: monospace;
-}
-
 /* 页脚 */
 .login-footer {
   text-align: center;
@@ -590,10 +470,6 @@ export default {
 @media (max-width: 480px) {
   .login-card {
     padding: 1.5rem;
-  }
-
-  .demo-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>
