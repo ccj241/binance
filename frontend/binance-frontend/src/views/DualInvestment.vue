@@ -254,9 +254,9 @@
               <span class="label">目标年化</span>
               <span class="value">{{ strategy.targetApyMin }}% - {{ strategy.targetApyMax }}%</span>
             </div>
-            <div class="info-row" v-if="strategy.strategyType === 'ladder'">
+            <div class="info-row" v-if="strategy.strategyType === 'ladder' && strategy.ladderConfig">
               <span class="label">梯度设置</span>
-              <span class="value">{{ strategy.ladderSteps }}层深度</span>
+              <span class="value">{{ strategy.ladderConfig.length }}层深度</span>
             </div>
             <div class="info-row">
               <span class="label">投资进度</span>
@@ -517,9 +517,7 @@
                 <label class="form-label">总投资限额</label>
                 <input v-model.number="strategyForm.totalInvestmentLimit" type="number" class="form-control" min="0" required />
               </div>
-
               <!-- 梯度策略参数 -->
-              <!-- 替换原有的梯度策略参数部分 -->
               <template v-if="strategyForm.strategyType === 'ladder'">
                 <div class="form-group full-width">
                   <label class="form-label">基准价格（必填）</label>
@@ -650,6 +648,7 @@
     </transition>
   </div>
 </template>
+
 <script>
 import axios from 'axios';
 
@@ -701,7 +700,12 @@ export default {
         basePrice: null,
         triggerPrice: null,
         triggerType: 'above',
-        ladderSteps: 5
+        ladderConfig: [
+          { minDepth: 1, percentage: 40 },
+          { minDepth: 2, percentage: 30 },
+          { minDepth: 4, percentage: 20 },
+          { minDepth: 6, percentage: 10 }
+        ]
       },
 
       // 订单相关
@@ -754,13 +758,14 @@ export default {
     isInvestValid() {
       return this.investAmount >= (this.selectedProduct.minAmount || 0) &&
           this.investAmount <= (this.selectedProduct.maxAmount || Infinity);
+    },
+
+    totalLadderPercentage() {
+      if (!this.strategyForm.ladderConfig || this.strategyForm.ladderConfig.length === 0) {
+        return 0;
+      }
+      return this.strategyForm.ladderConfig.reduce((sum, config) => sum + (config.percentage || 0), 0);
     }
-  },
-  totalLadderPercentage() {
-    if (!this.strategyForm.ladderConfig || this.strategyForm.ladderConfig.length === 0) {
-      return 0;
-    }
-    return this.strategyForm.ladderConfig.reduce((sum, config) => sum + (config.percentage || 0), 0);
   },
 
   mounted() {
@@ -770,7 +775,6 @@ export default {
     this.updateSymbolPrices();
     this.fetchSymbolProductCounts();
   },
-
 
   methods: {
     // 通用方法
@@ -939,7 +943,16 @@ export default {
         const response = await axios.get('/dual-investment/strategies', {
           headers: this.getAuthHeaders()
         });
-        this.strategies = response.data.strategies || [];
+
+        // 处理返回的策略数据
+        const strategies = response.data.strategies || [];
+        this.strategies = strategies.map(strategy => {
+          // 如果有解析后的梯度配置，使用它
+          if (strategy.parsedLadderConfig) {
+            strategy.ladderConfig = strategy.parsedLadderConfig;
+          }
+          return strategy;
+        });
       } catch (error) {
         console.error('获取策略失败:', error);
         this.showToast('获取策略失败', 'error');
@@ -949,7 +962,31 @@ export default {
     showStrategyModal(strategy = null) {
       if (strategy) {
         this.editingStrategy = strategy;
-        Object.assign(this.strategyForm, strategy);
+        // 复制策略数据到表单
+        Object.assign(this.strategyForm, {
+          strategyName: strategy.strategyName,
+          strategyType: strategy.strategyType,
+          baseAsset: strategy.baseAsset,
+          quoteAsset: strategy.quoteAsset,
+          directionPreference: strategy.directionPreference,
+          targetApyMin: strategy.targetApyMin,
+          targetApyMax: strategy.targetApyMax,
+          maxSingleAmount: strategy.maxSingleAmount,
+          totalInvestmentLimit: strategy.totalInvestmentLimit,
+          maxStrikePriceOffset: strategy.maxStrikePriceOffset || 10,
+          minDuration: strategy.minDuration || 1,
+          maxDuration: strategy.maxDuration || 30,
+          autoReinvest: strategy.autoReinvest || false,
+          basePrice: strategy.basePrice,
+          triggerPrice: strategy.triggerPrice,
+          triggerType: strategy.triggerType || 'above',
+          ladderConfig: strategy.ladderConfig || [
+            { minDepth: 1, percentage: 40 },
+            { minDepth: 2, percentage: 30 },
+            { minDepth: 4, percentage: 20 },
+            { minDepth: 6, percentage: 10 }
+          ]
+        });
       } else {
         this.editingStrategy = null;
         this.resetStrategyForm();
@@ -989,7 +1026,6 @@ export default {
         ]
       };
     },
-
     async saveStrategy() {
       try {
         // 验证梯度配置
@@ -1013,16 +1049,33 @@ export default {
           }
         }
 
-        // 根据策略类型清理不必要的参数
-        const formData = { ...this.strategyForm };
+        // 准备提交的数据
+        const formData = {
+          strategyName: this.strategyForm.strategyName,
+          strategyType: this.strategyForm.strategyType,
+          baseAsset: this.strategyForm.baseAsset,
+          quoteAsset: this.strategyForm.quoteAsset,
+          directionPreference: this.strategyForm.directionPreference,
+          targetApyMin: this.strategyForm.targetApyMin,
+          targetApyMax: this.strategyForm.targetApyMax,
+          maxSingleAmount: this.strategyForm.maxSingleAmount,
+          totalInvestmentLimit: this.strategyForm.totalInvestmentLimit,
+          maxStrikePriceOffset: this.strategyForm.maxStrikePriceOffset,
+          minDuration: this.strategyForm.minDuration,
+          maxDuration: this.strategyForm.maxDuration,
+          maxPositionRatio: this.strategyForm.maxPositionRatio || 0,
+          autoReinvest: this.strategyForm.autoReinvest,
+          basePrice: this.strategyForm.basePrice,
+        };
 
-        if (formData.strategyType !== 'ladder') {
-          delete formData.ladderConfig;
+        // 根据策略类型添加特定参数
+        if (this.strategyForm.strategyType === 'ladder') {
+          formData.ladderConfig = this.strategyForm.ladderConfig; // 直接传递数组
         }
 
-        if (formData.strategyType !== 'price_trigger') {
-          delete formData.triggerPrice;
-          delete formData.triggerType;
+        if (this.strategyForm.strategyType === 'price_trigger') {
+          formData.triggerPrice = this.strategyForm.triggerPrice;
+          formData.triggerType = this.strategyForm.triggerType;
         }
 
         if (this.editingStrategy) {
@@ -1045,14 +1098,6 @@ export default {
         this.showToast(error.response?.data?.error || '保存策略失败', 'error');
       }
     },
-    // 修改显示梯度信息的方法
-    getStrategyInfoDisplay(strategy) {
-      if (strategy.strategyType === 'ladder' && strategy.basePrice > 0) {
-        return `基准价格: ${this.formatPrice(strategy.basePrice)}`;
-      }
-      return '';
-    }
-  },
 
     editStrategy(strategy) {
       this.showStrategyModal(strategy);
@@ -1121,6 +1166,7 @@ export default {
         console.error('获取统计信息失败:', error);
       }
     },
+
     // 添加梯度配置
     addLadderConfig() {
       const lastConfig = this.strategyForm.ladderConfig[this.strategyForm.ladderConfig.length - 1];
@@ -1136,9 +1182,11 @@ export default {
       if (this.strategyForm.ladderConfig.length > 1) {
         this.strategyForm.ladderConfig.splice(index, 1);
       }
-    },
+    }
+  }
 };
 </script>
+
 <style scoped>
 /* 页面容器 */
 .dual-investment-container {
@@ -1963,6 +2011,7 @@ export default {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
+
 .input-suffix {
   padding: 0.625rem 0.875rem;
   background: var(--color-bg-tertiary);
@@ -1972,14 +2021,17 @@ export default {
   color: var(--color-text-secondary);
   font-size: 0.875rem;
 }
+
 .input-range {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
+
 .range-separator {
   color: var(--color-text-tertiary);
 }
+
 /* 风险提示 */
 .risk-warning {
   display: flex;
@@ -1990,22 +2042,27 @@ export default {
   border-radius: var(--radius-md);
   margin-top: 1rem;
 }
+
 .warning-icon {
   font-size: 1.25rem;
   flex-shrink: 0;
 }
+
 .risk-warning p {
   margin: 0;
   font-size: 0.875rem;
 }
+
 .risk-warning p:first-child {
   font-weight: 500;
   color: var(--color-warning);
 }
+
 .warning-text {
   color: var(--color-text-secondary);
   font-size: 0.75rem;
 }
+
 /* 额外的表单样式 */
 .form-hint {
   display: block;
@@ -2013,9 +2070,11 @@ export default {
   font-size: 0.75rem;
   color: var(--color-text-tertiary);
 }
+
 .full-width {
   grid-column: 1 / -1;
 }
+
 .checkbox-label {
   display: flex;
   align-items: center;
@@ -2023,149 +2082,13 @@ export default {
   cursor: pointer;
   font-weight: 500;
 }
+
 .checkbox-label input[type="checkbox"] {
   width: 16px;
   height: 16px;
   cursor: pointer;
 }
-/* Toast 消息 */
-.toast {
-  position: fixed;
-  bottom: 2rem;
-  right: 2rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1rem 1.5rem;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  font-weight: 500;
-  z-index: 1000;
-}
-.toast.success {
-  border-color: var(--color-success);
-  color: var(--color-success);
-}
-.toast.error {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
-}
-.toast.info {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-.toast-icon {
-  font-size: 1.25rem;
-}
-/* 动画 */
-.modal-enter-active,
-.modal-leave-active {
-  transition: all 0.3s ease;
-}
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-.modal-enter-from .modal-content,
-.modal-leave-to .modal-content {
-  transform: scale(0.95);
-}
-.toast-enter-active,
-.toast-leave-active {
-  transition: all 0.3s ease;
-}
-.toast-enter-from {
-  transform: translateX(100%);
-  opacity: 0;
-}
-.toast-leave-to {
-  transform: translateY(100%);
-  opacity: 0;
-}
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .stats-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-  .symbol-grid {
-    grid-template-columns: 1fr;
-  }
-  .filter-bar {
-    flex-wrap: wrap;
-  }
-  .products-list {
-    grid-template-columns: 1fr;
-  }
-  .strategies-grid {
-    grid-template-columns: 1fr;
-  }
-  .product-details {
-    grid-template-columns: 1fr;
-  }
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-  .section-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: stretch;
-  }
-  .data-table {
-    font-size: 0.75rem;
-  }
-  .data-table th,
-  .data-table td {
-    padding: 0.5rem;
-  }
-  .modal-content {
-    width: 95%;
-  }
-  .tab-nav {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .tab-nav::-webkit-scrollbar {
-    display: none;
-  }
-  .stat-card {
-    padding: 1rem;
-  }
-  .stat-icon {
-    width: 40px;
-    height: 40px;
-    font-size: 1.25rem;
-  }
-  .stat-value {
-    font-size: 1.25rem;
-  }
-}
-@media (max-width: 480px) {
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-  .content-section {
-    padding: 1rem;
-  }
-  .modal-body {
-    padding: 1rem;
-  }
-  .section-title {
-    font-size: 1.125rem;
-  }
-  .strategy-actions {
-    flex-wrap: wrap;
-  }
-  .btn-sm {
-    flex: 1;
-    min-width: 80px;
-  }
-}
+
 /* 梯度配置样式 */
 .ladder-config-container {
   background: var(--color-bg-secondary);
@@ -2224,8 +2147,150 @@ export default {
   color: var(--color-danger);
 }
 
-/* 响应式调整 */
+/* Toast 消息 */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  font-weight: 500;
+  z-index: 1000;
+}
+
+.toast.success {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.toast.error {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.toast.info {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.toast-icon {
+  font-size: 1.25rem;
+}
+
+/* 动画 */
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .modal-content,
+.modal-leave-to .modal-content {
+  transform: scale(0.95);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 0.3s ease;
+}
+
+.toast-enter-from {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.toast-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+/* 响应式设计 */
 @media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .symbol-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-bar {
+    flex-wrap: wrap;
+  }
+
+  .products-list {
+    grid-template-columns: 1fr;
+  }
+
+  .strategies-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-details {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+
+  .data-table {
+    font-size: 0.75rem;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 0.5rem;
+  }
+
+  .modal-content {
+    width: 95%;
+  }
+
+  .tab-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .tab-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .stat-card {
+    padding: 1rem;
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1.25rem;
+  }
+
+  .stat-value {
+    font-size: 1.25rem;
+  }
+
   .ladder-config-item {
     flex-direction: column;
     align-items: stretch;
@@ -2243,6 +2308,33 @@ export default {
   .config-inputs .input-group .form-control {
     width: auto;
     flex: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .content-section {
+    padding: 1rem;
+  }
+
+  .modal-body {
+    padding: 1rem;
+  }
+
+  .section-title {
+    font-size: 1.125rem;
+  }
+
+  .strategy-actions {
+    flex-wrap: wrap;
+  }
+
+  .btn-sm {
+    flex: 1;
+    min-width: 80px;
   }
 }
 </style>
