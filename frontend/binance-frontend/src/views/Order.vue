@@ -1,172 +1,177 @@
 <template>
   <div class="order-container">
-    <!-- 页面标题 -->
+    <!-- 页面头部 -->
     <div class="page-header">
-      <h1 class="page-title">
-        <span class="gradient-text">订单管理中心</span>
-      </h1>
-      <p class="page-subtitle">管理您的交易订单</p>
+      <h1 class="page-title">订单管理</h1>
+      <p class="page-description">管理您的交易订单</p>
+    </div>
+
+    <!-- 统计卡片 -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon">
+          <span>📊</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">总订单数</div>
+          <div class="stat-value">{{ allOrdersCount }}</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon pending">
+          <span>⏳</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">待处理</div>
+          <div class="stat-value">{{ pendingOrdersCount }}</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon success">
+          <span>✅</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">已成交</div>
+          <div class="stat-value">{{ filledOrdersCount }}</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon cancelled">
+          <span>❌</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">已取消</div>
+          <div class="stat-value">{{ cancelledOrdersCount }}</div>
+        </div>
+      </div>
     </div>
 
     <!-- 筛选和操作区 -->
     <div class="filter-section">
       <div class="filter-tabs">
-        <div class="tabs-wrapper">
-          <button
-              v-for="tab in filterTabs"
-              :key="tab.value"
-              @click="filterStatus = tab.value"
-              :class="['filter-tab', { active: filterStatus === tab.value }]"
-          >
-            <span class="tab-icon">{{ tab.icon }}</span>
-            <span class="tab-label">{{ tab.label }}</span>
-            <span class="tab-count">{{ getFilterCount(tab.value) }}</span>
-          </button>
-          <div class="tab-indicator" :style="tabIndicatorStyle"></div>
-        </div>
+        <button
+            v-for="tab in filterTabs"
+            :key="tab.value"
+            @click="filterStatus = tab.value"
+            :class="['filter-tab', { active: filterStatus === tab.value }]"
+        >
+          <span class="tab-icon">{{ tab.icon }}</span>
+          <span>{{ tab.label }}</span>
+          <span class="tab-count">{{ getFilterCount(tab.value) }}</span>
+        </button>
       </div>
 
-      <!-- 批量操作 -->
-      <div class="batch-actions" v-if="filterStatus === 'pending' && selectedOrders.length > 0">
-        <div class="selected-info">
-          <span class="selected-count">已选择 {{ selectedOrders.length }} 个订单</span>
+      <div class="filter-controls">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="搜索订单..."
+              class="search-input"
+          />
         </div>
-        <button @click="batchCancelOrders" class="batch-cancel-btn">
-          <i>🗑️</i>
-          批量取消
+        <button @click="fetchOrders" class="refresh-btn">
+          <span>🔄</span>
+          刷新
         </button>
       </div>
     </div>
 
-    <!-- 订单统计卡片 -->
-    <div class="stats-grid">
-      <div class="stat-card total">
-        <div class="stat-icon">📊</div>
-        <div class="stat-content">
-          <div class="stat-value">{{ allOrdersCount }}</div>
-          <div class="stat-label">总订单数</div>
+    <!-- 批量操作 -->
+    <transition name="slide">
+      <div v-if="filterStatus === 'pending' && selectedOrders.length > 0" class="batch-actions">
+        <div class="selected-info">
+          <span class="checkbox-icon">☑️</span>
+          <span>已选择 {{ selectedOrders.length }} 个订单</span>
         </div>
+        <button @click="batchCancelOrders" class="btn btn-danger btn-sm">
+          <span>🗑️</span>
+          批量取消
+        </button>
       </div>
-      <div class="stat-card pending">
-        <div class="stat-icon">⏳</div>
-        <div class="stat-content">
-          <div class="stat-value">{{ pendingOrdersCount }}</div>
-          <div class="stat-label">待处理</div>
-        </div>
-      </div>
-      <div class="stat-card filled">
-        <div class="stat-icon">✅</div>
-        <div class="stat-content">
-          <div class="stat-value">{{ filledOrdersCount }}</div>
-          <div class="stat-label">已成交</div>
-        </div>
-      </div>
-      <div class="stat-card cancelled">
-        <div class="stat-icon">❌</div>
-        <div class="stat-content">
-          <div class="stat-value">{{ cancelledOrdersCount }}</div>
-          <div class="stat-label">已取消</div>
-        </div>
-      </div>
-    </div>
+    </transition>
 
     <!-- 订单列表 -->
     <div class="orders-section">
-      <div class="section-header">
-        <h2 class="section-title">订单列表</h2>
-        <div class="controls">
-          <div class="search-box">
-            <i class="search-icon">🔍</i>
-            <input
-                v-model="searchQuery"
-                type="text"
-                placeholder="搜索订单..."
-                class="search-input"
-            >
-          </div>
-          <button @click="fetchOrders" class="refresh-btn">
-            <i>🔄</i>
-            刷新
-          </button>
-        </div>
-      </div>
-
       <div v-if="filteredOrders.length === 0" class="empty-state">
         <div class="empty-icon">📋</div>
         <p class="empty-text">暂无{{ filterStatusText }}订单</p>
       </div>
 
-      <div v-else class="orders-grid">
+      <div v-else class="orders-list">
         <div v-for="order in paginatedOrders" :key="order.id" class="order-card">
           <!-- 选择框 -->
           <div v-if="filterStatus === 'pending'" class="order-select">
-            <input type="checkbox"
-                   :value="order.orderId || order.id"
-                   v-model="selectedOrders" />
+            <input
+                type="checkbox"
+                :value="order.orderId || order.id"
+                v-model="selectedOrders"
+                class="checkbox"
+            />
           </div>
 
           <!-- 订单头部 -->
           <div class="order-header">
             <div class="order-symbol">
-              <span class="symbol-text">{{ order.symbol }}</span>
+              <h3>{{ order.symbol }}</h3>
               <span :class="['side-badge', order.side.toLowerCase()]">
                 {{ order.side === 'BUY' ? '买入' : '卖出' }}
               </span>
             </div>
-            <div class="order-id">
-              <span class="id-label">ID:</span>
-              <span class="id-value">{{ order.orderId || order.id }}</span>
-            </div>
+            <span :class="['status-badge', order.status]">
+              {{ getStatusText(order.status) }}
+            </span>
           </div>
 
           <!-- 订单详情 -->
           <div class="order-details">
             <div class="detail-row">
               <div class="detail-item">
+                <span class="detail-label">订单ID</span>
+                <span class="detail-value">{{ order.orderId || order.id }}</span>
+              </div>
+              <div class="detail-item">
                 <span class="detail-label">价格</span>
-                <span class="detail-value price">{{ formatPrice(order.price) }}</span>
+                <span class="detail-value highlight">{{ formatPrice(order.price) }}</span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">数量</span>
                 <span class="detail-value">{{ formatQuantity(order.quantity) }}</span>
               </div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-item">
-                <span class="detail-label">状态</span>
-                <span :class="['status-badge', order.status]">
-                  {{ getStatusText(order.status) }}
-                </span>
-              </div>
               <div class="detail-item">
                 <span class="detail-label">总值</span>
-                <span class="detail-value total">{{ formatPrice(order.price * order.quantity) }}</span>
+                <span class="detail-value">{{ formatPrice(order.price * order.quantity) }}</span>
               </div>
             </div>
           </div>
 
           <!-- 时间信息 -->
           <div class="order-time">
-            <div class="time-item">
-              <span class="time-label">创建时间</span>
-              <span class="time-value">{{ formatDate(order.createdAt) }}</span>
-            </div>
-            <div class="time-item">
-              <span class="time-label">更新时间</span>
-              <span class="time-value">{{ formatDate(order.updatedAt) }}</span>
-            </div>
+            <span class="time-icon">🕐</span>
+            <span>创建于 {{ formatDate(order.createdAt) }}</span>
+            <span class="time-separator">•</span>
+            <span>更新于 {{ formatDate(order.updatedAt) }}</span>
           </div>
 
           <!-- 操作按钮 -->
           <div class="order-actions">
-            <button v-if="order.status === 'pending'"
-                    @click="cancelOrder(order.orderId || order.id)"
-                    class="action-btn cancel">
-              <i>❌</i>
+            <button
+                v-if="order.status === 'pending'"
+                @click="cancelOrder(order.orderId || order.id)"
+                class="btn btn-outline btn-sm"
+            >
+              <span>❌</span>
               取消订单
             </button>
-            <button @click="viewOrderDetails(order)" class="action-btn view">
-              <i>👁️</i>
+            <button
+                @click="viewOrderDetails(order)"
+                class="btn btn-outline btn-sm"
+            >
+              <span>👁️</span>
               查看详情
             </button>
           </div>
@@ -174,138 +179,181 @@
       </div>
 
       <!-- 分页 -->
-      <div class="pagination" v-if="filteredOrders.length > pageSize">
-        <button :disabled="currentPage === 1" @click="currentPage--" class="page-btn">
-          <i>⬅️</i>
+      <div v-if="filteredOrders.length > pageSize" class="pagination">
+        <button
+            :disabled="currentPage === 1"
+            @click="currentPage--"
+            class="page-btn"
+        >
+          <span>←</span>
           上一页
         </button>
         <div class="page-info">
           <span>第 {{ currentPage }} 页 / 共 {{ totalPages }} 页</span>
-          <span class="total-count">总计 {{ filteredOrders.length }} 条记录</span>
+          <span class="page-total">（共 {{ filteredOrders.length }} 条）</span>
         </div>
-        <button :disabled="currentPage === totalPages" @click="currentPage++" class="page-btn">
+        <button
+            :disabled="currentPage === totalPages"
+            @click="currentPage++"
+            class="page-btn"
+        >
           下一页
-          <i>➡️</i>
+          <span>→</span>
         </button>
       </div>
     </div>
 
-    <!-- 创建订单表单 -->
-    <div class="create-order-section">
-      <h2 class="section-title">
-        <span class="gradient-text">创建新订单</span>
-      </h2>
-
-      <div class="create-order-card">
-        <form @submit.prevent="createOrder" class="order-form">
-          <div class="form-grid">
-            <div class="form-group">
-              <label class="form-label">交易对</label>
-              <input v-model="newOrder.symbol"
-                     placeholder="如: BTCUSDT"
-                     @input="newOrder.symbol = newOrder.symbol.toUpperCase()"
-                     class="form-input"
-                     required />
-            </div>
-            <div class="form-group">
-              <label class="form-label">交易方向</label>
-              <select v-model="newOrder.side" class="form-select" required>
-                <option value="">选择方向</option>
-                <option value="BUY">买入</option>
-                <option value="SELL">卖出</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">价格</label>
-              <input v-model.number="newOrder.price"
-                     type="number"
-                     step="0.00000001"
-                     placeholder="限价单价格"
-                     class="form-input"
-                     required />
-            </div>
-            <div class="form-group">
-              <label class="form-label">数量</label>
-              <input v-model.number="newOrder.quantity"
-                     type="number"
-                     step="0.00000001"
-                     placeholder="交易数量"
-                     class="form-input"
-                     required />
-            </div>
-          </div>
-
-          <!-- 订单预览 -->
-          <div class="order-preview" v-if="newOrder.price > 0 && newOrder.quantity > 0">
-            <h3>订单预览</h3>
-            <div class="preview-details">
-              <div class="preview-item">
-                <span>订单总值:</span>
-                <span class="preview-value">{{ (newOrder.price * newOrder.quantity).toFixed(8) }} {{ getQuoteCurrency() }}</span>
-              </div>
-              <div class="preview-item">
-                <span>预估手续费:</span>
-                <span class="preview-value">{{ ((newOrder.price * newOrder.quantity) * 0.001).toFixed(8) }} {{ getQuoteCurrency() }}</span>
-              </div>
-            </div>
-          </div>
-
-          <button type="submit"
-                  :disabled="isCreatingOrder || !isFormValid"
-                  class="submit-btn">
-            <span v-if="isCreatingOrder" class="loading-spinner">⏳</span>
-            <span>{{ isCreatingOrder ? '创建中...' : '创建订单' }}</span>
-          </button>
-        </form>
+    <!-- 创建订单 -->
+    <div class="create-section">
+      <div class="section-header">
+        <h2 class="section-title">创建新订单</h2>
       </div>
+
+      <form @submit.prevent="createOrder" class="order-form">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">交易对</label>
+            <input
+                v-model="newOrder.symbol"
+                placeholder="如: BTCUSDT"
+                @input="newOrder.symbol = newOrder.symbol.toUpperCase()"
+                class="form-control"
+                required
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">交易方向</label>
+            <select v-model="newOrder.side" class="form-control" required>
+              <option value="">选择方向</option>
+              <option value="BUY">买入</option>
+              <option value="SELL">卖出</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">价格</label>
+            <input
+                v-model.number="newOrder.price"
+                type="number"
+                step="0.00000001"
+                placeholder="限价单价格"
+                class="form-control"
+                required
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">数量</label>
+            <input
+                v-model.number="newOrder.quantity"
+                type="number"
+                step="0.00000001"
+                placeholder="交易数量"
+                class="form-control"
+                required
+            />
+          </div>
+        </div>
+
+        <!-- 订单预览 -->
+        <transition name="fade">
+          <div v-if="newOrder.price > 0 && newOrder.quantity > 0" class="order-preview">
+            <h3 class="preview-title">订单预览</h3>
+            <div class="preview-content">
+              <div class="preview-item">
+                <span class="preview-label">订单总值</span>
+                <span class="preview-value">
+                  {{ (newOrder.price * newOrder.quantity).toFixed(8) }} {{ getQuoteCurrency() }}
+                </span>
+              </div>
+              <div class="preview-item">
+                <span class="preview-label">预估手续费</span>
+                <span class="preview-value">
+                  {{ ((newOrder.price * newOrder.quantity) * 0.001).toFixed(8) }} {{ getQuoteCurrency() }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </transition>
+
+        <button
+            type="submit"
+            :disabled="isCreatingOrder || !isFormValid"
+            class="submit-btn"
+        >
+          <span v-if="!isCreatingOrder">创建订单</span>
+          <span v-else class="btn-loading">
+            <span class="spinner"></span>
+            创建中...
+          </span>
+        </button>
+      </form>
     </div>
 
     <!-- 订单详情弹窗 -->
-    <div v-if="showOrderDetails" class="modal-overlay" @click="closeOrderDetails">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>订单详情</h3>
-          <button @click="closeOrderDetails" class="close-btn">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="detail-grid">
-            <div class="detail-item">
-              <label>订单ID:</label>
-              <span>{{ selectedOrderDetails.orderId }}</span>
+    <transition name="modal">
+      <div v-if="showOrderDetails" class="modal-overlay" @click="closeOrderDetails">
+        <div class="modal-content" @click.stop>
+          <div class="modal-header">
+            <h3 class="modal-title">订单详情</h3>
+            <button @click="closeOrderDetails" class="modal-close">×</button>
+          </div>
+
+          <div class="modal-body">
+            <div class="detail-grid">
+              <div class="detail-group">
+                <label>订单ID</label>
+                <span>{{ selectedOrderDetails.orderId }}</span>
+              </div>
+              <div class="detail-group">
+                <label>交易对</label>
+                <span>{{ selectedOrderDetails.symbol }}</span>
+              </div>
+              <div class="detail-group">
+                <label>方向</label>
+                <span :class="['side-badge', selectedOrderDetails.side?.toLowerCase()]">
+                  {{ selectedOrderDetails.side === 'BUY' ? '买入' : '卖出' }}
+                </span>
+              </div>
+              <div class="detail-group">
+                <label>价格</label>
+                <span>{{ formatPrice(selectedOrderDetails.price) }}</span>
+              </div>
+              <div class="detail-group">
+                <label>数量</label>
+                <span>{{ formatQuantity(selectedOrderDetails.quantity) }}</span>
+              </div>
+              <div class="detail-group">
+                <label>状态</label>
+                <span :class="['status-badge', selectedOrderDetails.status]">
+                  {{ getStatusText(selectedOrderDetails.status) }}
+                </span>
+              </div>
+              <div class="detail-group">
+                <label>创建时间</label>
+                <span>{{ new Date(selectedOrderDetails.createdAt).toLocaleString('zh-CN') }}</span>
+              </div>
+              <div class="detail-group">
+                <label>更新时间</label>
+                <span>{{ new Date(selectedOrderDetails.updatedAt).toLocaleString('zh-CN') }}</span>
+              </div>
             </div>
-            <div class="detail-item">
-              <label>交易对:</label>
-              <span>{{ selectedOrderDetails.symbol }}</span>
-            </div>
-            <div class="detail-item">
-              <label>方向:</label>
-              <span :class="['side-badge', selectedOrderDetails.side?.toLowerCase()]">
-                {{ selectedOrderDetails.side === 'BUY' ? '买入' : '卖出' }}
-              </span>
-            </div>
-            <div class="detail-item">
-              <label>价格:</label>
-              <span>{{ formatPrice(selectedOrderDetails.price) }}</span>
-            </div>
-            <div class="detail-item">
-              <label>数量:</label>
-              <span>{{ formatQuantity(selectedOrderDetails.quantity) }}</span>
-            </div>
-            <div class="detail-item">
-              <label>状态:</label>
-              <span :class="['status-badge', selectedOrderDetails.status]">
-                {{ getStatusText(selectedOrderDetails.status) }}
-              </span>
-            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button @click="closeOrderDetails" class="btn btn-primary">
+              关闭
+            </button>
           </div>
         </div>
       </div>
-    </div>
+    </transition>
 
-    <!-- 消息提示 -->
+    <!-- Toast 消息 -->
     <transition name="toast">
       <div v-if="toastMessage" :class="['toast', toastType]">
-        <i class="toast-icon">{{ toastType === 'success' ? '✅' : '❌' }}</i>
+        <span class="toast-icon">{{ toastType === 'success' ? '✓' : '×' }}</span>
         <span>{{ toastMessage }}</span>
       </div>
     </transition>
@@ -327,7 +375,7 @@ export default {
         quantity: 0
       },
       currentPage: 1,
-      pageSize: 12,
+      pageSize: 10,
       filterStatus: 'all',
       searchQuery: '',
       selectedOrders: [],
@@ -371,14 +419,17 @@ export default {
 
       return filtered;
     },
+
     paginatedOrders() {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
       return this.filteredOrders.slice(start, end);
     },
+
     totalPages() {
       return Math.ceil(this.filteredOrders.length / this.pageSize);
     },
+
     filterStatusText() {
       const texts = {
         'all': '',
@@ -388,33 +439,33 @@ export default {
       };
       return texts[this.filterStatus] || '';
     },
+
     allOrdersCount() {
       return this.orders.length;
     },
+
     pendingOrdersCount() {
       return this.orders.filter(o => o.status === 'pending').length;
     },
+
     filledOrdersCount() {
       return this.orders.filter(o => o.status === 'filled').length;
     },
+
     cancelledOrdersCount() {
       return this.orders.filter(o =>
           ['cancelled', 'expired', 'rejected'].includes(o.status)
       ).length;
     },
+
     isFormValid() {
       return this.newOrder.symbol &&
           this.newOrder.side &&
           this.newOrder.price > 0 &&
           this.newOrder.quantity > 0;
-    },
-    tabIndicatorStyle() {
-      const index = this.filterTabs.findIndex(f => f.value === this.filterStatus);
-      return {
-        transform: `translateX(${index * 100}%)`
-      };
     }
   },
+
   watch: {
     filterStatus() {
       this.currentPage = 1;
@@ -424,15 +475,18 @@ export default {
       this.currentPage = 1;
     }
   },
+
   mounted() {
     this.fetchOrders();
     this.refreshInterval = setInterval(this.fetchOrders, 30000);
   },
+
   beforeUnmount() {
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
     }
   },
+
   methods: {
     getAuthHeaders() {
       const token = localStorage.getItem('token');
@@ -602,299 +656,260 @@ export default {
 </script>
 
 <style scoped>
-/* 全局样式 */
+/* 页面容器 */
 .order-container {
-  min-height: 100vh;
-  background: #0f0f0f;
-  color: #ffffff;
-  padding: 2rem;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
-/* 页面标题 */
+/* 页面头部 */
 .page-header {
-  text-align: center;
-  margin-bottom: 3rem;
-}
-
-.page-title {
-  font-size: 3rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
-}
-
-.gradient-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.page-subtitle {
-  color: #666;
-  font-size: 1.1rem;
-}
-
-/* 筛选标签 */
-.filter-section {
   margin-bottom: 2rem;
 }
 
-.filter-tabs {
-  margin-bottom: 1rem;
+.page-title {
+  font-size: 1.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 0.5rem 0;
 }
 
-.tabs-wrapper {
-  display: flex;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
-  padding: 0.5rem;
-  position: relative;
-  gap: 0.5rem;
-}
-
-.filter-tab {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 1rem;
-  background: none;
-  border: none;
-  color: #999;
-  cursor: pointer;
-  border-radius: 12px;
-  transition: all 0.3s ease;
-  position: relative;
-  z-index: 1;
-}
-
-.filter-tab:hover {
-  color: #fff;
-}
-
-.filter-tab.active {
-  color: #fff;
-}
-
-.tab-icon {
-  font-size: 1.2rem;
-}
-
-.tab-count {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 0.2rem 0.6rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
-}
-
-.tab-indicator {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  width: calc(25% - 0.4rem);
-  height: calc(100% - 1rem);
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 12px;
-  transition: transform 0.3s ease;
-  z-index: 0;
-}
-
-/* 批量操作 */
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  margin-top: 1rem;
-}
-
-.selected-info {
-  color: #ccc;
-}
-
-.batch-cancel-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.8rem 1.5rem;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: white;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.batch-cancel-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(239, 68, 68, 0.4);
+.page-description {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
 }
 
 /* 统计卡片 */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 3rem;
+  gap: 1rem;
+  margin-bottom: 2rem;
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
   display: flex;
   align-items: center;
   gap: 1rem;
-  transition: all 0.3s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-5px);
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .stat-icon {
-  font-size: 2rem;
-  width: 60px;
-  height: 60px;
-  border-radius: 12px;
+  width: 48px;
+  height: 48px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
+  font-size: 1.5rem;
+}
+
+.stat-icon.pending {
+  background: #fef3c7;
+  color: #f59e0b;
+}
+
+.stat-icon.success {
+  background: #d1fae5;
+  color: #10b981;
+}
+
+.stat-icon.cancelled {
+  background: #fee2e2;
+  color: #ef4444;
 }
 
 .stat-content {
   flex: 1;
 }
 
-.stat-value {
-  font-size: 2rem;
-  font-weight: 700;
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
   margin-bottom: 0.25rem;
 }
 
-.stat-label {
-  color: #999;
-  font-size: 0.9rem;
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
-/* 订单区域 */
-.orders-section {
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 24px;
-  padding: 2rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  margin-bottom: 3rem;
-}
-
-.section-header {
+/* 筛选区域 */
+.filter-section {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2rem;
-}
-
-.section-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.controls {
-  display: flex;
   gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-tab {
+  padding: 0.625rem 1rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-tab:hover {
+  background: var(--color-bg-secondary);
+}
+
+.filter-tab.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.tab-icon {
+  font-size: 1rem;
+}
+
+.tab-count {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 0.125rem 0.375rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+}
+
+.filter-tab.active .tab-count {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.filter-controls {
+  display: flex;
+  gap: 0.75rem;
   align-items: center;
 }
 
 /* 搜索框 */
 .search-box {
   position: relative;
-  width: 300px;
 }
 
 .search-icon {
   position: absolute;
-  left: 1rem;
+  left: 0.875rem;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 1.2rem;
+  font-size: 1rem;
+  color: var(--color-text-tertiary);
 }
 
 .search-input {
-  width: 100%;
-  padding: 0.8rem 1rem 0.8rem 3rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  color: #fff;
-  font-size: 0.9rem;
-  transition: all 0.3s ease;
+  padding: 0.625rem 0.875rem 0.625rem 2.5rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  width: 240px;
+  transition: all var(--transition-normal);
 }
 
 .search-input:focus {
   outline: none;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #667eea;
-}
-
-.search-input::placeholder {
-  color: #666;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .refresh-btn {
+  padding: 0.625rem 1rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-normal);
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.8rem 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  color: #fff;
-  cursor: pointer;
-  transition: all 0.3s ease;
 }
 
 .refresh-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-bg-secondary);
 }
 
-/* 订单网格 */
-.orders-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 1.5rem;
+/* 批量操作 */
+.batch-actions {
+  background: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.selected-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #92400e;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.checkbox-icon {
+  font-size: 1.125rem;
+}
+
+/* 订单列表 */
+.orders-section {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .order-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 1.5rem;
-  transition: all 0.3s ease;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  transition: all var(--transition-normal);
   position: relative;
 }
 
 .order-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .order-select {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: 1.25rem;
+  left: 1.25rem;
 }
 
-.order-select input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+.checkbox {
+  width: 16px;
+  height: 16px;
   cursor: pointer;
 }
 
@@ -903,60 +918,74 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
+  padding-left: 2rem;
 }
 
 .order-symbol {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
-.symbol-text {
-  font-size: 1.2rem;
+.order-symbol h3 {
+  margin: 0;
+  font-size: 1.125rem;
   font-weight: 600;
+  color: var(--color-text-primary);
 }
 
+/* 徽章样式 */
 .side-badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
 .side-badge.buy {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: #d1fae5;
+  color: #065f46;
 }
 
 .side-badge.sell {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: #fee2e2;
+  color: #991b1b;
 }
 
-.order-id {
-  color: #666;
-  font-size: 0.9rem;
+.status-badge {
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
-.id-label {
-  color: #999;
+.status-badge.pending {
+  background: #fef3c7;
+  color: #92400e;
 }
 
-.id-value {
-  color: #ccc;
-  font-family: monospace;
+.status-badge.filled {
+  background: #d1fae5;
+  color: #065f46;
 }
 
+.status-badge.cancelled,
+.status-badge.expired,
+.status-badge.rejected {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* 订单详情 */
 .order-details {
-  margin-bottom: 1rem;
+  padding-left: 2rem;
+  margin-bottom: 0.75rem;
 }
 
 .detail-row {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
 }
 
 .detail-item {
@@ -966,203 +995,75 @@ export default {
 }
 
 .detail-label {
-  color: #666;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
 }
 
 .detail-value {
-  color: #ccc;
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
   font-weight: 500;
 }
 
-.detail-value.price {
-  color: #fbbf24;
-  font-family: monospace;
+.detail-value.highlight {
+  color: var(--color-primary);
 }
 
-.detail-value.total {
-  color: #22c55e;
-  font-family: monospace;
-}
-
-.status-badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 500;
-}
-
-.status-badge.pending {
-  background: rgba(255, 193, 7, 0.2);
-  color: #fbbf24;
-  border: 1px solid rgba(255, 193, 7, 0.3);
-}
-
-.status-badge.filled {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.3);
-}
-
-.status-badge.cancelled,
-.status-badge.expired,
-.status-badge.rejected {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
+/* 时间信息 */
 .order-time {
+  padding-left: 2rem;
+  margin-bottom: 0.75rem;
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
 }
 
-.time-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+.time-icon {
+  font-size: 0.875rem;
 }
 
-.time-label {
-  color: #666;
-  font-size: 0.8rem;
+.time-separator {
+  color: var(--color-border);
 }
 
-.time-value {
-  color: #ccc;
-  font-size: 0.9rem;
-}
-
+/* 操作按钮 */
 .order-actions {
+  padding-left: 2rem;
   display: flex;
   gap: 0.5rem;
 }
 
-.action-btn {
-  flex: 1;
-  padding: 0.75rem;
-  border: none;
-  border-radius: 10px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
+/* 创建订单 */
+.create-section {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
 }
 
-.action-btn.cancel {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+.section-header {
+  margin-bottom: 1.5rem;
 }
 
-.action-btn.cancel:hover {
-  background: rgba(239, 68, 68, 0.2);
-}
-
-.action-btn.view {
-  background: rgba(108, 117, 125, 0.1);
-  color: #94a3b8;
-  border: 1px solid rgba(108, 117, 125, 0.3);
-}
-
-.action-btn.view:hover {
-  background: rgba(108, 117, 125, 0.2);
-}
-
-/* 空状态 */
-.empty-state {
-  text-align: center;
-  padding: 4rem 2rem;
-}
-
-.empty-icon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
-  opacity: 0.3;
-}
-
-.empty-text {
-  color: #666;
-  font-size: 1.1rem;
-}
-
-/* 分页 */
-.pagination {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 2rem;
-  padding: 1rem;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 12px;
-}
-
-.page-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  color: #fff;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.page-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.page-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.page-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
-  color: #ccc;
-}
-
-.total-count {
-  font-size: 0.9rem;
-  color: #666;
-}
-
-/* 创建订单区域 */
-.create-order-section {
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 24px;
-  padding: 2rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.create-order-card {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
-  padding: 2rem;
+.section-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
 }
 
 .order-form {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.5rem;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 .form-group {
@@ -1172,122 +1073,222 @@ export default {
 }
 
 .form-label {
-  color: #ccc;
+  font-size: 0.875rem;
   font-weight: 500;
-  font-size: 0.9rem;
+  color: var(--color-text-primary);
 }
 
-.form-input,
-.form-select {
-  padding: 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  color: #fff;
-  font-size: 1rem;
-  transition: all 0.3s ease;
+.form-control {
+  padding: 0.625rem 0.875rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  transition: all var(--transition-normal);
 }
 
-.form-input:focus,
-.form-select:focus {
+.form-control:focus {
   outline: none;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-.form-input::placeholder {
-  color: #666;
-}
-
+/* 订单预览 */
 .order-preview {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  padding: 1.5rem;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  padding: 1rem;
 }
 
-.order-preview h3 {
-  margin: 0 0 1rem 0;
-  color: #ccc;
+.preview-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 0.75rem 0;
 }
 
-.preview-details {
+.preview-content {
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  gap: 2rem;
 }
 
 .preview-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.preview-label {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
 }
 
 .preview-value {
-  color: #22c55e;
-  font-weight: 600;
-  font-family: monospace;
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+  font-weight: 500;
 }
 
 .submit-btn {
-  padding: 1rem 2rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
-  border-radius: 12px;
+  padding: 0.75rem 1.5rem;
+  background: var(--color-primary);
   color: white;
-  font-size: 1rem;
-  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
+  transition: all var(--transition-normal);
+  align-self: flex-start;
 }
 
 .submit-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+  background: var(--color-primary-hover);
 }
 
 .submit-btn:disabled {
-  opacity: 0.6;
+  background: var(--color-secondary);
   cursor: not-allowed;
-  transform: none;
 }
 
-.loading-spinner {
-  animation: spin 1s linear infinite;
+/* 按钮样式 */
+.btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
 }
 
-/* 弹窗样式 */
+.btn-primary:hover {
+  background-color: var(--color-primary-hover);
+}
+
+.btn-outline {
+  background-color: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.btn-outline:hover {
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-text-tertiary);
+}
+
+.btn-danger {
+  background-color: var(--color-danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #dc2626;
+}
+
+.btn-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.btn-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 分页 */
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+
+.page-btn {
+  padding: 0.625rem 1rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: var(--color-bg-secondary);
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+.page-total {
+  color: var(--color-text-tertiary);
+  font-size: 0.75rem;
+}
+
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--color-text-tertiary);
+}
+
+.empty-icon {
+  font-size: 3rem;
+  display: block;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.empty-text {
+  font-size: 1rem;
+}
+
+/* 弹窗 */
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.8);
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(5px);
 }
 
 .modal-content {
-  background: rgba(15, 15, 15, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  max-width: 500px;
+  background: var(--color-bg);
+  border-radius: var(--radius-lg);
   width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-header {
@@ -1295,55 +1296,84 @@ export default {
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--color-border);
 }
 
-.modal-header h3 {
+.modal-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
   margin: 0;
-  color: #fff;
 }
 
-.close-btn {
-  background: none;
+.modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
   border: none;
-  color: #666;
+  border-radius: var(--radius-md);
+  color: var(--color-text-tertiary);
   font-size: 1.5rem;
   cursor: pointer;
-  padding: 0.5rem;
-  border-radius: 6px;
-  transition: all 0.3s ease;
+  transition: all var(--transition-fast);
 }
 
-.close-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+.modal-close:hover {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
 }
 
 .modal-body {
   padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-border);
 }
 
 .detail-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
 }
 
-.detail-grid .detail-item {
+.detail-group {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
-.detail-grid .detail-item label {
-  color: #666;
+.detail-group label {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
   font-weight: 500;
 }
 
-.detail-grid .detail-item span {
-  color: #ccc;
+.detail-group span {
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+}
+
+/* 加载动画 */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Toast 消息 */
@@ -1351,35 +1381,79 @@ export default {
   position: fixed;
   bottom: 2rem;
   right: 2rem;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 1rem 1.5rem;
-  border-radius: 12px;
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   font-weight: 500;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   z-index: 1000;
 }
 
 .toast.success {
-  border-color: rgba(34, 197, 94, 0.3);
-  background: rgba(34, 197, 94, 0.1);
+  border-color: var(--color-success);
+  color: var(--color-success);
 }
 
 .toast.error {
-  border-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .toast-icon {
-  font-size: 1.2rem;
+  font-size: 1.25rem;
 }
 
 /* 动画 */
-.toast-enter-active, .toast-leave-active {
+.slide-enter-active,
+.slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.slide-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.fade-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .modal-content,
+.modal-leave-to .modal-content {
+  transform: scale(0.95);
+}
+
+.toast-enter-active,
+.toast-leave-active {
   transition: all 0.3s ease;
 }
 
@@ -1395,39 +1469,53 @@ export default {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .order-container {
-    padding: 1rem;
-  }
-
-  .page-title {
-    font-size: 2rem;
-  }
-
   .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
+    grid-template-columns: 1fr 1fr;
   }
 
-  .orders-grid {
-    grid-template-columns: 1fr;
+  .filter-section {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-tabs {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .filter-controls {
+    width: 100%;
+  }
+
+  .search-input {
+    width: 100%;
   }
 
   .form-grid {
     grid-template-columns: 1fr;
   }
 
-  .section-header {
+  .order-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding-left: 1rem;
+  }
+
+  .order-details,
+  .order-time,
+  .order-actions {
+    padding-left: 1rem;
+  }
+
+  .detail-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .preview-content {
     flex-direction: column;
     gap: 1rem;
-    align-items: stretch;
-  }
-
-  .controls {
-    flex-direction: column;
-  }
-
-  .search-box {
-    width: 100%;
   }
 
   .pagination {
@@ -1435,18 +1523,8 @@ export default {
     gap: 1rem;
   }
 
-  .tabs-wrapper {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .filter-tab {
-    white-space: nowrap;
-    min-width: 120px;
-  }
-
-  .tab-indicator {
-    width: calc(25% - 0.4rem);
+  .modal-content {
+    width: 95%;
   }
 }
 </style>
