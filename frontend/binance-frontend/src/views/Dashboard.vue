@@ -61,7 +61,7 @@
           <i>📊</i> 实时价格监控
         </h2>
         <div class="section-actions">
-          <button @click="showAddSymbolModal = true" class="add-btn">
+          <button @click="openAddSymbolModal" class="add-btn">
             <i>+</i> 添加交易对
           </button>
         </div>
@@ -70,7 +70,7 @@
       <div v-if="Object.keys(prices).length === 0" class="empty-state">
         <div class="empty-icon">📉</div>
         <p>还未添加任何交易对</p>
-        <button @click="showAddSymbolModal = true" class="primary-btn">
+        <button @click="openAddSymbolModal" class="primary-btn">
           添加第一个交易对
         </button>
       </div>
@@ -79,7 +79,7 @@
         <div v-for="(price, symbol) in prices" :key="symbol" class="price-card">
           <div class="price-header">
             <h3>{{ symbol }}</h3>
-            <button @click="confirmDeleteSymbol(symbol)" class="delete-btn">
+            <button @click="confirmDeleteSymbol(symbol)" class="delete-btn" title="删除交易对">
               <i>×</i>
             </button>
           </div>
@@ -104,13 +104,19 @@
           <i>💼</i> 账户余额
         </h2>
         <div class="section-actions">
-          <button @click="fetchBalances" class="refresh-btn">
-            <i>🔄</i> 刷新
+          <button @click="fetchBalances" class="refresh-btn" :disabled="isLoadingBalances">
+            <i :class="isLoadingBalances ? 'spinning' : ''">🔄</i>
+            {{ isLoadingBalances ? '刷新中...' : '刷新' }}
           </button>
         </div>
       </div>
 
-      <div v-if="balances.length === 0" class="empty-state">
+      <div v-if="isLoadingBalances && balances.length === 0" class="loading-state">
+        <div class="loading-spinner"></div>
+        <p>加载余额中...</p>
+      </div>
+
+      <div v-else-if="balances.length === 0" class="empty-state">
         <div class="empty-icon">💳</div>
         <p>暂无余额信息</p>
       </div>
@@ -118,7 +124,7 @@
       <div v-else class="balance-grid">
         <div v-for="balance in filteredBalances" :key="balance.asset" class="balance-card">
           <div class="balance-header">
-            <img :src="getCoinIcon(balance.asset)" :alt="balance.asset" class="coin-icon">
+            <img :src="getCoinIcon(balance.asset)" :alt="balance.asset" class="coin-icon" @error="handleImageError">
             <h4>{{ balance.asset }}</h4>
           </div>
           <div class="balance-details">
@@ -157,7 +163,12 @@
         </div>
       </div>
 
-      <div v-if="filteredTrades.length === 0" class="empty-state">
+      <div v-if="isLoadingTrades && trades.length === 0" class="loading-state">
+        <div class="loading-spinner"></div>
+        <p>加载交易记录中...</p>
+      </div>
+
+      <div v-else-if="filteredTrades.length === 0" class="empty-state">
         <div class="empty-icon">📋</div>
         <p>暂无交易记录</p>
       </div>
@@ -207,63 +218,78 @@
     </section>
 
     <!-- 添加交易对弹窗 -->
-    <div v-if="showAddSymbolModal" class="modal-overlay" @click="showAddSymbolModal = false">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>添加交易对</h3>
-          <button @click="showAddSymbolModal = false" class="close-btn">×</button>
-        </div>
-        <div class="modal-body">
-          <input
-              v-model="newSymbol"
-              @keyup.enter="addSymbol"
-              placeholder="输入交易对 (如 BTCUSDT)"
-              class="modal-input"
-              ref="symbolInput"
-          />
-          <div class="popular-symbols">
-            <p>热门交易对：</p>
-            <div class="symbol-chips">
-              <button
-                  v-for="symbol in popularSymbols"
-                  :key="symbol"
-                  @click="newSymbol = symbol; addSymbol()"
-                  class="symbol-chip"
-              >
-                {{ symbol }}
-              </button>
+    <transition name="modal">
+      <div v-if="showAddSymbolModal" class="modal-overlay" @click.self="closeAddSymbolModal">
+        <div class="modal-content" @click.stop>
+          <div class="modal-header">
+            <h3>添加交易对</h3>
+            <button @click="closeAddSymbolModal" class="close-btn">×</button>
+          </div>
+          <div class="modal-body">
+            <input
+                v-model="newSymbol"
+                @keyup.enter="addSymbol"
+                placeholder="输入交易对 (如 BTCUSDT)"
+                class="modal-input"
+                ref="symbolInput"
+                :disabled="isAddingSymbol"
+            />
+            <div class="input-hint">
+              <i>💡</i> 提示：请输入完整的交易对名称，如 BTCUSDT、ETHUSDT 等
+            </div>
+            <div class="popular-symbols">
+              <p>热门交易对：</p>
+              <div class="symbol-chips">
+                <button
+                    v-for="symbol in popularSymbols"
+                    :key="symbol"
+                    @click="selectPopularSymbol(symbol)"
+                    class="symbol-chip"
+                    :disabled="isAddingSymbol"
+                >
+                  {{ symbol }}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="showAddSymbolModal = false" class="cancel-btn">取消</button>
-          <button @click="addSymbol" :disabled="!newSymbol || isAddingSymbol" class="confirm-btn">
-            {{ isAddingSymbol ? '添加中...' : '确认添加' }}
-          </button>
+          <div class="modal-footer">
+            <button @click="closeAddSymbolModal" class="cancel-btn" :disabled="isAddingSymbol">
+              取消
+            </button>
+            <button @click="addSymbol" :disabled="!newSymbol.trim() || isAddingSymbol" class="confirm-btn">
+              <i v-if="isAddingSymbol" class="spinning">⏳</i>
+              {{ isAddingSymbol ? '添加中...' : '确认添加' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </transition>
 
     <!-- 删除确认弹窗 -->
-    <div v-if="showDeleteConfirm" class="modal-overlay" @click="cancelDeleteSymbol">
-      <div class="modal-content danger" @click.stop>
-        <div class="modal-header">
-          <h3>确认删除</h3>
-          <button @click="cancelDeleteSymbol" class="close-btn">×</button>
-        </div>
-        <div class="modal-body">
-          <div class="warning-icon">⚠️</div>
-          <p>确定要删除交易对 <strong>{{ symbolToDelete }}</strong> 吗？</p>
-          <p class="warning-text">删除后将停止价格监控，相关的策略和订单数据不会被删除。</p>
-        </div>
-        <div class="modal-footer">
-          <button @click="cancelDeleteSymbol" class="cancel-btn">取消</button>
-          <button @click="deleteSymbol" class="danger-btn" :disabled="isDeletingSymbol">
-            {{ isDeletingSymbol ? '删除中...' : '确认删除' }}
-          </button>
+    <transition name="modal">
+      <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="cancelDeleteSymbol">
+        <div class="modal-content danger" @click.stop>
+          <div class="modal-header">
+            <h3>确认删除</h3>
+            <button @click="cancelDeleteSymbol" class="close-btn">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="warning-icon">⚠️</div>
+            <p>确定要删除交易对 <strong>{{ symbolToDelete }}</strong> 吗？</p>
+            <p class="warning-text">删除后将停止价格监控，相关的策略和订单数据不会被删除。</p>
+          </div>
+          <div class="modal-footer">
+            <button @click="cancelDeleteSymbol" class="cancel-btn" :disabled="isDeletingSymbol">
+              取消
+            </button>
+            <button @click="deleteSymbol" class="danger-btn" :disabled="isDeletingSymbol">
+              <i v-if="isDeletingSymbol" class="spinning">⏳</i>
+              {{ isDeletingSymbol ? '删除中...' : '确认删除' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </transition>
 
     <!-- Toast 消息 -->
     <transition name="toast">
@@ -292,12 +318,14 @@ export default {
 
       // 余额相关
       balances: [],
+      isLoadingBalances: false,
 
       // 交易相关
       trades: [],
       tradeFilter: 'all',
       currentPage: 1,
       pageSize: 10,
+      isLoadingTrades: false,
 
       // 统计数据
       totalAssetValue: 50000,
@@ -348,14 +376,19 @@ export default {
   },
   methods: {
     async initDashboard() {
-      await Promise.all([
-        this.fetchPrices(),
-        this.fetchBalances(),
-        this.fetchTrades(),
-      ]);
+      try {
+        await Promise.all([
+          this.fetchPrices(),
+          this.fetchBalances(),
+          this.fetchTrades(),
+        ]);
 
-      // 启动价格更新定时器
-      this.priceInterval = setInterval(this.fetchPrices, 5000);
+        // 启动价格更新定时器
+        this.priceInterval = setInterval(this.fetchPrices, 5000);
+      } catch (error) {
+        console.error('初始化仪表盘失败:', error);
+        this.showToast('初始化仪表盘失败', 'error');
+      }
     },
 
     getAuthHeaders() {
@@ -421,8 +454,14 @@ export default {
     },
 
     getCoinIcon(asset) {
-      // 这里可以返回真实的币种图标URL
-      return `https://cryptoicons.org/api/icon/${asset.toLowerCase()}/50`;
+      // 使用备用图标服务
+      const lowerAsset = asset.toLowerCase();
+      return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/${lowerAsset}.png`;
+    },
+
+    handleImageError(event) {
+      // 图片加载失败时使用默认图片
+      event.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="16" fill="%23667eea"/%3E%3Ctext x="16" y="20" text-anchor="middle" fill="white" font-family="Arial" font-size="14" font-weight="bold"%3E%3F%3C/text%3E%3C/svg%3E';
     },
 
     getBalanceValue(balance) {
@@ -475,10 +514,12 @@ export default {
         });
       } catch (error) {
         console.error('获取价格失败:', error);
+        // 不显示toast，避免频繁提示
       }
     },
 
     async fetchBalances() {
+      this.isLoadingBalances = true;
       try {
         const response = await axios.get('/balance', {
           headers: this.getAuthHeaders(),
@@ -487,10 +528,13 @@ export default {
       } catch (error) {
         console.error('获取余额失败:', error);
         this.showToast(error.response?.data?.error || '获取余额失败', 'error');
+      } finally {
+        this.isLoadingBalances = false;
       }
     },
 
     async fetchTrades() {
+      this.isLoadingTrades = true;
       try {
         const response = await axios.get('/trades', {
           headers: this.getAuthHeaders(),
@@ -500,29 +544,63 @@ export default {
       } catch (error) {
         console.error('获取交易记录失败:', error);
         this.showToast(error.response?.data?.error || '获取交易记录失败', 'error');
+      } finally {
+        this.isLoadingTrades = false;
       }
     },
 
+    openAddSymbolModal() {
+      this.showAddSymbolModal = true;
+      this.newSymbol = '';
+      // 等待DOM更新后聚焦输入框
+      this.$nextTick(() => {
+        if (this.$refs.symbolInput) {
+          this.$refs.symbolInput.focus();
+        }
+      });
+    },
+
+    closeAddSymbolModal() {
+      this.showAddSymbolModal = false;
+      this.newSymbol = '';
+      this.isAddingSymbol = false;
+    },
+
+    selectPopularSymbol(symbol) {
+      this.newSymbol = symbol;
+      this.addSymbol();
+    },
+
     async addSymbol() {
-      if (!this.newSymbol.trim()) {
+      const symbol = this.newSymbol.trim().toUpperCase();
+
+      if (!symbol) {
         this.showToast('请输入有效的交易对', 'error');
+        return;
+      }
+
+      // 检查是否已存在
+      if (this.prices[symbol]) {
+        this.showToast('该交易对已存在', 'error');
         return;
       }
 
       this.isAddingSymbol = true;
       try {
         const response = await axios.post('/symbols',
-            { symbol: this.newSymbol.toUpperCase() },
+            { symbol: symbol },
             { headers: this.getAuthHeaders() }
         );
 
-        this.showToast('交易对添加成功');
-        this.newSymbol = '';
-        this.showAddSymbolModal = false;
+        this.showToast(response.data.message || '交易对添加成功');
+        this.closeAddSymbolModal();
+
+        // 立即获取新的价格数据
         await this.fetchPrices();
       } catch (error) {
         console.error('添加交易对失败:', error);
-        this.showToast(error.response?.data?.error || '添加交易对失败', 'error');
+        const errorMessage = error.response?.data?.error || '添加交易对失败';
+        this.showToast(errorMessage, 'error');
       } finally {
         this.isAddingSymbol = false;
       }
@@ -549,15 +627,34 @@ export default {
           headers: this.getAuthHeaders()
         });
 
-        this.showToast('交易对删除成功');
+        this.showToast(response.data.message || '交易对删除成功');
+
+        // 从本地状态中删除
         delete this.prices[this.symbolToDelete];
         delete this.priceHistory[this.symbolToDelete];
+
         this.cancelDeleteSymbol();
-        await this.fetchPrices();
       } catch (error) {
         console.error('删除交易对失败:', error);
-        this.showToast(error.response?.data?.error || '删除交易对失败', 'error');
-      } finally {
+
+        // 详细的错误处理
+        let errorMessage = '删除交易对失败';
+        if (error.response?.data?.error) {
+          errorMessage = error.response.data.error;
+
+          // 特殊处理已知的错误类型
+          if (errorMessage.includes('检查策略失败')) {
+            errorMessage = '无法检查相关策略，请稍后重试';
+          } else if (errorMessage.includes('检查订单失败')) {
+            errorMessage = '无法检查相关订单，请稍后重试';
+          } else if (errorMessage.includes('存在') && errorMessage.includes('活跃策略')) {
+            // 保持原错误信息，它已经很清楚了
+          } else if (errorMessage.includes('存在') && errorMessage.includes('待处理订单')) {
+            // 保持原错误信息，它已经很清楚了
+          }
+        }
+
+        this.showToast(errorMessage, 'error');
         this.isDeletingSymbol = false;
       }
     },
@@ -847,6 +944,32 @@ section {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/* 加载状态 */
+.loading-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: #888;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #667eea;
+  border-radius: 50%;
+  margin: 0 auto 1rem;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
 /* 表格样式 */
 .trades-table-wrapper {
   background: rgba(255, 255, 255, 0.03);
@@ -935,9 +1058,15 @@ section {
   gap: 0.5rem;
 }
 
-.add-btn:hover, .refresh-btn:hover {
+.add-btn:hover, .refresh-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .primary-btn {
@@ -969,6 +1098,11 @@ section {
 
 .filter-select:hover {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #667eea;
 }
 
 /* 分页 */
@@ -1033,7 +1167,6 @@ section {
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  animation: fadeIn 0.3s ease-out;
 }
 
 .modal-content {
@@ -1043,7 +1176,6 @@ section {
   width: 90%;
   max-width: 500px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  animation: slideUp 0.3s ease-out;
 }
 
 .modal-content.danger {
@@ -1104,6 +1236,20 @@ section {
   border-color: #667eea;
 }
 
+.modal-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  color: #888;
+  font-size: 0.85rem;
+}
+
 .popular-symbols {
   margin-top: 1.5rem;
 }
@@ -1131,9 +1277,14 @@ section {
   font-size: 0.9rem;
 }
 
-.symbol-chip:hover {
+.symbol-chip:hover:not(:disabled) {
   background: rgba(102, 126, 234, 0.2);
   border-color: #667eea;
+}
+
+.symbol-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .warning-icon {
@@ -1169,8 +1320,13 @@ section {
   transition: all 0.3s ease;
 }
 
-.cancel-btn:hover {
+.cancel-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .confirm-btn {
@@ -1181,6 +1337,9 @@ section {
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .confirm-btn:hover:not(:disabled) {
@@ -1191,6 +1350,7 @@ section {
 .confirm-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
 }
 
 .danger-btn {
@@ -1201,6 +1361,9 @@ section {
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .danger-btn:hover:not(:disabled) {
@@ -1211,6 +1374,7 @@ section {
 .danger-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
 }
 
 /* Toast 消息 */
@@ -1288,6 +1452,20 @@ section {
   }
 }
 
+/* 弹窗过渡动画 */
+.modal-enter-active, .modal-leave-active {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from, .modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .modal-content,
+.modal-leave-to .modal-content {
+  transform: scale(0.9);
+}
+
 .toast-enter-active, .toast-leave-active {
   transition: all 0.3s ease;
 }
@@ -1336,6 +1514,17 @@ section {
 
   .modern-table {
     min-width: 600px;
+  }
+
+  .modal-content {
+    width: 95%;
+    margin: 1rem;
+  }
+
+  .toast {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
   }
 }
 </style>

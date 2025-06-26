@@ -123,6 +123,17 @@
                        placeholder="交易总数量"
                        required />
               </div>
+
+              <div class="form-group">
+                <label>订单取消时间（分钟）</label>
+                <input v-model.number="newStrategy.cancelAfterMinutes"
+                       type="number"
+                       min="1"
+                       max="10080"
+                       placeholder="默认120分钟"
+                       @blur="validateCancelTime" />
+                <small>订单将在指定时间后自动取消（1-10080分钟，最多7天）</small>
+              </div>
             </div>
 
             <!-- 策略说明 -->
@@ -204,6 +215,11 @@
             <!-- 订单预览 -->
             <div v-if="orderPreview.length > 0" class="order-preview">
               <h3>📋 订单预览</h3>
+              <div class="preview-info">
+                <span class="info-item">
+                  <i>⏰</i> 订单取消时间：{{ formatCancelTime(newStrategy.cancelAfterMinutes || 120) }}
+                </span>
+              </div>
               <div class="preview-grid">
                 <div v-for="(order, index) in orderPreview" :key="index" class="preview-card">
                   <div class="preview-header">
@@ -300,6 +316,10 @@
               <span class="meta-value">{{ strategy.totalQuantity }}</span>
             </div>
             <div class="meta-item">
+              <span class="meta-label">订单取消时间</span>
+              <span class="meta-value">{{ formatCancelTime(strategy.cancelAfterMinutes || 120) }}</span>
+            </div>
+            <div class="meta-item">
               <span class="meta-label">启用状态</span>
               <span :class="['enable-chip', strategy.enabled ? 'enabled' : 'disabled']">
                 <i>{{ strategy.enabled ? '✅' : '❌' }}</i>
@@ -388,6 +408,14 @@
             <div class="detail-card">
               <div class="detail-label">总数量</div>
               <div class="detail-value">{{ selectedStrategy.totalQuantity }}</div>
+            </div>
+            <div class="detail-card">
+              <div class="detail-label">订单取消时间</div>
+              <div class="detail-value">{{ formatCancelTime(selectedStrategy.cancelAfterMinutes || 120) }}</div>
+            </div>
+            <div class="detail-card">
+              <div class="detail-label">创建时间</div>
+              <div class="detail-value">{{ new Date(selectedStrategy.createdAt).toLocaleString('zh-CN') }}</div>
             </div>
           </div>
 
@@ -531,7 +559,8 @@ export default {
         strategyType: '',
         side: '',
         price: 0,
-        totalQuantity: 0
+        totalQuantity: 0,
+        cancelAfterMinutes: 120 // 默认120分钟
       },
       buyQuantitiesInput: '',
       buyBasisPointsInput: '',
@@ -587,6 +616,12 @@ export default {
       if (!this.newStrategy.symbol || !this.newStrategy.strategyType ||
           !this.newStrategy.side || this.newStrategy.price <= 0 ||
           this.newStrategy.totalQuantity <= 0) {
+        return false;
+      }
+
+      // 验证取消时间
+      const cancelTime = this.newStrategy.cancelAfterMinutes || 120;
+      if (cancelTime < 1 || cancelTime > 10080) {
         return false;
       }
 
@@ -682,6 +717,42 @@ export default {
       if (days < 365) return `${Math.floor(days / 30)}个月前`;
 
       return date.toLocaleDateString('zh-CN');
+    },
+
+    // 格式化取消时间
+    formatCancelTime(minutes) {
+      if (!minutes) minutes = 120;
+
+      if (minutes < 60) {
+        return `${minutes}分钟`;
+      } else if (minutes < 1440) {
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return mins > 0 ? `${hours}小时${mins}分钟` : `${hours}小时`;
+      } else {
+        const days = Math.floor(minutes / 1440);
+        const hours = Math.floor((minutes % 1440) / 60);
+        if (hours > 0) {
+          return `${days}天${hours}小时`;
+        }
+        return `${days}天`;
+      }
+    },
+
+    // 验证取消时间
+    validateCancelTime() {
+      if (!this.newStrategy.cancelAfterMinutes) {
+        this.newStrategy.cancelAfterMinutes = 120; // 设置默认值
+        return;
+      }
+
+      if (this.newStrategy.cancelAfterMinutes < 1) {
+        this.newStrategy.cancelAfterMinutes = 1;
+        this.showToast('取消时间最少为1分钟', 'error');
+      } else if (this.newStrategy.cancelAfterMinutes > 10080) {
+        this.newStrategy.cancelAfterMinutes = 10080;
+        this.showToast('取消时间最多为7天（10080分钟）', 'error');
+      }
     },
 
     getStrategyTypeText(type) {
@@ -853,6 +924,11 @@ export default {
       try {
         const strategyData = { ...this.newStrategy };
 
+        // 确保取消时间有值
+        if (!strategyData.cancelAfterMinutes) {
+          strategyData.cancelAfterMinutes = 120;
+        }
+
         if (this.newStrategy.strategyType === 'custom') {
           if (this.newStrategy.side === 'BUY') {
             strategyData.buyQuantities = this.buyQuantitiesInput.split(',').map(v => parseFloat(v.trim()));
@@ -957,7 +1033,8 @@ export default {
         strategyType: '',
         side: '',
         price: 0,
-        totalQuantity: 0
+        totalQuantity: 0,
+        cancelAfterMinutes: 120
       };
       this.buyQuantitiesInput = '';
       this.buyBasisPointsInput = '';
@@ -1304,9 +1381,25 @@ export default {
 }
 
 .order-preview h3 {
-  margin: 0 0 1.5rem 0;
+  margin: 0 0 1rem 0;
   color: #fff;
   font-size: 1.2rem;
+}
+
+.preview-info {
+  background: rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #a78bfa;
+  font-weight: 500;
 }
 
 .preview-grid {

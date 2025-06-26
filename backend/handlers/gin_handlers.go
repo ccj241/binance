@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"gorm.io/gorm"
 	"io"
 	"log"
 	"net/http"
@@ -709,6 +710,7 @@ func GinAddSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 }
 
 // GinDeleteSymbolHandler 删除交易对处理器
+// GinDeleteSymbolHandler 删除交易对处理器 - 修复版本
 func GinDeleteSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -735,8 +737,13 @@ func GinDeleteSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 
 		// 查找要删除的交易对
 		var symbol models.CustomSymbol
-		if err := cfg.DB.Where("user_id = ? AND symbol = ?", user.ID, symbolName).First(&symbol).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "交易对未找到"})
+		if err := cfg.DB.Where("user_id = ? AND symbol = ? AND deleted_at IS NULL", user.ID, symbolName).First(&symbol).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "交易对未找到"})
+				return
+			}
+			log.Printf("查询交易对失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "查询交易对失败"})
 			return
 		}
 
@@ -745,7 +752,8 @@ func GinDeleteSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 		if err := cfg.DB.Model(&models.Strategy{}).Where(
 			"user_id = ? AND symbol = ? AND enabled = ? AND deleted_at IS NULL",
 			user.ID, symbolName, true,
-		).Count(&activeStrategyCount); err != nil {
+		).Count(&activeStrategyCount).Error; err != nil {
+			log.Printf("检查策略失败: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "检查策略失败"})
 			return
 		}
@@ -762,7 +770,8 @@ func GinDeleteSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 		if err := cfg.DB.Model(&models.Order{}).Where(
 			"user_id = ? AND symbol = ? AND status = ? AND deleted_at IS NULL",
 			user.ID, symbolName, "pending",
-		).Count(&pendingOrderCount); err != nil {
+		).Count(&pendingOrderCount).Error; err != nil {
+			log.Printf("检查订单失败: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "检查订单失败"})
 			return
 		}
@@ -774,7 +783,7 @@ func GinDeleteSymbolHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 删除交易对
+		// 执行软删除
 		if err := cfg.DB.Delete(&symbol).Error; err != nil {
 			log.Printf("删除用户 %d 的交易对 %s 失败: %v", user.ID, symbolName, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "删除交易对失败"})
