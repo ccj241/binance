@@ -90,6 +90,10 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      '/dual-investment': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
     },
   },
 });

@@ -80,11 +80,28 @@
             <option value="BTCUSDT">BTC/USDT</option>
             <option value="ETHUSDT">ETH/USDT</option>
             <option value="BNBUSDT">BNB/USDT</option>
+            <option value="SOLUSDT">SOL/USDT</option>
+            <option value="ADAUSDT">ADA/USDT</option>
+            <option value="XRPUSDT">XRP/USDT</option>
+            <option value="DOTUSDT">DOT/USDT</option>
+            <option value="DOGEUSDT">DOGE/USDT</option>
+            <option value="AVAXUSDT">AVAX/USDT</option>
+            <option value="SHIBUSDT">SHIB/USDT</option>
+            <option value="MATICUSDT">MATIC/USDT</option>
+            <option value="LTCUSDT">LTC/USDT</option>
+            <option value="UNIUSDT">UNI/USDT</option>
+            <option value="LINKUSDT">LINK/USDT</option>
+            <option value="ATOMUSDT">ATOM/USDT</option>
+            <option value="ETCUSDT">ETC/USDT</option>
+            <option value="XLMUSDT">XLM/USDT</option>
+            <option value="NEARUSDT">NEAR/USDT</option>
+            <option value="ALGOUSDT">ALGO/USDT</option>
+            <option value="FILUSDT">FIL/USDT</option>
           </select>
           <select v-model="filters.direction" class="filter-select">
             <option value="">所有方向</option>
-            <option value="UP">看涨</option>
-            <option value="DOWN">看跌</option>
+            <option value="UP">低买(看涨)</option>
+            <option value="DOWN">高卖(看跌)</option>
           </select>
           <input
               v-model.number="filters.minApy"
@@ -114,7 +131,7 @@
             <div class="product-symbol">{{ product.symbol }}</div>
             <div :class="['product-direction', product.direction.toLowerCase()]">
               <i>{{ product.direction === 'UP' ? '📈' : '📉' }}</i>
-              {{ product.direction === 'UP' ? '看涨' : '看跌' }}
+              {{ product.direction === 'UP' ? '低买(看涨)' : '高卖(看跌)' }}
             </div>
           </div>
 
@@ -269,30 +286,31 @@
             <th>盈亏</th>
           </tr>
           </thead>
+          <!-- 我的订单表格部分 - 正确的代码 -->
           <tbody>
           <tr v-for="order in filteredOrders" :key="order.id">
             <td>{{ order.orderId }}</td>
             <td>{{ order.symbol }}</td>
             <td>
-                <span :class="['direction-badge', order.direction.toLowerCase()]">
-                  {{ order.direction === 'UP' ? '看涨' : '看跌' }}
-                </span>
+      <span :class="['direction-badge', order.direction.toLowerCase()]">
+        {{ order.direction === 'UP' ? '低买(看涨)' : '高卖(看跌)' }}
+      </span>
             </td>
             <td>{{ formatCurrency(order.investAmount) }} {{ order.investAsset }}</td>
             <td>{{ formatPrice(order.strikePrice) }}</td>
             <td>{{ order.apy.toFixed(2) }}%</td>
             <td>
-                <span :class="['status-badge', order.status]">
-                  {{ getStatusText(order.status) }}
-                </span>
+      <span :class="['status-badge', order.status]">
+        {{ getStatusText(order.status) }}
+      </span>
             </td>
             <td>{{ formatDate(order.settlementTime) }}</td>
             <td>
-                <span v-if="order.status === 'settled'"
-                      :class="order.pnl >= 0 ? 'positive' : 'negative'">
-                  {{ formatCurrency(order.pnl) }}
-                  ({{ order.pnlPercent?.toFixed(2) }}%)
-                </span>
+      <span v-if="order.status === 'settled'"
+            :class="order.pnl >= 0 ? 'positive' : 'negative'">
+        {{ formatCurrency(order.pnl) }}
+        ({{ order.pnlPercent?.toFixed(2) }}%)
+      </span>
               <span v-else>-</span>
             </td>
           </tr>
@@ -311,7 +329,7 @@
 
         <div class="modal-body">
           <div class="invest-product-info">
-            <h4>{{ selectedProduct.symbol }} - {{ selectedProduct.direction === 'UP' ? '看涨' : '看跌' }}</h4>
+            <h4>{{ selectedProduct.symbol }} - {{ selectedProduct.direction === 'UP' ? '低买(看涨)' : '高卖(看跌)' }}</h4>
             <div class="product-details">
               <div class="detail-row">
                 <span>年化收益率：</span>
@@ -398,6 +416,23 @@
                   <option value="BTC">BTC</option>
                   <option value="ETH">ETH</option>
                   <option value="BNB">BNB</option>
+                  <option value="SOL">SOL</option>
+                  <option value="ADA">ADA</option>
+                  <option value="XRP">XRP</option>
+                  <option value="DOT">DOT</option>
+                  <option value="DOGE">DOGE</option>
+                  <option value="AVAX">AVAX</option>
+                  <option value="SHIB">SHIB</option>
+                  <option value="MATIC">MATIC</option>
+                  <option value="LTC">LTC</option>
+                  <option value="UNI">UNI</option>
+                  <option value="LINK">LINK</option>
+                  <option value="ATOM">ATOM</option>
+                  <option value="ETC">ETC</option>
+                  <option value="XLM">XLM</option>
+                  <option value="NEAR">NEAR</option>
+                  <option value="ALGO">ALGO</option>
+                  <option value="FIL">FIL</option>
                 </select>
               </div>
 
@@ -412,8 +447,8 @@
               <div class="form-group">
                 <label>方向偏好</label>
                 <select v-model="strategyForm.directionPreference" required>
-                  <option value="UP">只做看涨</option>
-                  <option value="DOWN">只做看跌</option>
+                  <option value="UP">只做低买(看涨)</option>
+                  <option value="DOWN">只做高卖(看跌)</option>
                   <option value="BOTH">双向都做</option>
                 </select>
               </div>
@@ -736,8 +771,8 @@ export default {
 
     getDirectionText(direction) {
       const map = {
-        'UP': '看涨',
-        'DOWN': '看跌',
+        'UP': '低买(看涨)',
+        'DOWN': '高卖(看跌)',
         'BOTH': '双向'
       };
       return map[direction] || direction;
@@ -1185,6 +1220,11 @@ export default {
   color: #fff;
   font-size: 0.9rem;
   transition: all 0.3s ease;
+}
+
+.filter-select option {
+  background: #1a1a1a;
+  color: #fff;
 }
 
 .filter-select:focus,
@@ -1777,6 +1817,11 @@ input:checked + .slider:before {
   color: #fff;
   font-size: 0.9rem;
   transition: all 0.3s ease;
+}
+
+.form-group select option {
+  background: #1a1a1a;
+  color: #fff;
 }
 
 .form-group input:focus,

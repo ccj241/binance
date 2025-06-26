@@ -24,7 +24,7 @@ const routes = [
     {
         path: '/dual-investment',
         name: 'DualInvestment',
-        component: () => import('../views/DualInvestment.vue'),
+        component: () => import('./views/DualInvestment.vue'),
         meta: { requiresAuth: true }
     },
 ];
