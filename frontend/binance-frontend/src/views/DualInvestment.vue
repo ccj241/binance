@@ -1,181 +1,135 @@
 <template>
   <div class="dual-investment-container">
-    <!-- 页面标题 -->
+    <!-- 页面头部 -->
     <div class="page-header">
-      <h1 class="page-title">
-        <span class="gradient-text">双币投资</span>
-      </h1>
-      <p class="page-subtitle">高收益结构化理财产品</p>
+      <h1 class="page-title">双币投资</h1>
+      <p class="page-description">高收益结构化理财产品</p>
     </div>
 
     <!-- 统计卡片 -->
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
-          <i>💰</i>
+        <div class="stat-header">
+          <span class="stat-label">总投资金额</span>
+          <span class="stat-icon">💰</span>
         </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ formatCurrency(stats.totalInvested) }}</div>
-          <div class="stat-label">总投资金额</div>
-        </div>
-        <div class="stat-bg"></div>
+        <div class="stat-value">{{ formatCurrency(stats.totalInvested) }}</div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">
-          <i>📈</i>
+        <div class="stat-header">
+          <span class="stat-label">总盈亏</span>
+          <span class="stat-icon">📈</span>
         </div>
-        <div class="stat-content">
-          <div class="stat-value" :class="stats.totalPnL >= 0 ? 'positive' : 'negative'">
-            {{ formatCurrency(stats.totalPnL) }}
-          </div>
-          <div class="stat-label">总盈亏</div>
+        <div class="stat-value" :class="stats.totalPnL >= 0 ? 'positive' : 'negative'">
+          {{ stats.totalPnL >= 0 ? '+' : '' }}{{ formatCurrency(Math.abs(stats.totalPnL)) }}
         </div>
-        <div class="stat-bg"></div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%)">
-          <i>🎯</i>
+        <div class="stat-header">
+          <span class="stat-label">胜率</span>
+          <span class="stat-icon">🎯</span>
         </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ stats.winRate?.toFixed(1) || 0 }}%</div>
-          <div class="stat-label">胜率</div>
-        </div>
-        <div class="stat-bg"></div>
+        <div class="stat-value">{{ stats.winRate?.toFixed(1) || 0 }}%</div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">
-          <i>⚡</i>
+        <div class="stat-header">
+          <span class="stat-label">活跃订单</span>
+          <span class="stat-icon">⚡</span>
         </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ stats.activeOrders || 0 }}</div>
-          <div class="stat-label">活跃订单</div>
-        </div>
-        <div class="stat-bg"></div>
+        <div class="stat-value">{{ stats.activeOrders || 0 }}</div>
       </div>
     </div>
 
-    <!-- Tab 切换 -->
-    <div class="tabs">
+    <!-- Tab 导航 -->
+    <div class="tab-nav">
       <button
           v-for="tab in tabs"
           :key="tab.key"
           @click="activeTab = tab.key"
           :class="['tab-btn', { active: activeTab === tab.key }]"
       >
-        <i>{{ tab.icon }}</i>
         {{ tab.label }}
       </button>
     </div>
 
     <!-- 产品市场 -->
-    <div v-if="activeTab === 'market'" class="section">
-      <!-- 币对选择 -->
-      <div v-if="!selectedSymbol" class="symbol-selection">
-        <div class="section-header">
-          <h2 class="section-title">选择投资币对</h2>
-        </div>
-
-        <div class="symbols-grid">
-          <div
-              v-for="item in availableSymbols"
-              :key="item.symbol"
-              @click="selectSymbol(item.symbol)"
-              class="symbol-card"
-          >
-            <div class="symbol-icon">{{ item.icon }}</div>
-            <div class="symbol-name">{{ item.name }}</div>
-            <div class="symbol-info">
-              <span>查看投资产品 →</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 产品列表 -->
-      <div v-else>
-        <div class="section-header">
-          <h2 class="section-title">
-            <button @click="selectedSymbol = ''" class="back-btn">
-              ← 返回
-            </button>
-            {{ selectedSymbol.replace('USDT', '/USDT') }} 投资产品
-          </h2>
+    <div v-show="activeTab === 'market'" class="tab-content">
+      <div class="content-card">
+        <div class="card-header">
+          <h2 class="card-title">产品市场</h2>
           <div class="filters">
+            <select v-model="filters.symbol" class="filter-select">
+              <option value="">所有交易对</option>
+              <option value="BTCUSDT">BTC/USDT</option>
+              <option value="ETHUSDT">ETH/USDT</option>
+              <option value="BNBUSDT">BNB/USDT</option>
+              <option value="SOLUSDT">SOL/USDT</option>
+            </select>
             <select v-model="filters.direction" class="filter-select">
               <option value="">所有方向</option>
               <option value="UP">低买(看涨)</option>
               <option value="DOWN">高卖(看跌)</option>
             </select>
-            <input
-                v-model.number="filters.minApy"
-                type="number"
-                placeholder="最低年化 %"
-                class="filter-input"
-            />
-            <button @click="fetchProducts" class="filter-btn">
-              <i>🔍</i> 刷新
+            <button @click="fetchProducts" class="btn btn-primary">
+              搜索
             </button>
           </div>
         </div>
 
-        <div v-if="loadingProducts" class="loading">
-          <div class="loading-spinner"></div>
-          <p>加载产品中...</p>
-        </div>
+        <div class="card-body">
+          <div v-if="loadingProducts" class="loading-state">
+            <div class="spinner"></div>
+            <p>加载产品中...</p>
+          </div>
 
-        <div v-else-if="filteredProducts.length === 0" class="empty-state">
-          <div class="empty-icon">📦</div>
-          <p>暂无可投资产品</p>
-        </div>
+          <div v-else-if="products.length === 0" class="empty-state">
+            <span class="empty-icon">📦</span>
+            <p>暂无可投资产品</p>
+          </div>
 
-        <div v-else>
-          <!-- 按期限分组展示 -->
-          <div v-for="(group, duration) in groupedProducts" :key="duration" class="duration-group">
-            <h3 class="group-title">{{ duration }}天期限</h3>
+          <div v-else class="products-grid">
+            <div v-for="product in products" :key="product.id" class="product-card">
+              <div class="product-header">
+                <h3 class="product-symbol">{{ product.symbol }}</h3>
+                <span :class="['direction-badge', product.direction.toLowerCase()]">
+                  {{ product.direction === 'UP' ? '低买' : '高卖' }}
+                </span>
+              </div>
 
-            <div class="products-table">
-              <table>
-                <thead>
-                <tr>
-                  <th>方向</th>
-                  <th>执行价格</th>
-                  <th>距离现价</th>
-                  <th>年化收益率</th>
-                  <th>投资范围</th>
-                  <th>操作</th>
-                </tr>
-                </thead>
-                <tbody>
-                <tr v-for="product in group" :key="product.id">
-                  <td>
-                  <span :class="['direction-badge', product.direction.toLowerCase()]">
-                    {{ product.direction === 'UP' ? '低买' : '高卖' }}
-                  </span>
-                  </td>
-                  <td>{{ formatPrice(product.strikePrice) }}</td>
-                  <td>
-                  <span :class="getPriceDistanceClass(product)">
-                    {{ getPriceDistance(product) }}%
-                  </span>
-                  </td>
-                  <td class="apy-value">{{ product.apy.toFixed(2) }}%</td>
-                  <td>{{ product.minAmount }} - {{ product.maxAmount }}</td>
-                  <td>
-                    <div class="table-actions">
-                      <button @click="showInvestModal(product)" class="table-invest-btn">
-                        投资
-                      </button>
-                      <button @click="showSimulateModal(product)" class="table-simulate-btn">
-                        计算
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-                </tbody>
-              </table>
+              <div class="product-info">
+                <div class="info-row highlight">
+                  <span class="label">年化收益率</span>
+                  <span class="value apy">{{ product.apy.toFixed(2) }}%</span>
+                </div>
+                <div class="info-row">
+                  <span class="label">执行价格</span>
+                  <span class="value">{{ formatPrice(product.strikePrice) }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="label">当前价格</span>
+                  <span class="value">{{ formatPrice(product.currentPrice) }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="label">投资期限</span>
+                  <span class="value">{{ product.duration }}天</span>
+                </div>
+                <div class="info-row">
+                  <span class="label">投资范围</span>
+                  <span class="value">{{ product.minAmount }} - {{ product.maxAmount }}</span>
+                </div>
+              </div>
+
+              <div class="product-actions">
+                <button @click="showInvestModal(product)" class="btn btn-primary btn-block">
+                  立即投资
+                </button>
+                <button @click="showSimulateModal(product)" class="btn btn-outline btn-block">
+                  收益计算
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -183,185 +137,178 @@
     </div>
 
     <!-- 我的策略 -->
-    <div v-if="activeTab === 'strategies'" class="section">
-      <div class="section-header">
-        <h2 class="section-title">我的策略</h2>
-        <button @click="showStrategyModal()" class="create-btn">
-          <i>➕</i> 创建策略
-        </button>
-      </div>
+    <div v-show="activeTab === 'strategies'" class="tab-content">
+      <div class="content-card">
+        <div class="card-header">
+          <h2 class="card-title">我的策略</h2>
+          <button @click="showStrategyModal()" class="btn btn-primary">
+            创建策略
+          </button>
+        </div>
 
-      <div v-if="strategies.length === 0" class="empty-state">
-        <div class="empty-icon">🎯</div>
-        <p>暂无投资策略</p>
-        <button @click="showStrategyModal()" class="empty-action">
-          创建第一个策略
-        </button>
-      </div>
-
-      <div v-else class="strategies-grid">
-        <div v-for="strategy in strategies" :key="strategy.id" class="strategy-card">
-          <div class="strategy-header">
-            <h3>{{ strategy.strategyName }}</h3>
-            <div class="strategy-status">
-              <label class="switch">
-                <input
-                    type="checkbox"
-                    :checked="strategy.enabled"
-                    @change="toggleStrategy(strategy)"
-                />
-                <span class="slider"></span>
-              </label>
-            </div>
+        <div class="card-body">
+          <div v-if="strategies.length === 0" class="empty-state">
+            <span class="empty-icon">🎯</span>
+            <p>暂无投资策略</p>
+            <button @click="showStrategyModal()" class="btn btn-primary">
+              创建第一个策略
+            </button>
           </div>
 
-          <div class="strategy-info">
-            <div class="info-item">
-              <span class="label">策略类型</span>
-              <span class="value">{{ getStrategyTypeText(strategy.strategyType) }}</span>
-            </div>
-            <div class="info-item">
-              <span class="label">交易对</span>
-              <span class="value">{{ strategy.baseAsset }}/{{ strategy.quoteAsset }}</span>
-            </div>
-            <div class="info-item">
-              <span class="label">方向偏好</span>
-              <span class="value">{{ getDirectionText(strategy.directionPreference) }}</span>
-            </div>
-            <div class="info-item">
-              <span class="label">目标年化</span>
-              <span class="value">
-                {{ strategy.targetApyMin }}% - {{ strategy.targetApyMax }}%
-              </span>
-              <div v-if="strategy.strategyType === 'ladder' && strategy.basePrice > 0" class="info-item">
-                <span class="label">基准价格</span>
-                <span class="value">{{ formatPrice(strategy.basePrice) }}</span>
+          <div v-else class="strategies-list">
+            <div v-for="strategy in strategies" :key="strategy.id" class="strategy-item">
+              <div class="strategy-header">
+                <h3 class="strategy-name">{{ strategy.strategyName }}</h3>
+                <label class="toggle-switch">
+                  <input
+                      type="checkbox"
+                      :checked="strategy.enabled"
+                      @change="toggleStrategy(strategy)"
+                  />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+
+              <div class="strategy-info">
+                <div class="info-item">
+                  <span class="label">策略类型</span>
+                  <span class="value">{{ getStrategyTypeText(strategy.strategyType) }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">交易对</span>
+                  <span class="value">{{ strategy.baseAsset }}/{{ strategy.quoteAsset }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">方向偏好</span>
+                  <span class="value">{{ getDirectionText(strategy.directionPreference) }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">目标年化</span>
+                  <span class="value">{{ strategy.targetApyMin }}% - {{ strategy.targetApyMax }}%</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">已投资/限额</span>
+                  <span class="value">
+                    {{ formatCurrency(strategy.currentInvested) }} /
+                    {{ formatCurrency(strategy.totalInvestmentLimit) }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="strategy-actions">
+                <button @click="editStrategy(strategy)" class="btn btn-sm btn-outline">
+                  编辑
+                </button>
+                <button @click="deleteStrategy(strategy)" class="btn btn-sm btn-danger">
+                  删除
+                </button>
               </div>
             </div>
-            <div class="info-item">
-              <span class="label">已投资/限额</span>
-              <span class="value">
-                {{ formatCurrency(strategy.currentInvested) }} /
-                {{ formatCurrency(strategy.totalInvestmentLimit) }}
-              </span>
-            </div>
-            <div class="info-item">
-              <span class="label">最后执行</span>
-              <span class="value">
-                {{ strategy.lastExecutedAt ? formatDate(strategy.lastExecutedAt) : '未执行' }}
-              </span>
-            </div>
-          </div>
-
-          <div class="strategy-actions">
-            <button @click="editStrategy(strategy)" class="action-btn edit">
-              <i>✏️</i> 编辑
-            </button>
-            <button @click="deleteStrategy(strategy)" class="action-btn delete">
-              <i>🗑️</i> 删除
-            </button>
           </div>
         </div>
       </div>
     </div>
 
     <!-- 我的订单 -->
-    <div v-if="activeTab === 'orders'" class="section">
-      <div class="section-header">
-        <h2 class="section-title">我的订单</h2>
-        <select v-model="orderFilter" class="filter-select">
-          <option value="">所有订单</option>
-          <option value="active">活跃订单</option>
-          <option value="settled">已结算</option>
-        </select>
-      </div>
+    <div v-show="activeTab === 'orders'" class="tab-content">
+      <div class="content-card">
+        <div class="card-header">
+          <h2 class="card-title">我的订单</h2>
+          <select v-model="orderFilter" class="filter-select">
+            <option value="">所有订单</option>
+            <option value="active">活跃订单</option>
+            <option value="settled">已结算</option>
+          </select>
+        </div>
 
-      <div v-if="orders.length === 0" class="empty-state">
-        <div class="empty-icon">📋</div>
-        <p>暂无订单记录</p>
-      </div>
+        <div class="card-body">
+          <div v-if="orders.length === 0" class="empty-state">
+            <span class="empty-icon">📋</span>
+            <p>暂无订单记录</p>
+          </div>
 
-      <div v-else class="orders-table">
-        <table>
-          <thead>
-          <tr>
-            <th>订单ID</th>
-            <th>交易对</th>
-            <th>方向</th>
-            <th>投资金额</th>
-            <th>执行价格</th>
-            <th>年化收益</th>
-            <th>状态</th>
-            <th>结算时间</th>
-            <th>盈亏</th>
-          </tr>
-          </thead>
-          <!-- 我的订单表格部分 - 正确的代码 -->
-          <tbody>
-          <tr v-for="order in filteredOrders" :key="order.id">
-            <td>{{ order.orderId }}</td>
-            <td>{{ order.symbol }}</td>
-            <td>
-      <span :class="['direction-badge', order.direction.toLowerCase()]">
-        {{ order.direction === 'UP' ? '低买(看涨)' : '高卖(看跌)' }}
-      </span>
-            </td>
-            <td>{{ formatCurrency(order.investAmount) }} {{ order.investAsset }}</td>
-            <td>{{ formatPrice(order.strikePrice) }}</td>
-            <td>{{ order.apy.toFixed(2) }}%</td>
-            <td>
-      <span :class="['status-badge', order.status]">
-        {{ getStatusText(order.status) }}
-      </span>
-            </td>
-            <td>{{ formatDate(order.settlementTime) }}</td>
-            <td>
-      <span v-if="order.status === 'settled'"
-            :class="order.pnl >= 0 ? 'positive' : 'negative'">
-        {{ formatCurrency(order.pnl) }}
-        ({{ order.pnlPercent?.toFixed(2) }}%)
-      </span>
-              <span v-else>-</span>
-            </td>
-          </tr>
-          </tbody>
-        </table>
+          <div v-else class="table-wrapper">
+            <table class="data-table">
+              <thead>
+              <tr>
+                <th>订单ID</th>
+                <th>交易对</th>
+                <th>方向</th>
+                <th>投资金额</th>
+                <th>执行价格</th>
+                <th>年化收益</th>
+                <th>状态</th>
+                <th>结算时间</th>
+                <th>盈亏</th>
+              </tr>
+              </thead>
+              <tbody>
+              <tr v-for="order in filteredOrders" :key="order.id">
+                <td>{{ order.orderId }}</td>
+                <td>{{ order.symbol }}</td>
+                <td>
+                    <span :class="['direction-badge', order.direction.toLowerCase()]">
+                      {{ order.direction === 'UP' ? '低买' : '高卖' }}
+                    </span>
+                </td>
+                <td>{{ formatCurrency(order.investAmount) }} {{ order.investAsset }}</td>
+                <td>{{ formatPrice(order.strikePrice) }}</td>
+                <td>{{ order.apy.toFixed(2) }}%</td>
+                <td>
+                    <span :class="['status-badge', order.status]">
+                      {{ getStatusText(order.status) }}
+                    </span>
+                </td>
+                <td>{{ formatDate(order.settlementTime) }}</td>
+                <td>
+                    <span v-if="order.status === 'settled'"
+                          :class="order.pnl >= 0 ? 'positive' : 'negative'">
+                      {{ order.pnl >= 0 ? '+' : '' }}{{ formatCurrency(Math.abs(order.pnl)) }}
+                    </span>
+                  <span v-else>-</span>
+                </td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- 投资弹窗 -->
-    <div v-if="showInvestDialog" class="modal-overlay" @click="closeInvestModal">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>投资产品</h3>
-          <button @click="closeInvestModal" class="close-btn">✕</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="invest-product-info">
-            <h4>{{ selectedProduct.symbol }} - {{ selectedProduct.direction === 'UP' ? '低买(看涨)' : '高卖(看跌)' }}</h4>
-            <div class="product-details">
-              <div class="detail-row">
-                <span>年化收益率：</span>
-                <span class="highlight">{{ selectedProduct.apy.toFixed(2) }}%</span>
-              </div>
-              <div class="detail-row">
-                <span>执行价格：</span>
-                <span>{{ formatPrice(selectedProduct.strikePrice) }}</span>
-              </div>
-              <div class="detail-row">
-                <span>投资期限：</span>
-                <span>{{ selectedProduct.duration }}天</span>
-              </div>
-            </div>
+    <transition name="modal">
+      <div v-if="showInvestDialog" class="modal-overlay" @click="closeInvestModal">
+        <div class="modal-content" @click.stop>
+          <div class="modal-header">
+            <h3 class="modal-title">投资产品</h3>
+            <button @click="closeInvestModal" class="modal-close">×</button>
           </div>
 
-          <div class="invest-form">
+          <div class="modal-body">
+            <div class="invest-info">
+              <h4>{{ selectedProduct.symbol }} - {{ selectedProduct.direction === 'UP' ? '低买(看涨)' : '高卖(看跌)' }}</h4>
+              <div class="info-grid">
+                <div class="info-item">
+                  <span class="label">年化收益率</span>
+                  <span class="value highlight">{{ selectedProduct.apy?.toFixed(2) }}%</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">执行价格</span>
+                  <span class="value">{{ formatPrice(selectedProduct.strikePrice) }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">投资期限</span>
+                  <span class="value">{{ selectedProduct.duration }}天</span>
+                </div>
+              </div>
+            </div>
+
             <div class="form-group">
-              <label>投资金额</label>
+              <label class="form-label">投资金额</label>
               <input
                   v-model.number="investAmount"
                   type="number"
+                  class="form-control"
                   :min="selectedProduct.minAmount"
                   :max="selectedProduct.maxAmount"
                   :placeholder="`${selectedProduct.minAmount} - ${selectedProduct.maxAmount}`"
@@ -369,8 +316,8 @@
             </div>
 
             <div class="form-group">
-              <label>关联策略（可选）</label>
-              <select v-model="investStrategyId">
+              <label class="form-label">关联策略（可选）</label>
+              <select v-model="investStrategyId" class="form-control">
                 <option :value="null">不关联策略</option>
                 <option v-for="s in strategies" :key="s.id" :value="s.id">
                   {{ s.strategyName }}
@@ -379,40 +326,40 @@
             </div>
 
             <div class="risk-warning">
-              <i>⚠️</i>
+              <span class="warning-icon">⚠️</span>
               <p>风险提示：双币投资产品不保本，到期可能以其他币种结算</p>
             </div>
           </div>
-        </div>
 
-        <div class="modal-footer">
-          <button @click="confirmInvest" class="confirm-btn" :disabled="!isInvestValid">
-            确认投资
-          </button>
-          <button @click="closeInvestModal" class="cancel-btn">取消</button>
+          <div class="modal-footer">
+            <button @click="closeInvestModal" class="btn btn-outline">取消</button>
+            <button @click="confirmInvest" class="btn btn-primary" :disabled="!isInvestValid">
+              确认投资
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </transition>
 
     <!-- 策略弹窗 -->
-    <div v-if="showStrategyDialog" class="modal-overlay" @click="closeStrategyModal">
-      <div class="modal-content large" @click.stop>
-        <div class="modal-header">
-          <h3>{{ editingStrategy ? '编辑策略' : '创建策略' }}</h3>
-          <button @click="closeStrategyModal" class="close-btn">✕</button>
-        </div>
+    <transition name="modal">
+      <div v-if="showStrategyDialog" class="modal-overlay" @click="closeStrategyModal">
+        <div class="modal-content modal-lg" @click.stop>
+          <div class="modal-header">
+            <h3 class="modal-title">{{ editingStrategy ? '编辑策略' : '创建策略' }}</h3>
+            <button @click="closeStrategyModal" class="modal-close">×</button>
+          </div>
 
-        <div class="modal-body">
-          <form @submit.prevent="saveStrategy" class="strategy-form">
+          <form @submit.prevent="saveStrategy" class="modal-body">
             <div class="form-grid">
               <div class="form-group">
-                <label>策略名称</label>
-                <input v-model="strategyForm.strategyName" type="text" required />
+                <label class="form-label">策略名称</label>
+                <input v-model="strategyForm.strategyName" class="form-control" required />
               </div>
 
               <div class="form-group">
-                <label>策略类型</label>
-                <select v-model="strategyForm.strategyType" required>
+                <label class="form-label">策略类型</label>
+                <select v-model="strategyForm.strategyType" class="form-control" required>
                   <option value="single">单次投资</option>
                   <option value="auto_reinvest">自动复投</option>
                   <option value="ladder">梯度投资</option>
@@ -421,42 +368,26 @@
               </div>
 
               <div class="form-group">
-                <label>基础资产</label>
-                <select v-model="strategyForm.baseAsset" required>
+                <label class="form-label">基础资产</label>
+                <select v-model="strategyForm.baseAsset" class="form-control" required>
                   <option value="BTC">BTC</option>
                   <option value="ETH">ETH</option>
                   <option value="BNB">BNB</option>
                   <option value="SOL">SOL</option>
-                  <option value="ADA">ADA</option>
-                  <option value="XRP">XRP</option>
-                  <option value="DOT">DOT</option>
-                  <option value="DOGE">DOGE</option>
-                  <option value="AVAX">AVAX</option>
-                  <option value="SHIB">SHIB</option>
-                  <option value="MATIC">MATIC</option>
-                  <option value="LTC">LTC</option>
-                  <option value="UNI">UNI</option>
-                  <option value="LINK">LINK</option>
-                  <option value="ATOM">ATOM</option>
-                  <option value="ETC">ETC</option>
-                  <option value="XLM">XLM</option>
-                  <option value="NEAR">NEAR</option>
-                  <option value="ALGO">ALGO</option>
-                  <option value="FIL">FIL</option>
                 </select>
               </div>
 
               <div class="form-group">
-                <label>计价资产</label>
-                <select v-model="strategyForm.quoteAsset" required>
+                <label class="form-label">计价资产</label>
+                <select v-model="strategyForm.quoteAsset" class="form-control" required>
                   <option value="USDT">USDT</option>
                   <option value="BUSD">BUSD</option>
                 </select>
               </div>
 
               <div class="form-group">
-                <label>方向偏好</label>
-                <select v-model="strategyForm.directionPreference" required>
+                <label class="form-label">方向偏好</label>
+                <select v-model="strategyForm.directionPreference" class="form-control" required>
                   <option value="UP">只做低买(看涨)</option>
                   <option value="DOWN">只做高卖(看跌)</option>
                   <option value="BOTH">双向都做</option>
@@ -464,19 +395,21 @@
               </div>
 
               <div class="form-group">
-                <label>目标年化范围 (%)</label>
+                <label class="form-label">目标年化范围 (%)</label>
                 <div class="input-group">
                   <input
                       v-model.number="strategyForm.targetApyMin"
                       type="number"
+                      class="form-control"
                       min="0"
                       placeholder="最小"
                       required
                   />
-                  <span>-</span>
+                  <span class="input-separator">-</span>
                   <input
                       v-model.number="strategyForm.targetApyMax"
                       type="number"
+                      class="form-control"
                       min="0"
                       placeholder="最大"
                       required
@@ -485,179 +418,31 @@
               </div>
 
               <div class="form-group">
-                <label>单笔最大金额</label>
-                <input v-model.number="strategyForm.maxSingleAmount" type="number" min="0" required />
+                <label class="form-label">单笔最大金额</label>
+                <input v-model.number="strategyForm.maxSingleAmount" type="number" class="form-control" min="0" required />
               </div>
 
               <div class="form-group">
-                <label>总投资限额</label>
-                <input v-model.number="strategyForm.totalInvestmentLimit" type="number" min="0" required />
-              </div>
-
-              <div class="form-group">
-                <label>最大执行价格偏离度 (%)</label>
-                <input v-model.number="strategyForm.maxStrikePriceOffset" type="number" min="0" max="100" />
-              </div>
-
-              <div class="form-group">
-                <label>投资期限范围（天）</label>
-                <div class="input-group">
-                  <input
-                      v-model.number="strategyForm.minDuration"
-                      type="number"
-                      min="1"
-                      placeholder="最小"
-                  />
-                  <span>-</span>
-                  <input
-                      v-model.number="strategyForm.maxDuration"
-                      type="number"
-                      min="1"
-                      placeholder="最大"
-                  />
-                </div>
-              </div>
-              <!-- 添加基准价格输入框 -->
-              <div v-if="strategyForm.strategyType === 'ladder'" class="form-group">
-                <label>基准价格 <span class="required">*</span></label>
-                <input
-                    v-model.number="strategyForm.basePrice"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="设置梯度投资的基准价格"
-                    required
-                />
-                <div class="form-hint">
-    <span v-if="strategyForm.directionPreference === 'UP'">
-      只有执行价格低于此价格时才会触发投资
-    </span>
-                  <span v-else-if="strategyForm.directionPreference === 'DOWN'">
-      只有执行价格高于此价格时才会触发投资
-    </span>
-                  <span v-else>
-      看涨：执行价格需低于此价格；看跌：执行价格需高于此价格
-    </span>
-                </div>
-              </div>
-
-              <div class="form-group full-width">
-                <label>
-                  <input v-model="strategyForm.autoReinvest" type="checkbox" />
-                  自动复投
-                </label>
+                <label class="form-label">总投资限额</label>
+                <input v-model.number="strategyForm.totalInvestmentLimit" type="number" class="form-control" min="0" required />
               </div>
             </div>
 
-            <!-- 价格触发策略参数 -->
-            <div v-if="strategyForm.strategyType === 'price_trigger'" class="additional-params">
-              <h4>价格触发参数</h4>
-              <div class="form-grid">
-                <div class="form-group">
-                  <label>触发价格</label>
-                  <input v-model.number="strategyForm.triggerPrice" type="number" min="0" required />
-                </div>
-                <div class="form-group">
-                  <label>触发类型</label>
-                  <select v-model="strategyForm.triggerType" required>
-                    <option value="above">高于</option>
-                    <option value="below">低于</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <!-- 梯度策略参数 -->
-            <div v-if="strategyForm.strategyType === 'ladder'" class="additional-params">
-              <h4>梯度投资参数</h4>
-              <div class="form-grid">
-                <div class="form-group">
-                  <label>梯度层数</label>
-                  <input v-model.number="strategyForm.ladderSteps" type="number" min="1" max="10" required />
-                  <div class="form-hint">
-                    将在基准价格上下分布多个投资层级
-                  </div>
-                </div>
-                <div class="form-group">
-                  <label>每层价格间隔 (%)</label>
-                  <input v-model.number="strategyForm.ladderStepPercent" type="number" min="0.1" max="10" step="0.1" required />
-                  <div class="form-hint">
-                    每个层级之间的价格间隔百分比
-                  </div>
-                </div>
-              </div>
+            <div class="modal-footer">
+              <button type="button" @click="closeStrategyModal" class="btn btn-outline">取消</button>
+              <button type="submit" class="btn btn-primary">
+                {{ editingStrategy ? '保存修改' : '创建策略' }}
+              </button>
             </div>
           </form>
         </div>
-
-        <div class="modal-footer">
-          <button @click="saveStrategy" class="confirm-btn">
-            {{ editingStrategy ? '保存修改' : '创建策略' }}
-          </button>
-          <button @click="closeStrategyModal" class="cancel-btn">取消</button>
-        </div>
       </div>
-    </div>
-
-    <!-- 收益模拟弹窗 -->
-    <div v-if="showSimulateDialog" class="modal-overlay" @click="closeSimulateModal">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>收益模拟计算</h3>
-          <button @click="closeSimulateModal" class="close-btn">✕</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="simulate-form">
-            <div class="form-group">
-              <label>投资金额</label>
-              <input v-model.number="simulateForm.investAmount" type="number" min="0" />
-            </div>
-            <button @click="runSimulation" class="simulate-btn">
-              <i>🧮</i> 计算收益
-            </button>
-          </div>
-
-          <div v-if="simulationResult" class="simulation-result">
-            <h4>模拟结果</h4>
-
-            <div class="result-scenario">
-              <h5>情况1：价格未触及执行价</h5>
-              <div class="result-info">
-                <p>结算币种：{{ simulationResult.noTouch.settlementAsset }}</p>
-                <p>结算金额：{{ formatCurrency(simulationResult.noTouch.settlementAmount) }}</p>
-                <p>收益：{{ formatCurrency(simulationResult.noTouch.profit) }}
-                  ({{ simulationResult.noTouch.profitPercent.toFixed(2) }}%)</p>
-                <p class="description">{{ simulationResult.noTouch.description }}</p>
-              </div>
-            </div>
-
-            <div class="result-scenario">
-              <h5>情况2：价格触及执行价</h5>
-              <div class="result-info">
-                <p>结算币种：{{ simulationResult.touched.settlementAsset }}</p>
-                <p>结算金额：{{ formatCurrency(simulationResult.touched.settlementAmount) }}</p>
-                <p class="description">{{ simulationResult.touched.description }}</p>
-              </div>
-            </div>
-
-            <div class="risk-tips">
-              <h5>风险提示</h5>
-              <ul>
-                <li v-for="(risk, index) in simulationResult.risks" :key="index">
-                  {{ risk }}
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    </transition>
 
     <!-- Toast 消息 -->
     <transition name="toast">
       <div v-if="toastMessage" :class="['toast', toastType]">
-        <i class="toast-icon">{{ toastType === 'success' ? '✅' : '❌' }}</i>
+        <span class="toast-icon">{{ toastType === 'success' ? '✓' : '×' }}</span>
         <span>{{ toastMessage }}</span>
       </div>
     </transition>
@@ -673,9 +458,9 @@ export default {
     return {
       activeTab: 'market',
       tabs: [
-        { key: 'market', label: '产品市场', icon: '🏪' },
-        { key: 'strategies', label: '我的策略', icon: '🎯' },
-        { key: 'orders', label: '我的订单', icon: '📋' }
+        { key: 'market', label: '产品市场' },
+        { key: 'strategies', label: '我的策略' },
+        { key: 'orders', label: '我的订单' }
       ],
 
       // 产品相关
@@ -686,15 +471,6 @@ export default {
         direction: '',
         minApy: null
       },
-      // 在 filters 对象后面添加
-      selectedSymbol: '',
-      availableSymbols: [
-        { symbol: 'BTCUSDT', name: 'BTC/USDT', icon: '₿' },
-        { symbol: 'ETHUSDT', name: 'ETH/USDT', icon: 'Ξ' },
-        { symbol: 'BNBUSDT', name: 'BNB/USDT', icon: '🔶' },
-        { symbol: 'SOLUSDT', name: 'SOL/USDT', icon: '☀️' },
-        // ... 其他币对
-      ],
 
       // 策略相关
       strategies: [],
@@ -713,13 +489,7 @@ export default {
         maxStrikePriceOffset: 10,
         minDuration: 1,
         maxDuration: 30,
-        maxPositionRatio: 20,
-        autoReinvest: false,
-        triggerPrice: 0,
-        triggerType: 'above',
-        ladderSteps: 5,
-        ladderStepPercent: 1,
-        basePrice: 0  // 添加这一行
+        autoReinvest: false
       },
 
       // 订单相关
@@ -740,14 +510,6 @@ export default {
       investAmount: 0,
       investStrategyId: null,
 
-      // 模拟弹窗
-      showSimulateDialog: false,
-      selectedSimulateProduct: {},
-      simulateForm: {
-        investAmount: 1000
-      },
-      simulationResult: null,
-
       // Toast
       toastMessage: '',
       toastType: 'success'
@@ -759,54 +521,15 @@ export default {
       if (!this.orderFilter) return this.orders;
       return this.orders.filter(order => order.status === this.orderFilter);
     },
-    // 过滤后的产品
-    filteredProducts() {
-      let products = [...this.products];
-
-      if (this.filters.direction) {
-        products = products.filter(p => p.direction === this.filters.direction);
-      }
-
-      if (this.filters.minApy) {
-        products = products.filter(p => p.apy >= this.filters.minApy);
-      }
-
-      return products;
-    },
-
-// 按期限分组的产品
-    groupedProducts() {
-      const groups = {};
-
-      this.filteredProducts.forEach(product => {
-        if (!groups[product.duration]) {
-          groups[product.duration] = [];
-        }
-        groups[product.duration].push(product);
-      });
-
-      // 每组内按执行价格排序
-      Object.keys(groups).forEach(duration => {
-        groups[duration].sort((a, b) => {
-          if (a.direction === 'UP') {
-            return a.strikePrice - b.strikePrice;
-          } else {
-            return b.strikePrice - a.strikePrice;
-          }
-        });
-      });
-
-      return groups;
-    },
 
     isInvestValid() {
-      return this.investAmount >= this.selectedProduct.minAmount &&
-          this.investAmount <= this.selectedProduct.maxAmount;
+      return this.investAmount >= (this.selectedProduct.minAmount || 0) &&
+          this.investAmount <= (this.selectedProduct.maxAmount || Infinity);
     }
   },
 
   mounted() {
-    // 不自动加载产品，等待用户选择币对
+    this.fetchProducts();
     this.fetchStrategies();
     this.fetchOrders();
     this.fetchStats();
@@ -820,7 +543,6 @@ export default {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       };
-
     },
 
     showToast(message, type = 'success') {
@@ -845,7 +567,7 @@ export default {
 
     formatDate(dateString) {
       if (!dateString) return '-';
-      return new Date(dateString).toLocaleString('zh-CN');
+      return new Date(dateString).toLocaleDateString('zh-CN');
     },
 
     getStrategyTypeText(type) {
@@ -897,26 +619,6 @@ export default {
       } finally {
         this.loadingProducts = false;
       }
-    },
-    // 选择币对
-    selectSymbol(symbol) {
-      this.selectedSymbol = symbol;
-      this.filters.symbol = symbol;
-      this.fetchProducts();
-    },
-
-// 获取价格距离百分比
-    getPriceDistance(product) {
-      const distance = ((product.strikePrice - product.currentPrice) / product.currentPrice) * 100;
-      return distance > 0 ? `+${distance.toFixed(2)}` : distance.toFixed(2);
-    },
-
-// 获取价格距离样式类
-    getPriceDistanceClass(product) {
-      const distance = Math.abs((product.strikePrice - product.currentPrice) / product.currentPrice) * 100;
-      if (distance < 1) return 'near';
-      if (distance < 3) return 'medium';
-      return 'far';
     },
 
     showInvestModal(product) {
@@ -1001,22 +703,12 @@ export default {
         maxStrikePriceOffset: 10,
         minDuration: 1,
         maxDuration: 30,
-        maxPositionRatio: 20,
-        autoReinvest: false,
-        triggerPrice: 0,
-        triggerType: 'above',
-        ladderSteps: 5,
-        ladderStepPercent: 1,
-        basePrice: 0  // 添加这一行
+        autoReinvest: false
       };
     },
 
     async saveStrategy() {
       try {
-        if (strategyData.strategyType === 'ladder' && (!strategyData.basePrice || strategyData.basePrice <= 0)) {
-          this.showToast('梯度投资策略需要设置基准价格', 'error');
-          return;
-        }
         if (this.editingStrategy) {
           await axios.put(`/dual-investment/strategies/${this.editingStrategy.id}`,
               this.strategyForm, {
@@ -1101,291 +793,182 @@ export default {
       }
     },
 
-    // 模拟相关方法
     showSimulateModal(product) {
-      this.selectedSimulateProduct = product;
-      this.simulateForm.investAmount = product.minAmount;
-      this.simulationResult = null;
-      this.showSimulateDialog = true;
-    },
-
-    closeSimulateModal() {
-      this.showSimulateDialog = false;
-      this.selectedSimulateProduct = {};
-      this.simulationResult = null;
-    },
-
-    async runSimulation() {
-      try {
-        const response = await axios.post('/dual-investment/simulate', {
-          investAmount: this.simulateForm.investAmount,
-          strikePrice: this.selectedSimulateProduct.strikePrice,
-          currentPrice: this.selectedSimulateProduct.currentPrice,
-          apy: this.selectedSimulateProduct.apy,
-          duration: this.selectedSimulateProduct.duration,
-          direction: this.selectedSimulateProduct.direction,
-          investAsset: this.selectedSimulateProduct.baseAsset
-        }, {
-          headers: this.getAuthHeaders()
-        });
-
-        this.simulationResult = response.data.simulation;
-      } catch (error) {
-        console.error('模拟计算失败:', error);
-        this.showToast('模拟计算失败', 'error');
-      }
+      // 简化处理，直接显示提示
+      this.showToast('收益计算功能即将上线', 'info');
     }
   }
 };
 </script>
 
 <style scoped>
-/* 容器样式 */
+/* 页面容器 */
 .dual-investment-container {
-  min-height: 100vh;
-  background: #0f0f0f;
-  color: #ffffff;
-  padding: 2rem;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-/* 页面标题 */
+/* 页面头部 */
 .page-header {
-  text-align: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
 }
 
 .page-title {
-  font-size: 3rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
+  font-size: 1.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 0.5rem 0;
 }
 
-.gradient-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.page-subtitle {
-  color: #666;
-  font-size: 1.1rem;
+.page-description {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
 }
 
 /* 统计卡片 */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 3rem;
+  gap: 1rem;
+  margin-bottom: 2rem;
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 2rem;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.3s ease;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
 }
 
-.stat-card:hover {
-  transform: translateY(-5px);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.stat-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.stat-content {
-  position: relative;
-  z-index: 1;
-}
-
-.stat-value {
-  font-size: 2.5rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
-}
-
-.stat-value.positive {
-  color: #22c55e;
-}
-
-.stat-value.negative {
-  color: #ef4444;
-}
-
-.stat-label {
-  color: #999;
-  font-size: 0.9rem;
-}
-
-.stat-bg {
-  position: absolute;
-  top: -50%;
-  right: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%);
-  transform: rotate(45deg);
-}
-
-/* Tab 切换 */
-.tabs {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 1rem;
-}
-
-.tab-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.8rem 1.5rem;
-  background: none;
-  border: none;
-  color: #666;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  position: relative;
-}
-
-.tab-btn:hover {
-  color: #fff;
-}
-
-.tab-btn.active {
-  color: #667eea;
-}
-
-.tab-btn.active::after {
-  content: '';
-  position: absolute;
-  bottom: -1rem;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: #667eea;
-}
-
-.tab-btn i {
-  font-style: normal;
-  font-size: 1.2rem;
-}
-
-/* Section 样式 */
-.section {
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.section-header {
+.stat-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2rem;
+  margin-bottom: 0.75rem;
 }
 
-.section-title {
-  font-size: 1.5rem;
+.stat-label {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.stat-icon {
+  font-size: 1.25rem;
+  opacity: 0.7;
+}
+
+.stat-value {
+  font-size: 1.75rem;
   font-weight: 600;
+  color: var(--color-text-primary);
 }
 
-/* 过滤器样式 */
-.filters {
+.stat-value.positive {
+  color: var(--color-success);
+}
+
+.stat-value.negative {
+  color: var(--color-danger);
+}
+
+/* Tab 导航 */
+.tab-nav {
   display: flex;
-  gap: 1rem;
-  align-items: center;
-}
-
-.filter-select,
-.filter-input {
-  padding: 0.8rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: #fff;
-  font-size: 0.9rem;
-  transition: all 0.3s ease;
-}
-
-.filter-select option {
-  background: #1a1a1a;
-  color: #fff;
-}
-
-.filter-select:focus,
-.filter-input:focus {
-  outline: none;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #667eea;
-}
-
-.filter-btn {
-  display: flex;
-  align-items: center;
   gap: 0.5rem;
-  padding: 0.8rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: -1px;
+}
+
+.tab-btn {
+  padding: 0.75rem 1.5rem;
+  background: transparent;
   border: none;
-  border-radius: 8px;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 
-.filter-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+.tab-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.tab-btn.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* 内容卡片 */
+.content-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.5rem;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.card-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.card-body {
+  padding: 1.5rem;
+}
+
+/* 过滤器 */
+.filters {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.filter-select {
+  padding: 0.5rem 1rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 /* 产品网格 */
 .products-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 1.5rem;
 }
 
 .product-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 
 .product-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  background-color: var(--color-bg-secondary);
 }
 
 .product-header {
@@ -1393,42 +976,36 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .product-symbol {
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #fff;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
 }
 
-.product-direction {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
+.direction-badge {
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
-.product-direction.up {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.3);
+.direction-badge.up {
+  background-color: #d1fae5;
+  color: #065f46;
 }
 
-.product-direction.down {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+.direction-badge.down {
+  background-color: #fee2e2;
+  color: #991b1b;
 }
 
 .product-info {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.75rem;
   margin-bottom: 1.5rem;
 }
 
@@ -1438,123 +1015,93 @@ export default {
   align-items: center;
 }
 
+.info-row.highlight {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
 .info-row .label {
-  color: #999;
-  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
 }
 
 .info-row .value {
-  color: #fff;
+  color: var(--color-text-primary);
   font-weight: 500;
+  font-size: 0.875rem;
 }
 
 .info-row .value.apy {
-  color: #fbbf24;
-  font-size: 1.1rem;
-  font-weight: 700;
+  color: var(--color-warning);
+  font-size: 1.125rem;
+  font-weight: 600;
 }
 
 .product-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
-.invest-btn,
-.simulate-btn {
-  flex: 1;
+/* 策略列表 */
+.strategies-list {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.8rem;
-  border: none;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  flex-direction: column;
+  gap: 1rem;
 }
 
-.invest-btn {
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  color: white;
-}
-
-.invest-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(34, 197, 94, 0.4);
-}
-
-.simulate-btn {
-  background: rgba(139, 92, 246, 0.1);
-  color: #8b5cf6;
-  border: 1px solid rgba(139, 92, 246, 0.3);
-}
-
-.simulate-btn:hover {
-  background: rgba(139, 92, 246, 0.2);
-}
-
-/* 策略网格 */
-.strategies-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 1.5rem;
-}
-
-.strategy-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+.strategy-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 
-.strategy-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+.strategy-item:hover {
+  background-color: var(--color-bg-secondary);
 }
 
 .strategy-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
-.strategy-header h3 {
+.strategy-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
   margin: 0;
-  font-size: 1.1rem;
-  color: #fff;
 }
 
 /* 开关样式 */
-.switch {
+.toggle-switch {
   position: relative;
   display: inline-block;
-  width: 50px;
+  width: 44px;
   height: 24px;
 }
 
-.switch input {
+.toggle-switch input {
   opacity: 0;
   width: 0;
   height: 0;
 }
 
-.slider {
+.toggle-slider {
   position: absolute;
   cursor: pointer;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--color-border);
   transition: .4s;
   border-radius: 24px;
 }
 
-.slider:before {
+.toggle-slider:before {
   position: absolute;
   content: "";
   height: 16px;
@@ -1566,34 +1113,35 @@ export default {
   border-radius: 50%;
 }
 
-input:checked + .slider {
-  background-color: #667eea;
+input:checked + .toggle-slider {
+  background-color: var(--color-primary);
 }
 
-input:checked + .slider:before {
-  transform: translateX(26px);
+input:checked + .toggle-slider:before {
+  transform: translateX(20px);
 }
 
 .strategy-info {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .info-item {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .info-item .label {
-  color: #999;
-  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
 }
 
 .info-item .value {
-  color: #fff;
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -1602,225 +1150,147 @@ input:checked + .slider:before {
   gap: 0.5rem;
 }
 
-.action-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3rem;
-  padding: 0.6rem 0.8rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
+/* 按钮样式 */
+.btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
-.action-btn.edit {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+.btn-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
 }
 
-.action-btn.edit:hover {
-  background: rgba(59, 130, 246, 0.2);
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
 }
 
-.action-btn.delete {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+.btn-primary:hover {
+  background-color: var(--color-primary-hover);
 }
 
-.action-btn.delete:hover {
-  background: rgba(239, 68, 68, 0.2);
+.btn-primary:disabled {
+  background-color: var(--color-secondary);
+  cursor: not-allowed;
 }
 
-/* 订单表格 */
-.orders-table {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  overflow: hidden;
+.btn-outline {
+  background-color: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
 }
 
-.orders-table table {
+.btn-outline:hover {
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-text-tertiary);
+}
+
+.btn-danger {
+  background-color: var(--color-danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #dc2626;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+/* 表格样式 */
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.data-table {
   width: 100%;
   border-collapse: collapse;
 }
 
-.orders-table th {
-  background: rgba(255, 255, 255, 0.05);
-  padding: 1rem;
+.data-table th {
   text-align: left;
+  padding: 0.75rem;
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
   font-weight: 600;
-  color: #ccc;
-  font-size: 0.9rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.875rem;
+  white-space: nowrap;
 }
 
-.orders-table td {
-  padding: 1rem;
-  color: #ccc;
-  font-size: 0.9rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+.data-table td {
+  padding: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.875rem;
 }
 
-.orders-table tr:hover td {
-  background: rgba(255, 255, 255, 0.03);
+.data-table tbody tr:hover {
+  background-color: var(--color-bg-secondary);
 }
 
-.direction-badge {
-  padding: 0.2rem 0.5rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 500;
-}
-
-.direction-badge.up {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
-}
-
-.direction-badge.down {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-}
-
+/* 状态徽章 */
 .status-badge {
-  padding: 0.2rem 0.5rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
   font-weight: 500;
+}
+
+.status-badge.pending {
+  background-color: #fef3c7;
+  color: #92400e;
 }
 
 .status-badge.active {
-  background: rgba(59, 130, 246, 0.2);
-  color: #3b82f6;
+  background-color: #dbeafe;
+  color: #1e40af;
 }
 
 .status-badge.settled {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
+  background-color: #d1fae5;
+  color: #065f46;
 }
 
 .status-badge.cancelled {
-  background: rgba(108, 117, 125, 0.2);
-  color: #94a3b8;
+  background-color: #f3f4f6;
+  color: #6b7280;
 }
 
-.positive {
-  color: #22c55e;
-}
-
-.negative {
-  color: #ef4444;
-}
-
-/* 创建按钮 */
-.create-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.8rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.create-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-}
-
-/* 空状态 */
-.empty-state {
-  text-align: center;
-  padding: 4rem 2rem;
-  color: #666;
-}
-
-.empty-icon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
-  opacity: 0.3;
-}
-
-.empty-action {
-  margin-top: 1rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.8rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.empty-action:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-}
-
-/* 加载状态 */
-.loading {
-  text-align: center;
-  padding: 4rem;
-  color: #666;
-}
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  margin: 0 auto 1rem;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-top-color: #667eea;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* 弹窗样式 */
+/* 弹窗 */
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(5px);
 }
 
 .modal-content {
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  max-width: 500px;
+  background: var(--color-bg);
+  border-radius: var(--radius-lg);
   width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  max-width: 500px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.modal-content.large {
+.modal-lg {
   max-width: 800px;
 }
 
@@ -1828,162 +1298,128 @@ input:checked + .slider:before {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 2rem 2rem 1rem 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.modal-header h3 {
-  margin: 0;
-  color: #fff;
-  font-size: 1.3rem;
+.modal-title {
+  font-size: 1.125rem;
   font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
 }
 
-.close-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #ccc;
-  border: none;
-  cursor: pointer;
-  transition: all 0.3s ease;
+.modal-close {
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.2rem;
+  background-color: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-tertiary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
-.close-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
+.modal-close:hover {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
 }
 
 .modal-body {
-  padding: 2rem;
+  padding: 1.5rem;
+  overflow-y: auto;
 }
 
 .modal-footer {
-  padding: 1rem 2rem 2rem 2rem;
   display: flex;
-  gap: 1rem;
   justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-border);
 }
 
-/* 投资弹窗 */
-.invest-product-info {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.invest-product-info h4 {
-  margin: 0 0 1rem 0;
-  color: #fff;
-  font-size: 1.1rem;
-}
-
-.product-details {
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-}
-
-.detail-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: #ccc;
-}
-
-.detail-row .highlight {
-  color: #fbbf24;
-  font-weight: 600;
-  font-size: 1.1rem;
-}
-
-.invest-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.form-group label {
-  font-weight: 600;
-  color: #ccc;
-  font-size: 0.9rem;
-}
-
-.form-group input,
-.form-group select {
-  padding: 0.8rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: #fff;
-  font-size: 0.9rem;
-  transition: all 0.3s ease;
-}
-
-.form-group select option {
-  background: #1a1a1a;
-  color: #fff;
-}
-
-.form-group input:focus,
-.form-group select:focus {
-  outline: none;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #667eea;
-}
-
-.risk-warning {
-  background: rgba(255, 193, 7, 0.1);
-  border: 1px solid rgba(255, 193, 7, 0.3);
-  border-radius: 12px;
+/* 投资信息 */
+.invest-info {
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
   padding: 1rem;
-  display: flex;
-  gap: 0.8rem;
-  align-items: flex-start;
+  margin-bottom: 1.5rem;
 }
 
-.risk-warning i {
-  font-style: normal;
-  font-size: 1.2rem;
-  color: #fbbf24;
-  flex-shrink: 0;
+.invest-info h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
-.risk-warning p {
-  margin: 0;
-  color: #fbbf24;
-  font-size: 0.9rem;
-  line-height: 1.4;
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
 }
 
-/* 策略表单 */
-.strategy-form {
+.info-grid .info-item {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 0.25rem;
+}
+
+.info-grid .label {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.info-grid .value {
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.info-grid .value.highlight {
+  color: var(--color-warning);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* 表单样式 */
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.form-control {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  transition: all var(--transition-normal);
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-}
-
-.form-group.full-width {
-  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
 }
 
 .input-group {
@@ -1992,137 +1428,68 @@ input:checked + .slider:before {
   gap: 0.5rem;
 }
 
-.input-group input {
-  flex: 1;
+.input-separator {
+  color: var(--color-text-tertiary);
+  font-weight: 500;
 }
 
-.input-group span {
-  color: #999;
-}
-
-.additional-params {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 1.5rem;
-}
-
-.additional-params h4 {
-  margin: 0 0 1rem 0;
-  color: #fff;
-  font-size: 1rem;
-}
-
-/* 模拟弹窗 */
-.simulate-form {
+/* 风险提示 */
+.risk-warning {
   display: flex;
-  gap: 1rem;
-  align-items: flex-end;
-  margin-bottom: 2rem;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background-color: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: var(--radius-md);
+  margin-top: 1rem;
 }
 
-.simulate-form .form-group {
-  flex: 1;
+.warning-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
 }
 
-.simulation-result {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.simulation-result h4 {
-  margin: 0 0 1rem 0;
-  color: #fff;
-  font-size: 1.1rem;
-}
-
-.result-scenario {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 1.5rem;
-}
-
-.result-scenario h5 {
-  margin: 0 0 1rem 0;
-  color: #667eea;
-  font-size: 1rem;
-}
-
-.result-info p {
-  margin: 0.5rem 0;
-  color: #ccc;
-  line-height: 1.5;
-}
-
-.result-info .description {
-  color: #999;
-  font-style: italic;
-  font-size: 0.9rem;
-}
-
-.risk-tips {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 12px;
-  padding: 1.5rem;
-}
-
-.risk-tips h5 {
-  margin: 0 0 1rem 0;
-  color: #ef4444;
-  font-size: 1rem;
-}
-
-.risk-tips ul {
+.risk-warning p {
   margin: 0;
-  padding-left: 1.5rem;
-}
-
-.risk-tips li {
-  color: #f87171;
-  margin: 0.5rem 0;
+  color: #92400e;
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 
-/* 按钮样式 */
-.confirm-btn {
-  padding: 0.8rem 2rem;
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--color-text-tertiary);
 }
 
-.confirm-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(34, 197, 94, 0.4);
+.empty-icon {
+  font-size: 3rem;
+  display: block;
+  margin-bottom: 1rem;
+  opacity: 0.5;
 }
 
-.confirm-btn:disabled {
-  background: #6c757d;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
+/* 加载状态 */
+.loading-state {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--color-text-tertiary);
 }
 
-.cancel-btn {
-  padding: 0.8rem 2rem;
-  background: rgba(108, 117, 125, 0.1);
-  color: #94a3b8;
-  border: 1px solid rgba(108, 117, 125, 0.3);
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
+.spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 1rem;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-.cancel-btn:hover {
-  background: rgba(108, 117, 125, 0.2);
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Toast 消息 */
@@ -2130,35 +1497,50 @@ input:checked + .slider:before {
   position: fixed;
   bottom: 2rem;
   right: 2rem;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 1rem 1.5rem;
-  border-radius: 12px;
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   font-weight: 500;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  z-index: 2000;
+  z-index: 1000;
 }
 
 .toast.success {
-  border-color: rgba(34, 197, 94, 0.3);
-  background: rgba(34, 197, 94, 0.1);
+  border-color: var(--color-success);
+  color: var(--color-success);
 }
 
 .toast.error {
-  border-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .toast-icon {
-  font-style: normal;
-  font-size: 1.2rem;
+  font-size: 1.25rem;
 }
 
-.toast-enter-active, .toast-leave-active {
+/* 动画 */
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .modal-content,
+.modal-leave-to .modal-content {
+  transform: scale(0.95);
+}
+
+.toast-enter-active,
+.toast-leave-active {
   transition: all 0.3s ease;
 }
 
@@ -2174,29 +1556,28 @@ input:checked + .slider:before {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .dual-investment-container {
-    padding: 1rem;
-  }
-
-  .page-title {
-    font-size: 2rem;
-  }
-
   .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
+    grid-template-columns: 1fr 1fr;
   }
 
-  .tabs {
-    flex-wrap: wrap;
+  .tab-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .filters {
     flex-wrap: wrap;
   }
 
-  .products-grid,
-  .strategies-grid {
+  .products-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-info {
+    grid-template-columns: 1fr;
+  }
+
+  .info-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2204,207 +1585,17 @@ input:checked + .slider:before {
     grid-template-columns: 1fr;
   }
 
-  .orders-table {
-    overflow-x: auto;
+  .data-table {
+    font-size: 0.75rem;
   }
 
-  .orders-table table {
-    min-width: 800px;
+  .data-table th,
+  .data-table td {
+    padding: 0.5rem;
   }
 
   .modal-content {
     width: 95%;
-    max-height: 90vh;
   }
-
-  .modal-header,
-  .modal-body,
-  .modal-footer {
-    padding: 1.5rem;
-  }
-
-  .toast {
-    left: 1rem;
-    right: 1rem;
-    bottom: 1rem;
-  }
-}
-/* 币对选择 */
-.symbol-selection {
-  padding: 2rem 0;
-}
-
-.symbols-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1.5rem;
-  margin-top: 2rem;
-}
-
-.symbol-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 2rem;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.symbol-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #667eea;
-  transform: translateY(-5px);
-  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
-}
-
-.symbol-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-
-.symbol-name {
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: #fff;
-  margin-bottom: 0.5rem;
-}
-
-.symbol-info {
-  color: #999;
-  font-size: 0.9rem;
-}
-
-/* 返回按钮 */
-.back-btn {
-  background: none;
-  border: none;
-  color: #667eea;
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 0.5rem;
-  margin-right: 1rem;
-  transition: all 0.3s ease;
-}
-
-.back-btn:hover {
-  color: #764ba2;
-  transform: translateX(-3px);
-}
-
-/* 期限分组 */
-.duration-group {
-  margin-bottom: 2rem;
-}
-
-.group-title {
-  background: rgba(102, 126, 234, 0.1);
-  border-left: 4px solid #667eea;
-  padding: 0.8rem 1.5rem;
-  margin-bottom: 1rem;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #fff;
-}
-
-/* 产品表格 */
-.products-table {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  overflow: hidden;
-  margin-bottom: 1.5rem;
-}
-
-.products-table table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.products-table th {
-  background: rgba(255, 255, 255, 0.05);
-  padding: 1rem;
-  text-align: left;
-  font-weight: 600;
-  color: #ccc;
-  font-size: 0.9rem;
-}
-
-.products-table td {
-  padding: 1rem;
-  color: #ccc;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.products-table tr:hover td {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.apy-value {
-  color: #fbbf24;
-  font-weight: 600;
-}
-
-.near {
-  color: #22c55e;
-  font-weight: 600;
-}
-
-.medium {
-  color: #3b82f6;
-}
-
-.far {
-  color: #94a3b8;
-}
-
-.table-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.table-invest-btn,
-.table-simulate-btn {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.table-invest-btn {
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  color: white;
-}
-
-.table-invest-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 3px 10px rgba(34, 197, 94, 0.3);
-}
-
-.table-simulate-btn {
-  background: rgba(139, 92, 246, 0.1);
-  color: #8b5cf6;
-  border: 1px solid rgba(139, 92, 246, 0.3);
-}
-
-.table-simulate-btn:hover {
-  background: rgba(139, 92, 246, 0.2);
-}
-.form-hint {
-  margin-top: 0.3rem;
-  font-size: 0.8rem;
-  color: #999;
-  line-height: 1.4;
-}
-
-.form-hint span {
-  display: block;
-  padding: 0.5rem;
-  background: rgba(102, 126, 234, 0.1);
-  border-left: 3px solid #667eea;
-  border-radius: 4px;
 }
 </style>

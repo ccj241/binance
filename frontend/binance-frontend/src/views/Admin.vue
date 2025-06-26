@@ -1,135 +1,168 @@
 <template>
   <div class="admin-container">
-    <!-- 页面标题 -->
+    <!-- 页面头部 -->
     <div class="page-header">
-      <h1 class="page-title">
-        <span class="gradient-text">用户管理中心</span>
-      </h1>
-      <p class="page-subtitle">管理和监控系统用户</p>
+      <h1 class="page-title">用户管理</h1>
+      <p class="page-description">管理系统用户账号和权限</p>
     </div>
 
     <!-- 统计卡片 -->
     <div class="stats-grid">
-      <div class="stat-card" v-for="stat in statsConfig" :key="stat.key">
-        <div class="stat-icon" :style="{ background: stat.color }">
-          <i :class="stat.icon"></i>
+      <div class="stat-card">
+        <div class="stat-icon">
+          <span>👥</span>
         </div>
         <div class="stat-content">
-          <div class="stat-value">{{ stats[stat.key] }}</div>
-          <div class="stat-label">{{ stat.label }}</div>
+          <div class="stat-value">{{ stats.totalUsers }}</div>
+          <div class="stat-label">总用户数</div>
         </div>
-        <div class="stat-bg"></div>
       </div>
-    </div>
 
-    <!-- 筛选标签 -->
-    <div class="filter-tabs">
-      <div class="tabs-wrapper">
-        <button
-            v-for="filter in filters"
-            :key="filter.value"
-            @click="currentFilter = filter.value"
-            :class="['filter-tab', { active: currentFilter === filter.value }]"
-        >
-          <span class="tab-icon">{{ filter.icon }}</span>
-          <span class="tab-label">{{ filter.label }}</span>
-          <span class="tab-count">{{ getFilterCount(filter.value) }}</span>
-        </button>
-        <div class="tab-indicator" :style="tabIndicatorStyle"></div>
+      <div class="stat-card">
+        <div class="stat-icon warning">
+          <span>⏳</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ stats.pendingUsers }}</div>
+          <div class="stat-label">待审核</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon success">
+          <span>✓</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ stats.activeUsers }}</div>
+          <div class="stat-label">活跃用户</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon danger">
+          <span>×</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ stats.disabledUsers }}</div>
+          <div class="stat-label">已禁用</div>
+        </div>
       </div>
     </div>
 
     <!-- 用户列表 -->
-    <div class="users-section">
-      <div class="section-header">
-        <h2 class="section-title">用户列表</h2>
+    <div class="content-card">
+      <!-- 筛选栏 -->
+      <div class="filter-bar">
+        <div class="filter-tabs">
+          <button
+              v-for="filter in filters"
+              :key="filter.value"
+              @click="currentFilter = filter.value"
+              :class="['filter-tab', { active: currentFilter === filter.value }]"
+          >
+            {{ filter.label }}
+            <span class="filter-count">{{ getFilterCount(filter.value) }}</span>
+          </button>
+        </div>
+
         <div class="search-box">
-          <i class="search-icon">🔍</i>
           <input
               v-model="searchQuery"
               type="text"
               placeholder="搜索用户名..."
               class="search-input"
-          >
+          />
+          <span class="search-icon">🔍</span>
         </div>
       </div>
 
-      <div class="users-grid">
-        <div v-for="user in filteredAndSearchedUsers" :key="user.id" class="user-card">
-          <div class="user-header">
-            <div class="user-avatar">
-              {{ user.username.charAt(0).toUpperCase() }}
-            </div>
-            <div class="user-info">
-              <h3 class="user-name">{{ user.username }}</h3>
-              <p class="user-id">ID: {{ user.id }}</p>
-            </div>
-          </div>
+      <!-- 用户表格 -->
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+          <tr>
+            <th>用户信息</th>
+            <th>角色</th>
+            <th>状态</th>
+            <th>注册时间</th>
+            <th>操作</th>
+          </tr>
+          </thead>
+          <tbody>
+          <tr v-for="user in filteredAndSearchedUsers" :key="user.id">
+            <td>
+              <div class="user-info">
+                <div class="user-avatar">
+                  {{ user.username.charAt(0).toUpperCase() }}
+                </div>
+                <div class="user-details">
+                  <div class="user-name">{{ user.username }}</div>
+                  <div class="user-id">ID: {{ user.id }}</div>
+                </div>
+              </div>
+            </td>
+            <td>
+                <span :class="['role-badge', user.role]">
+                  {{ user.role === 'admin' ? '管理员' : '普通用户' }}
+                </span>
+            </td>
+            <td>
+                <span :class="['status-badge', user.status]">
+                  {{ getStatusText(user.status) }}
+                </span>
+            </td>
+            <td class="text-muted">
+              {{ formatDate(user.createdAt) }}
+            </td>
+            <td>
+              <div class="action-buttons">
+                <!-- 审核通过 -->
+                <button
+                    v-if="user.status === 'pending'"
+                    @click="approveUser(user.id)"
+                    class="btn btn-sm btn-primary"
+                    title="审核通过"
+                >
+                  通过
+                </button>
 
-          <div class="user-meta">
-            <div class="meta-item">
-              <span class="meta-label">角色</span>
-              <span :class="['role-chip', user.role]">
-                <i :class="user.role === 'admin' ? '👑' : '👤'"></i>
-                {{ user.role === 'admin' ? '管理员' : '普通用户' }}
-              </span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">状态</span>
-              <span :class="['status-chip', user.status]">
-                <span class="status-dot"></span>
-                {{ getStatusText(user.status) }}
-              </span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">注册时间</span>
-              <span class="meta-value">{{ formatDate(user.createdAt) }}</span>
-            </div>
-          </div>
+                <!-- 启用/禁用 -->
+                <button
+                    v-if="user.status !== 'pending' && user.id !== currentUserId"
+                    @click="toggleUserStatus(user)"
+                    :class="['btn', 'btn-sm', user.status === 'active' ? 'btn-outline' : 'btn-success']"
+                    :title="user.status === 'active' ? '禁用账号' : '启用账号'"
+                >
+                  {{ user.status === 'active' ? '禁用' : '启用' }}
+                </button>
 
-          <div class="user-actions">
-            <!-- 审核通过按钮 -->
-            <button
-                v-if="user.status === 'pending'"
-                @click="approveUser(user.id)"
-                class="action-btn approve"
-            >
-              <i>✓</i> 审核通过
-            </button>
+                <!-- 设置管理员 -->
+                <button
+                    v-if="user.status === 'active' && user.id !== currentUserId"
+                    @click="user.role === 'admin' ? removeAdmin(user) : setAsAdmin(user)"
+                    class="btn btn-sm btn-outline"
+                    :title="user.role === 'admin' ? '取消管理员' : '设为管理员'"
+                >
+                  {{ user.role === 'admin' ? '取消管理' : '设为管理' }}
+                </button>
+              </div>
+            </td>
+          </tr>
+          </tbody>
+        </table>
 
-            <!-- 启用/禁用按钮 -->
-            <button
-                v-if="user.status !== 'pending' && user.id !== currentUserId"
-                @click="toggleUserStatus(user)"
-                :class="['action-btn', user.status === 'active' ? 'disable' : 'enable']"
-            >
-              <i>{{ user.status === 'active' ? '🚫' : '✓' }}</i>
-              {{ user.status === 'active' ? '禁用账号' : '启用账号' }}
-            </button>
-
-            <!-- 管理员权限按钮 -->
-            <button
-                v-if="user.status === 'active' && user.id !== currentUserId"
-                @click="user.role === 'admin' ? removeAdmin(user) : setAsAdmin(user)"
-                :class="['action-btn', user.role === 'admin' ? 'remove-admin' : 'set-admin']"
-            >
-              <i>{{ user.role === 'admin' ? '👤' : '👑' }}</i>
-              {{ user.role === 'admin' ? '取消管理员' : '设为管理员' }}
-            </button>
-          </div>
+        <!-- 空状态 -->
+        <div v-if="filteredAndSearchedUsers.length === 0" class="empty-state">
+          <span class="empty-icon">🔍</span>
+          <p>没有找到符合条件的用户</p>
         </div>
-      </div>
-
-      <div v-if="filteredAndSearchedUsers.length === 0" class="empty-state">
-        <div class="empty-icon">🔍</div>
-        <p class="empty-text">没有找到符合条件的用户</p>
       </div>
     </div>
 
-    <!-- 消息提示 -->
+    <!-- Toast 消息 -->
     <transition name="toast">
       <div v-if="toastMessage" :class="['toast', toastType]">
-        <i class="toast-icon">{{ toastType === 'success' ? '✅' : '❌' }}</i>
+        <span class="toast-icon">{{ toastType === 'success' ? '✓' : '×' }}</span>
         <span>{{ toastMessage }}</span>
       </div>
     </transition>
@@ -151,20 +184,14 @@ export default {
         disabledUsers: 0,
         adminUsers: 0
       },
-      statsConfig: [
-        { key: 'totalUsers', label: '总用户数', icon: '👥', color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
-        { key: 'pendingUsers', label: '待审核', icon: '⏳', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
-        { key: 'activeUsers', label: '活跃用户', icon: '✅', color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
-        { key: 'disabledUsers', label: '已禁用', icon: '🚫', color: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' }
+      filters: [
+        { value: 'all', label: '全部' },
+        { value: 'pending', label: '待审核' },
+        { value: 'active', label: '活跃' },
+        { value: 'disabled', label: '已禁用' },
+        { value: 'admin', label: '管理员' }
       ],
       currentFilter: 'all',
-      filters: [
-        { value: 'all', label: '全部', icon: '📋' },
-        { value: 'pending', label: '待审核', icon: '⏳' },
-        { value: 'active', label: '活跃', icon: '✅' },
-        { value: 'disabled', label: '已禁用', icon: '🚫' },
-        { value: 'admin', label: '管理员', icon: '👑' }
-      ],
       searchQuery: '',
       toastMessage: '',
       toastType: 'success',
@@ -172,28 +199,27 @@ export default {
     };
   },
   computed: {
-    filteredUsers() {
-      if (this.currentFilter === 'all') {
-        return this.users;
-      }
-      if (this.currentFilter === 'admin') {
-        return this.users.filter(user => user.role === 'admin');
-      }
-      return this.users.filter(user => user.status === this.currentFilter);
-    },
     filteredAndSearchedUsers() {
-      const filtered = this.filteredUsers;
-      if (!this.searchQuery) return filtered;
+      let filtered = this.users;
 
-      return filtered.filter(user =>
-          user.username.toLowerCase().includes(this.searchQuery.toLowerCase())
-      );
-    },
-    tabIndicatorStyle() {
-      const index = this.filters.findIndex(f => f.value === this.currentFilter);
-      return {
-        transform: `translateX(${index * 100}%)`
-      };
+      // 状态筛选
+      if (this.currentFilter !== 'all') {
+        if (this.currentFilter === 'admin') {
+          filtered = filtered.filter(user => user.role === 'admin');
+        } else {
+          filtered = filtered.filter(user => user.status === this.currentFilter);
+        }
+      }
+
+      // 搜索筛选
+      if (this.searchQuery) {
+        const query = this.searchQuery.toLowerCase();
+        filtered = filtered.filter(user =>
+            user.username.toLowerCase().includes(query)
+        );
+      }
+
+      return filtered;
     }
   },
   mounted() {
@@ -232,17 +258,11 @@ export default {
 
     formatDate(dateString) {
       const date = new Date(dateString);
-      const now = new Date();
-      const diff = now - date;
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-      if (days === 0) return '今天';
-      if (days === 1) return '昨天';
-      if (days < 7) return `${days}天前`;
-      if (days < 30) return `${Math.floor(days / 7)}周前`;
-      if (days < 365) return `${Math.floor(days / 30)}个月前`;
-
-      return date.toLocaleDateString('zh-CN');
+      return date.toLocaleDateString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
     },
 
     getStatusText(status) {
@@ -280,18 +300,17 @@ export default {
         this.stats = response.data;
       } catch (error) {
         console.error('获取统计信息失败:', error);
-        this.showToast(error.response?.data?.error || '获取统计信息失败', 'error');
       }
     },
 
     async approveUser(userId) {
       try {
-        const response = await axios.post('/admin/users/approve',
+        await axios.post('/admin/users/approve',
             { userId },
             { headers: this.getAuthHeaders() }
         );
 
-        this.showToast('用户审核通过 ✅');
+        this.showToast('用户审核通过');
         await this.fetchUsers();
         await this.fetchStats();
       } catch (error) {
@@ -305,12 +324,12 @@ export default {
       const action = user.status === 'active' ? '禁用' : '启用';
 
       try {
-        const response = await axios.put('/admin/users/status',
+        await axios.put('/admin/users/status',
             { userId: user.id, status: newStatus },
             { headers: this.getAuthHeaders() }
         );
 
-        this.showToast(`用户已${action} ${user.status === 'active' ? '🚫' : '✅'}`);
+        this.showToast(`用户已${action}`);
         await this.fetchUsers();
         await this.fetchStats();
       } catch (error) {
@@ -321,12 +340,12 @@ export default {
 
     async setAsAdmin(user) {
       try {
-        const response = await axios.put('/admin/users/role',
+        await axios.put('/admin/users/role',
             { userId: user.id, role: 'admin' },
             { headers: this.getAuthHeaders() }
         );
 
-        this.showToast('已设为管理员 👑');
+        this.showToast('已设为管理员');
         await this.fetchUsers();
         await this.fetchStats();
       } catch (error) {
@@ -337,12 +356,12 @@ export default {
 
     async removeAdmin(user) {
       try {
-        const response = await axios.put('/admin/users/role',
+        await axios.put('/admin/users/role',
             { userId: user.id, role: 'user' },
             { headers: this.getAuthHeaders() }
         );
 
-        this.showToast('已取消管理员权限 👤');
+        this.showToast('已取消管理员权限');
         await this.fetchUsers();
         await this.fetchStats();
       } catch (error) {
@@ -355,458 +374,351 @@ export default {
 </script>
 
 <style scoped>
-/* 全局样式 */
+/* 页面容器 */
 .admin-container {
-  min-height: 100vh;
-  background: #0f0f0f;
-  color: #ffffff;
-  padding: 2rem;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-/* 页面标题 */
+/* 页面头部 */
 .page-header {
-  text-align: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
 }
 
 .page-title {
-  font-size: 3rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
+  font-size: 1.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 0.5rem 0;
 }
 
-.gradient-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.page-subtitle {
-  color: #666;
-  font-size: 1.1rem;
+.page-description {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
 }
 
 /* 统计卡片 */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 3rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 2rem;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-5px);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .stat-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 16px;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.5rem;
-  margin-bottom: 1rem;
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.stat-icon.warning {
+  background-color: #fef3c7;
+  color: var(--color-warning);
+}
+
+.stat-icon.success {
+  background-color: #d1fae5;
+  color: var(--color-success);
+}
+
+.stat-icon.danger {
+  background-color: #fee2e2;
+  color: var(--color-danger);
 }
 
 .stat-content {
-  position: relative;
-  z-index: 1;
+  flex: 1;
 }
 
 .stat-value {
-  font-size: 2.5rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1;
+  margin-bottom: 0.25rem;
 }
 
 .stat-label {
-  color: #999;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
 }
 
-.stat-bg {
-  position: absolute;
-  top: -50%;
-  right: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%);
-  transform: rotate(45deg);
+/* 内容卡片 */
+.content-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
-/* 筛选标签 */
-.filter-tabs {
-  margin-bottom: 2rem;
-}
-
-.tabs-wrapper {
+/* 筛选栏 */
+.filter-bar {
   display: flex;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
-  padding: 0.5rem;
-  position: relative;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+  gap: 1rem;
+}
+
+.filter-tabs {
+  display: flex;
   gap: 0.5rem;
 }
 
 .filter-tab {
-  flex: 1;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-normal);
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 0.5rem;
-  padding: 1rem;
-  background: none;
-  border: none;
-  color: #999;
-  cursor: pointer;
-  border-radius: 12px;
-  transition: all 0.3s ease;
-  position: relative;
-  z-index: 1;
 }
 
 .filter-tab:hover {
-  color: #fff;
+  background-color: var(--color-bg-tertiary);
 }
 
 .filter-tab.active {
-  color: #fff;
+  background-color: var(--color-primary);
+  color: white;
 }
 
-.tab-icon {
-  font-size: 1.2rem;
+.filter-count {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
 }
 
-.tab-count {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 0.2rem 0.6rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
-}
-
-.tab-indicator {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  width: calc(20% - 0.4rem);
-  height: calc(100% - 1rem);
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 12px;
-  transition: transform 0.3s ease;
-  z-index: 0;
-}
-
-/* 用户列表区域 */
-.users-section {
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 24px;
-  padding: 2rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-}
-
-.section-title {
-  font-size: 1.5rem;
-  font-weight: 600;
+.filter-tab.active .filter-count {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* 搜索框 */
 .search-box {
   position: relative;
-  width: 300px;
-}
-
-.search-icon {
-  position: absolute;
-  left: 1rem;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 1.2rem;
+  width: 240px;
 }
 
 .search-input {
   width: 100%;
-  padding: 0.8rem 1rem 0.8rem 3rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  color: #fff;
-  font-size: 0.9rem;
-  transition: all 0.3s ease;
+  padding: 0.5rem 2.5rem 0.5rem 1rem;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+  transition: all var(--transition-normal);
 }
 
 .search-input:focus {
   outline: none;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #667eea;
+  border-color: var(--color-primary);
+  background-color: var(--color-bg);
 }
 
-.search-input::placeholder {
-  color: #666;
+.search-icon {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-tertiary);
 }
 
-/* 用户卡片网格 */
-.users-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 1.5rem;
+/* 表格容器 */
+.table-container {
+  overflow-x: auto;
 }
 
-.user-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 1.5rem;
-  transition: all 0.3s ease;
+/* 数据表格 */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.user-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+.data-table th {
+  text-align: left;
+  padding: 1rem 1.5rem;
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 0.875rem;
+  white-space: nowrap;
 }
 
-.user-header {
+.data-table td {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.data-table tbody tr:hover {
+  background-color: var(--color-bg-secondary);
+}
+
+/* 用户信息 */
+.user-info {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  gap: 0.75rem;
 }
 
 .user-avatar {
-  width: 50px;
-  height: 50px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
   font-weight: 600;
+  font-size: 1rem;
 }
 
-.user-info {
-  flex: 1;
+.user-details {
+  display: flex;
+  flex-direction: column;
 }
 
 .user-name {
-  font-size: 1.2rem;
-  font-weight: 600;
-  margin-bottom: 0.25rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
 }
 
 .user-id {
-  color: #666;
-  font-size: 0.9rem;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
 }
 
-/* 用户元信息 */
-.user-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.meta-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.meta-label {
-  color: #666;
-  font-size: 0.9rem;
-}
-
-.meta-value {
-  color: #ccc;
-  font-size: 0.9rem;
-}
-
-/* 角色和状态标签 */
-.role-chip, .status-chip {
+/* 角色和状态徽章 */
+.role-badge,
+.status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 20px;
-  font-size: 0.85rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
   font-weight: 500;
+  white-space: nowrap;
 }
 
-.role-chip.admin {
-  background: rgba(111, 66, 193, 0.2);
-  color: #a78bfa;
-  border: 1px solid rgba(111, 66, 193, 0.3);
+.role-badge.admin {
+  background-color: #dbeafe;
+  color: var(--color-primary);
 }
 
-.role-chip.user {
-  background: rgba(108, 117, 125, 0.2);
-  color: #94a3b8;
-  border: 1px solid rgba(108, 117, 125, 0.3);
+.role-badge.user {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
 }
 
-.status-chip {
-  position: relative;
-  padding-left: 1.5rem;
+.status-badge.pending {
+  background-color: #fef3c7;
+  color: #92400e;
 }
 
-.status-dot {
-  position: absolute;
-  left: 0.5rem;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+.status-badge.active {
+  background-color: #d1fae5;
+  color: #065f46;
 }
 
-.status-chip.pending {
-  background: rgba(255, 193, 7, 0.2);
-  color: #fbbf24;
-  border: 1px solid rgba(255, 193, 7, 0.3);
-}
-
-.status-chip.pending .status-dot {
-  background: #fbbf24;
-  animation: pulse 2s infinite;
-}
-
-.status-chip.active {
-  background: rgba(40, 167, 69, 0.2);
-  color: #22c55e;
-  border: 1px solid rgba(40, 167, 69, 0.3);
-}
-
-.status-chip.active .status-dot {
-  background: #22c55e;
-}
-
-.status-chip.disabled {
-  background: rgba(220, 53, 69, 0.2);
-  color: #ef4444;
-  border: 1px solid rgba(220, 53, 69, 0.3);
-}
-
-.status-chip.disabled .status-dot {
-  background: #ef4444;
+.status-badge.disabled {
+  background-color: #fee2e2;
+  color: #991b1b;
 }
 
 /* 操作按钮 */
-.user-actions {
+.action-buttons {
   display: flex;
   gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
-.action-btn {
-  flex: 1;
-  min-width: 120px;
-  padding: 0.8rem 1rem;
-  border: none;
-  border-radius: 10px;
-  font-size: 0.9rem;
+.btn {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
-.action-btn i {
-  font-style: normal;
+.btn-sm {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
 }
 
-.action-btn.approve {
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+.btn-primary {
+  background-color: var(--color-primary);
   color: white;
 }
 
-.action-btn.approve:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(34, 197, 94, 0.4);
+.btn-primary:hover {
+  background-color: var(--color-primary-hover);
 }
 
-.action-btn.enable {
-  background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.3);
+.btn-success {
+  background-color: var(--color-success);
+  color: white;
 }
 
-.action-btn.enable:hover {
-  background: rgba(34, 197, 94, 0.2);
+.btn-success:hover {
+  background-color: #059669;
 }
 
-.action-btn.disable {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+.btn-outline {
+  background-color: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
 }
 
-.action-btn.disable:hover {
-  background: rgba(239, 68, 68, 0.2);
-}
-
-.action-btn.set-admin {
-  background: rgba(111, 66, 193, 0.1);
-  color: #a78bfa;
-  border: 1px solid rgba(111, 66, 193, 0.3);
-}
-
-.action-btn.set-admin:hover {
-  background: rgba(111, 66, 193, 0.2);
-}
-
-.action-btn.remove-admin {
-  background: rgba(108, 117, 125, 0.1);
-  color: #94a3b8;
-  border: 1px solid rgba(108, 117, 125, 0.3);
-}
-
-.action-btn.remove-admin:hover {
-  background: rgba(108, 117, 125, 0.2);
+.btn-outline:hover {
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-text-tertiary);
 }
 
 /* 空状态 */
 .empty-state {
-  text-align: center;
   padding: 4rem 2rem;
+  text-align: center;
+  color: var(--color-text-tertiary);
 }
 
 .empty-icon {
-  font-size: 4rem;
+  font-size: 3rem;
+  display: block;
   margin-bottom: 1rem;
-  opacity: 0.3;
+  opacity: 0.5;
 }
 
-.empty-text {
-  color: #666;
-  font-size: 1.1rem;
+/* 其他样式 */
+.text-muted {
+  color: var(--color-text-tertiary);
 }
 
 /* Toast 消息 */
@@ -814,47 +726,35 @@ export default {
   position: fixed;
   bottom: 2rem;
   right: 2rem;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 1rem 1.5rem;
-  border-radius: 12px;
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   font-weight: 500;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   z-index: 1000;
 }
 
 .toast.success {
-  border-color: rgba(34, 197, 94, 0.3);
-  background: rgba(34, 197, 94, 0.1);
+  border-color: var(--color-success);
+  color: var(--color-success);
 }
 
 .toast.error {
-  border-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .toast-icon {
-  font-size: 1.2rem;
+  font-size: 1.25rem;
 }
 
-/* 动画 */
-@keyframes pulse {
-  0% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-.toast-enter-active, .toast-leave-active {
+/* 过渡动画 */
+.toast-enter-active,
+.toast-leave-active {
   transition: all 0.3s ease;
 }
 
@@ -870,110 +770,39 @@ export default {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .admin-container {
-    padding: 1rem;
-  }
-
-  .page-title {
-    font-size: 2rem;
-  }
-
   .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
+    grid-template-columns: 1fr 1fr;
   }
 
-  .stat-card {
-    padding: 1.5rem;
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .tabs-wrapper {
+  .filter-tabs {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-  }
-
-  .filter-tab {
-    white-space: nowrap;
-    min-width: 120px;
-  }
-
-  .section-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: stretch;
   }
 
   .search-box {
     width: 100%;
   }
 
-  .users-grid {
-    grid-template-columns: 1fr;
+  .data-table {
+    font-size: 0.875rem;
   }
 
-  .user-actions {
+  .data-table th,
+  .data-table td {
+    padding: 0.75rem;
+  }
+
+  .action-buttons {
     flex-direction: column;
   }
 
-  .action-btn {
+  .btn {
     width: 100%;
-  }
-
-  .toast {
-    left: 1rem;
-    right: 1rem;
-    bottom: 1rem;
-  }
-}
-
-/* 暗色模式优化 */
-@media (prefers-color-scheme: light) {
-  .admin-container {
-    background: #f9fafb;
-    color: #111827;
-  }
-
-  .stat-card,
-  .filter-tabs .tabs-wrapper,
-  .users-section,
-  .user-card,
-  .search-input {
-    background: rgba(0, 0, 0, 0.03);
-    border-color: rgba(0, 0, 0, 0.1);
-  }
-
-  .stat-card:hover,
-  .user-card:hover {
-    background: rgba(0, 0, 0, 0.05);
-  }
-
-  .page-subtitle,
-  .stat-label,
-  .meta-label,
-  .user-id {
-    color: #6b7280;
-  }
-
-  .filter-tab {
-    color: #6b7280;
-  }
-
-  .filter-tab:hover,
-  .filter-tab.active {
-    color: #111827;
-  }
-
-  .search-input {
-    color: #111827;
-  }
-
-  .search-input::placeholder {
-    color: #9ca3af;
-  }
-
-  .toast {
-    background: rgba(0, 0, 0, 0.9);
-    color: white;
   }
 }
 </style>

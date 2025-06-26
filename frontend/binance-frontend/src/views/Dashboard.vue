@@ -1,244 +1,239 @@
 <template>
   <div class="dashboard-container">
-    <!-- 页面标题 -->
+    <!-- 页面头部 -->
     <div class="page-header">
-      <h1 class="page-title">
-        <span class="gradient-text">交易仪表盘</span>
-      </h1>
-      <p class="page-subtitle">实时监控您的交易数据</p>
+      <h1 class="page-title">交易仪表盘</h1>
+      <p class="page-description">实时监控您的交易数据和资产状况</p>
     </div>
 
     <!-- 统计卡片 -->
-    <div class="stats-overview">
+    <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-icon">
-          <i>💰</i>
+        <div class="stat-header">
+          <span class="stat-label">总资产价值</span>
+          <span class="stat-icon">💰</span>
         </div>
-        <div class="stat-content">
-          <h3>总资产价值</h3>
-          <p class="stat-value">{{ formatCurrency(totalAssetValue) }}</p>
-          <p class="stat-change positive">+12.5%</p>
+        <div class="stat-value">{{ formatCurrency(totalAssetValue) }}</div>
+        <div class="stat-change positive">
+          <span class="change-icon">↑</span>
+          <span>+12.5%</span>
         </div>
       </div>
+
       <div class="stat-card">
-        <div class="stat-icon">
-          <i>📈</i>
+        <div class="stat-header">
+          <span class="stat-label">今日盈亏</span>
+          <span class="stat-icon">📈</span>
         </div>
-        <div class="stat-content">
-          <h3>今日盈亏</h3>
-          <p class="stat-value">{{ formatCurrency(todayPnL) }}</p>
-          <p class="stat-change" :class="todayPnL >= 0 ? 'positive' : 'negative'">
-            {{ todayPnL >= 0 ? '+' : '' }}{{ ((todayPnL / totalAssetValue) * 100).toFixed(2) }}%
-          </p>
+        <div class="stat-value">{{ formatCurrency(todayPnL) }}</div>
+        <div class="stat-change" :class="todayPnL >= 0 ? 'positive' : 'negative'">
+          <span class="change-icon">{{ todayPnL >= 0 ? '↑' : '↓' }}</span>
+          <span>{{ todayPnL >= 0 ? '+' : '' }}{{ ((todayPnL / totalAssetValue) * 100).toFixed(2) }}%</span>
         </div>
       </div>
+
       <div class="stat-card">
-        <div class="stat-icon">
-          <i>🔄</i>
+        <div class="stat-header">
+          <span class="stat-label">活跃交易</span>
+          <span class="stat-icon">🔄</span>
         </div>
-        <div class="stat-content">
-          <h3>活跃交易</h3>
-          <p class="stat-value">{{ activeTradesCount }}</p>
-          <p class="stat-subtitle">{{ pendingOrdersCount }} 待处理订单</p>
-        </div>
+        <div class="stat-value">{{ activeTradesCount }}</div>
+        <div class="stat-subtitle">{{ pendingOrdersCount }} 待处理订单</div>
       </div>
+
       <div class="stat-card">
-        <div class="stat-icon">
-          <i>⚡</i>
+        <div class="stat-header">
+          <span class="stat-label">24h 交易量</span>
+          <span class="stat-icon">⚡</span>
         </div>
-        <div class="stat-content">
-          <h3>24h 交易量</h3>
-          <p class="stat-value">{{ formatVolume(volume24h) }}</p>
-          <p class="stat-subtitle">{{ tradesCount24h }} 笔交易</p>
+        <div class="stat-value">{{ formatVolume(volume24h) }}</div>
+        <div class="stat-subtitle">{{ tradesCount24h }} 笔交易</div>
+      </div>
+    </div>
+
+    <!-- 价格监控 -->
+    <div class="content-card">
+      <div class="card-header">
+        <h2 class="card-title">实时价格监控</h2>
+        <button @click="openAddSymbolModal" class="btn btn-primary">
+          <span class="btn-icon">+</span>
+          添加交易对
+        </button>
+      </div>
+
+      <div class="card-body">
+        <div v-if="Object.keys(prices).length === 0" class="empty-state">
+          <span class="empty-icon">📉</span>
+          <p>还未添加任何交易对</p>
+          <button @click="openAddSymbolModal" class="btn btn-primary">
+            添加第一个交易对
+          </button>
+        </div>
+
+        <div v-else class="price-grid">
+          <div v-for="(price, symbol) in prices" :key="symbol" class="price-card">
+            <div class="price-header">
+              <h3 class="symbol-name">{{ symbol }}</h3>
+              <button @click="confirmDeleteSymbol(symbol)" class="delete-btn" title="删除交易对">
+                ×
+              </button>
+            </div>
+            <div class="price-info">
+              <div class="current-price">${{ formatPrice(price) }}</div>
+              <div class="price-change" :class="getPriceChangeClass(symbol)">
+                <span class="change-arrow">{{ getPriceChangeIcon(symbol) }}</span>
+                <span>{{ Math.abs(getPriceChangePercent(symbol)) }}%</span>
+              </div>
+            </div>
+            <div class="price-chart-placeholder"></div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 实时价格监控 -->
-    <section class="price-section">
-      <div class="section-header">
-        <h2 class="section-title">
-          <i>📊</i> 实时价格监控
-        </h2>
-        <div class="section-actions">
-          <button @click="openAddSymbolModal" class="add-btn">
-            <i>+</i> 添加交易对
-          </button>
-        </div>
-      </div>
-
-      <div v-if="Object.keys(prices).length === 0" class="empty-state">
-        <div class="empty-icon">📉</div>
-        <p>还未添加任何交易对</p>
-        <button @click="openAddSymbolModal" class="primary-btn">
-          添加第一个交易对
+    <!-- 账户余额 -->
+    <div class="content-card">
+      <div class="card-header">
+        <h2 class="card-title">账户余额</h2>
+        <button @click="fetchBalances" class="btn btn-outline" :disabled="isLoadingBalances">
+          <span class="btn-icon" :class="{ 'spinning': isLoadingBalances }">⟳</span>
+          {{ isLoadingBalances ? '刷新中...' : '刷新' }}
         </button>
       </div>
 
-      <div v-else class="price-grid">
-        <div v-for="(price, symbol) in prices" :key="symbol" class="price-card">
-          <div class="price-header">
-            <h3>{{ symbol }}</h3>
-            <button @click="confirmDeleteSymbol(symbol)" class="delete-btn" title="删除交易对">
-              <i>×</i>
-            </button>
-          </div>
-          <div class="price-content">
-            <p class="current-price">${{ formatPrice(price) }}</p>
-            <p class="price-change" :class="getPriceChangeClass(symbol)">
-              <i :class="getPriceChangeIcon(symbol)"></i>
-              {{ getPriceChangePercent(symbol) }}%
-            </p>
-          </div>
-          <div class="price-chart">
-            <div class="mini-chart" :id="`chart-${symbol}`"></div>
+      <div class="card-body">
+        <div v-if="isLoadingBalances && balances.length === 0" class="loading-state">
+          <div class="spinner"></div>
+          <p>加载余额中...</p>
+        </div>
+
+        <div v-else-if="balances.length === 0" class="empty-state">
+          <span class="empty-icon">💳</span>
+          <p>暂无余额信息</p>
+        </div>
+
+        <div v-else class="balance-grid">
+          <div v-for="balance in filteredBalances" :key="balance.asset" class="balance-card">
+            <div class="balance-header">
+              <div class="coin-info">
+                <div class="coin-icon">{{ balance.asset.charAt(0) }}</div>
+                <span class="coin-name">{{ balance.asset }}</span>
+              </div>
+              <div class="balance-value">
+                ≈ ${{ formatCurrency(getBalanceValue(balance)) }}
+              </div>
+            </div>
+            <div class="balance-details">
+              <div class="balance-item">
+                <span class="label">可用</span>
+                <span class="value">{{ formatBalance(balance.free) }}</span>
+              </div>
+              <div class="balance-item">
+                <span class="label">锁定</span>
+                <span class="value">{{ formatBalance(balance.locked) }}</span>
+              </div>
+              <div class="balance-item">
+                <span class="label">总计</span>
+                <span class="value total">{{ formatBalance(balance.free + balance.locked) }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- 账户余额 -->
-    <section class="balance-section">
-      <div class="section-header">
-        <h2 class="section-title">
-          <i>💼</i> 账户余额
-        </h2>
-        <div class="section-actions">
-          <button @click="fetchBalances" class="refresh-btn" :disabled="isLoadingBalances">
-            <i :class="isLoadingBalances ? 'spinning' : ''">🔄</i>
-            {{ isLoadingBalances ? '刷新中...' : '刷新' }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="isLoadingBalances && balances.length === 0" class="loading-state">
-        <div class="loading-spinner"></div>
-        <p>加载余额中...</p>
-      </div>
-
-      <div v-else-if="balances.length === 0" class="empty-state">
-        <div class="empty-icon">💳</div>
-        <p>暂无余额信息</p>
-      </div>
-
-      <div v-else class="balance-grid">
-        <div v-for="balance in filteredBalances" :key="balance.asset" class="balance-card">
-          <div class="balance-header">
-            <img :src="getCoinIcon(balance.asset)" :alt="balance.asset" class="coin-icon" @error="handleImageError">
-            <h4>{{ balance.asset }}</h4>
-          </div>
-          <div class="balance-details">
-            <div class="balance-item">
-              <span class="label">可用</span>
-              <span class="value">{{ formatBalance(balance.free) }}</span>
-            </div>
-            <div class="balance-item">
-              <span class="label">锁定</span>
-              <span class="value">{{ formatBalance(balance.locked) }}</span>
-            </div>
-            <div class="balance-item">
-              <span class="label">总计</span>
-              <span class="value total">{{ formatBalance(balance.free + balance.locked) }}</span>
-            </div>
-          </div>
-          <div class="balance-value">
-            ≈ ${{ formatCurrency(getBalanceValue(balance)) }}
-          </div>
-        </div>
-      </div>
-    </section>
+    </div>
 
     <!-- 最近交易 -->
-    <section class="trades-section">
-      <div class="section-header">
-        <h2 class="section-title">
-          <i>📜</i> 最近交易记录
-        </h2>
-        <div class="section-actions">
-          <select v-model="tradeFilter" class="filter-select">
-            <option value="all">全部</option>
-            <option value="buy">买入</option>
-            <option value="sell">卖出</option>
-          </select>
+    <div class="content-card">
+      <div class="card-header">
+        <h2 class="card-title">最近交易记录</h2>
+        <select v-model="tradeFilter" class="filter-select">
+          <option value="all">全部</option>
+          <option value="buy">买入</option>
+          <option value="sell">卖出</option>
+        </select>
+      </div>
+
+      <div class="card-body">
+        <div v-if="isLoadingTrades && trades.length === 0" class="loading-state">
+          <div class="spinner"></div>
+          <p>加载交易记录中...</p>
+        </div>
+
+        <div v-else-if="filteredTrades.length === 0" class="empty-state">
+          <span class="empty-icon">📋</span>
+          <p>暂无交易记录</p>
+        </div>
+
+        <div v-else>
+          <table class="data-table">
+            <thead>
+            <tr>
+              <th>时间</th>
+              <th>交易对</th>
+              <th>方向</th>
+              <th>价格</th>
+              <th>数量</th>
+              <th>总额</th>
+              <th>状态</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr v-for="trade in paginatedTrades" :key="trade.id">
+              <td>{{ formatTradeTime(trade.time) }}</td>
+              <td class="symbol-cell">{{ trade.symbol }}</td>
+              <td>
+                  <span :class="['trade-side', trade.side.toLowerCase()]">
+                    {{ trade.side === 'BUY' ? '买入' : '卖出' }}
+                  </span>
+              </td>
+              <td>${{ formatPrice(trade.price) }}</td>
+              <td>{{ formatQuantity(trade.qty) }}</td>
+              <td class="amount-cell">${{ formatCurrency(trade.price * trade.qty) }}</td>
+              <td>
+                <span class="status-badge success">已完成</span>
+              </td>
+            </tr>
+            </tbody>
+          </table>
+
+          <div v-if="filteredTrades.length > pageSize" class="pagination">
+            <button :disabled="currentPage === 1" @click="currentPage--" class="page-btn">
+              上一页
+            </button>
+            <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
+            <button :disabled="currentPage === totalPages" @click="currentPage++" class="page-btn">
+              下一页
+            </button>
+          </div>
         </div>
       </div>
-
-      <div v-if="isLoadingTrades && trades.length === 0" class="loading-state">
-        <div class="loading-spinner"></div>
-        <p>加载交易记录中...</p>
-      </div>
-
-      <div v-else-if="filteredTrades.length === 0" class="empty-state">
-        <div class="empty-icon">📋</div>
-        <p>暂无交易记录</p>
-      </div>
-
-      <div v-else class="trades-table-wrapper">
-        <table class="modern-table">
-          <thead>
-          <tr>
-            <th>时间</th>
-            <th>交易对</th>
-            <th>方向</th>
-            <th>价格</th>
-            <th>数量</th>
-            <th>总额</th>
-            <th>状态</th>
-          </tr>
-          </thead>
-          <tbody>
-          <tr v-for="trade in paginatedTrades" :key="trade.id" class="table-row">
-            <td>{{ formatTradeTime(trade.time) }}</td>
-            <td class="symbol-cell">{{ trade.symbol }}</td>
-            <td>
-                <span :class="['trade-side', trade.side.toLowerCase()]">
-                  {{ trade.side === 'BUY' ? '买入' : '卖出' }}
-                </span>
-            </td>
-            <td>${{ formatPrice(trade.price) }}</td>
-            <td>{{ formatQuantity(trade.qty) }}</td>
-            <td class="total-cell">${{ formatCurrency(trade.price * trade.qty) }}</td>
-            <td>
-              <span class="status-badge success">已完成</span>
-            </td>
-          </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="filteredTrades.length > pageSize" class="pagination">
-        <button :disabled="currentPage === 1" @click="currentPage--" class="page-btn">
-          <i>←</i> 上一页
-        </button>
-        <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
-        <button :disabled="currentPage === totalPages" @click="currentPage++" class="page-btn">
-          下一页 <i>→</i>
-        </button>
-      </div>
-    </section>
+    </div>
 
     <!-- 添加交易对弹窗 -->
     <transition name="modal">
       <div v-if="showAddSymbolModal" class="modal-overlay" @click.self="closeAddSymbolModal">
         <div class="modal-content" @click.stop>
           <div class="modal-header">
-            <h3>添加交易对</h3>
-            <button @click="closeAddSymbolModal" class="close-btn">×</button>
+            <h3 class="modal-title">添加交易对</h3>
+            <button @click="closeAddSymbolModal" class="modal-close">×</button>
           </div>
+
           <div class="modal-body">
-            <input
-                v-model="newSymbol"
-                @keyup.enter="addSymbol"
-                placeholder="输入交易对 (如 BTCUSDT)"
-                class="modal-input"
-                ref="symbolInput"
-                :disabled="isAddingSymbol"
-            />
-            <div class="input-hint">
-              <i>💡</i> 提示：请输入完整的交易对名称，如 BTCUSDT、ETHUSDT 等
+            <div class="form-group">
+              <label class="form-label">交易对名称</label>
+              <input
+                  v-model="newSymbol"
+                  @keyup.enter="addSymbol"
+                  placeholder="输入交易对 (如 BTCUSDT)"
+                  class="form-control"
+                  ref="symbolInput"
+                  :disabled="isAddingSymbol"
+              />
+              <p class="form-hint">请输入完整的交易对名称，如 BTCUSDT、ETHUSDT 等</p>
             </div>
+
             <div class="popular-symbols">
-              <p>热门交易对：</p>
+              <p class="popular-title">热门交易对</p>
               <div class="symbol-chips">
                 <button
                     v-for="symbol in popularSymbols"
@@ -252,12 +247,12 @@
               </div>
             </div>
           </div>
+
           <div class="modal-footer">
-            <button @click="closeAddSymbolModal" class="cancel-btn" :disabled="isAddingSymbol">
+            <button @click="closeAddSymbolModal" class="btn btn-outline" :disabled="isAddingSymbol">
               取消
             </button>
-            <button @click="addSymbol" :disabled="!newSymbol.trim() || isAddingSymbol" class="confirm-btn">
-              <i v-if="isAddingSymbol" class="spinning">⏳</i>
+            <button @click="addSymbol" :disabled="!newSymbol.trim() || isAddingSymbol" class="btn btn-primary">
               {{ isAddingSymbol ? '添加中...' : '确认添加' }}
             </button>
           </div>
@@ -268,22 +263,25 @@
     <!-- 删除确认弹窗 -->
     <transition name="modal">
       <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="cancelDeleteSymbol">
-        <div class="modal-content danger" @click.stop>
+        <div class="modal-content modal-sm" @click.stop>
           <div class="modal-header">
-            <h3>确认删除</h3>
-            <button @click="cancelDeleteSymbol" class="close-btn">×</button>
+            <h3 class="modal-title">确认删除</h3>
+            <button @click="cancelDeleteSymbol" class="modal-close">×</button>
           </div>
+
           <div class="modal-body">
-            <div class="warning-icon">⚠️</div>
-            <p>确定要删除交易对 <strong>{{ symbolToDelete }}</strong> 吗？</p>
-            <p class="warning-text">删除后将停止价格监控，相关的策略和订单数据不会被删除。</p>
+            <div class="confirm-message">
+              <span class="warning-icon">⚠️</span>
+              <p>确定要删除交易对 <strong>{{ symbolToDelete }}</strong> 吗？</p>
+              <p class="warning-text">删除后将停止价格监控</p>
+            </div>
           </div>
+
           <div class="modal-footer">
-            <button @click="cancelDeleteSymbol" class="cancel-btn" :disabled="isDeletingSymbol">
+            <button @click="cancelDeleteSymbol" class="btn btn-outline" :disabled="isDeletingSymbol">
               取消
             </button>
-            <button @click="deleteSymbol" class="danger-btn" :disabled="isDeletingSymbol">
-              <i v-if="isDeletingSymbol" class="spinning">⏳</i>
+            <button @click="deleteSymbol" class="btn btn-danger" :disabled="isDeletingSymbol">
               {{ isDeletingSymbol ? '删除中...' : '确认删除' }}
             </button>
           </div>
@@ -294,7 +292,7 @@
     <!-- Toast 消息 -->
     <transition name="toast">
       <div v-if="toastMessage" :class="['toast', toastType]">
-        <i class="toast-icon">{{ toastType === 'success' ? '✅' : '❌' }}</i>
+        <span class="toast-icon">{{ toastType === 'success' ? '✓' : '×' }}</span>
         <span>{{ toastMessage }}</span>
       </div>
     </transition>
@@ -438,30 +436,12 @@ export default {
 
     formatTradeTime(timestamp) {
       const date = new Date(timestamp);
-      const now = new Date();
-      const diff = now - date;
-
-      if (diff < 60000) return '刚刚';
-      if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
-      if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
-
-      return date.toLocaleDateString('zh-CN', {
+      return date.toLocaleString('zh-CN', {
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit'
       });
-    },
-
-    getCoinIcon(asset) {
-      // 使用备用图标服务
-      const lowerAsset = asset.toLowerCase();
-      return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/${lowerAsset}.png`;
-    },
-
-    handleImageError(event) {
-      // 图片加载失败时使用默认图片
-      event.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="16" fill="%23667eea"/%3E%3Ctext x="16" y="20" text-anchor="middle" fill="white" font-family="Arial" font-size="14" font-weight="bold"%3E%3F%3C/text%3E%3C/svg%3E';
     },
 
     getBalanceValue(balance) {
@@ -488,7 +468,7 @@ export default {
 
     getPriceChangePercent(symbol) {
       // 模拟价格变化百分比
-      return (Math.random() * 10 - 5).toFixed(2);
+      return Math.abs((Math.random() * 10 - 5).toFixed(2));
     },
 
     async fetchPrices() {
@@ -497,24 +477,8 @@ export default {
           headers: this.getAuthHeaders(),
         });
         this.prices = response.data.prices || {};
-
-        // 更新价格历史
-        Object.entries(this.prices).forEach(([symbol, price]) => {
-          if (!this.priceHistory[symbol]) {
-            this.priceHistory[symbol] = [];
-          }
-          this.priceHistory[symbol].push({
-            time: new Date(),
-            price: price
-          });
-          // 保留最近50个数据点
-          if (this.priceHistory[symbol].length > 50) {
-            this.priceHistory[symbol].shift();
-          }
-        });
       } catch (error) {
         console.error('获取价格失败:', error);
-        // 不显示toast，避免频繁提示
       }
     },
 
@@ -527,7 +491,7 @@ export default {
         this.balances = response.data.balances || [];
       } catch (error) {
         console.error('获取余额失败:', error);
-        this.showToast(error.response?.data?.error || '获取余额失败', 'error');
+        this.showToast('获取余额失败', 'error');
       } finally {
         this.isLoadingBalances = false;
       }
@@ -543,7 +507,7 @@ export default {
         this.currentPage = 1;
       } catch (error) {
         console.error('获取交易记录失败:', error);
-        this.showToast(error.response?.data?.error || '获取交易记录失败', 'error');
+        this.showToast('获取交易记录失败', 'error');
       } finally {
         this.isLoadingTrades = false;
       }
@@ -552,7 +516,6 @@ export default {
     openAddSymbolModal() {
       this.showAddSymbolModal = true;
       this.newSymbol = '';
-      // 等待DOM更新后聚焦输入框
       this.$nextTick(() => {
         if (this.$refs.symbolInput) {
           this.$refs.symbolInput.focus();
@@ -579,7 +542,6 @@ export default {
         return;
       }
 
-      // 检查是否已存在
       if (this.prices[symbol]) {
         this.showToast('该交易对已存在', 'error');
         return;
@@ -592,15 +554,12 @@ export default {
             { headers: this.getAuthHeaders() }
         );
 
-        this.showToast(response.data.message || '交易对添加成功');
+        this.showToast('交易对添加成功');
         this.closeAddSymbolModal();
-
-        // 立即获取新的价格数据
         await this.fetchPrices();
       } catch (error) {
         console.error('添加交易对失败:', error);
-        const errorMessage = error.response?.data?.error || '添加交易对失败';
-        this.showToast(errorMessage, 'error');
+        this.showToast('添加交易对失败', 'error');
       } finally {
         this.isAddingSymbol = false;
       }
@@ -627,34 +586,12 @@ export default {
           headers: this.getAuthHeaders()
         });
 
-        this.showToast(response.data.message || '交易对删除成功');
-
-        // 从本地状态中删除
+        this.showToast('交易对删除成功');
         delete this.prices[this.symbolToDelete];
-        delete this.priceHistory[this.symbolToDelete];
-
         this.cancelDeleteSymbol();
       } catch (error) {
         console.error('删除交易对失败:', error);
-
-        // 详细的错误处理
-        let errorMessage = '删除交易对失败';
-        if (error.response?.data?.error) {
-          errorMessage = error.response.data.error;
-
-          // 特殊处理已知的错误类型
-          if (errorMessage.includes('检查策略失败')) {
-            errorMessage = '无法检查相关策略，请稍后重试';
-          } else if (errorMessage.includes('检查订单失败')) {
-            errorMessage = '无法检查相关订单，请稍后重试';
-          } else if (errorMessage.includes('存在') && errorMessage.includes('活跃策略')) {
-            // 保持原错误信息，它已经很清楚了
-          } else if (errorMessage.includes('存在') && errorMessage.includes('待处理订单')) {
-            // 保持原错误信息，它已经很清楚了
-          }
-        }
-
-        this.showToast(errorMessage, 'error');
+        this.showToast(error.response?.data?.error || '删除交易对失败', 'error');
         this.isDeletingSymbol = false;
       }
     },
@@ -663,153 +600,137 @@ export default {
 </script>
 
 <style scoped>
-/* 容器样式 */
+/* 页面容器 */
 .dashboard-container {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
-  color: #ffffff;
-  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-/* 页面标题 */
+/* 页面头部 */
 .page-header {
-  text-align: center;
-  margin-bottom: 3rem;
-  animation: fadeInDown 0.6s ease-out;
+  margin-bottom: 2rem;
 }
 
 .page-title {
-  font-size: 3rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
+  font-size: 1.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 0.5rem 0;
 }
 
-.gradient-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.page-subtitle {
-  color: #888;
-  font-size: 1.1rem;
+.page-description {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
 }
 
 /* 统计卡片 */
-.stats-overview {
+.stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 3rem;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 2rem;
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  transition: all 0.3s ease;
-  animation: fadeInUp 0.6s ease-out;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
 }
 
-.stat-card:hover {
-  transform: translateY(-5px);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+.stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
 }
 
 .stat-icon {
-  width: 60px;
-  height: 60px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.8rem;
-}
-
-.stat-content h3 {
-  font-size: 0.9rem;
-  color: #888;
-  margin-bottom: 0.5rem;
-  font-weight: 400;
+  font-size: 1.25rem;
+  opacity: 0.7;
 }
 
 .stat-value {
-  font-size: 1.8rem;
-  font-weight: 700;
-  margin-bottom: 0.25rem;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 0.5rem;
 }
 
 .stat-change {
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
 .stat-change.positive {
-  color: #22c55e;
+  color: var(--color-success);
 }
 
 .stat-change.negative {
-  color: #ef4444;
+  color: var(--color-danger);
+}
+
+.change-icon {
+  font-size: 0.75rem;
 }
 
 .stat-subtitle {
-  font-size: 0.85rem;
-  color: #666;
+  font-size: 0.875rem;
+  color: var(--color-text-tertiary);
 }
 
-/* Section 样式 */
-section {
-  margin-bottom: 3rem;
-  animation: fadeIn 0.8s ease-out;
+/* 内容卡片 */
+.content-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.5rem;
 }
 
-.section-header {
+.card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2rem;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.section-title {
-  font-size: 1.5rem;
+.card-title {
+  font-size: 1.125rem;
   font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  color: var(--color-text-primary);
+  margin: 0;
 }
 
-.section-actions {
-  display: flex;
+.card-body {
+  padding: 1.5rem;
+}
+
+/* 价格网格 */
+.price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1rem;
 }
 
-/* 价格卡片 */
-.price-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1.5rem;
-}
-
 .price-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 1.5rem;
-  transition: all 0.3s ease;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  transition: all var(--transition-normal);
 }
 
 .price-card:hover {
-  transform: translateY(-3px);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  background-color: var(--color-bg-secondary);
 }
 
 .price-header {
@@ -819,145 +740,218 @@ section {
   margin-bottom: 1rem;
 }
 
-.price-header h3 {
-  font-size: 1.2rem;
+.symbol-name {
+  font-size: 1rem;
   font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
 }
 
 .delete-btn {
-  background: none;
-  border: none;
-  color: #ef4444;
-  font-size: 1.5rem;
-  cursor: pointer;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s ease;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
 .delete-btn:hover {
-  background: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
+.price-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1rem;
 }
 
 .current-price {
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
 .price-change {
-  font-size: 1.1rem;
-  font-weight: 500;
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .price-change.positive {
-  color: #22c55e;
+  color: var(--color-success);
 }
 
 .price-change.negative {
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
-.mini-chart {
+.change-arrow {
+  font-size: 0.75rem;
+}
+
+.price-chart-placeholder {
   height: 60px;
-  margin-top: 1rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
 }
 
-/* 余额卡片 */
+/* 余额网格 */
 .balance-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
 }
 
 .balance-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 1.5rem;
-  transition: all 0.3s ease;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  transition: all var(--transition-normal);
 }
 
 .balance-card:hover {
-  transform: translateY(-3px);
-  background: rgba(255, 255, 255, 0.08);
+  background-color: var(--color-bg-secondary);
 }
 
 .balance-header {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.coin-info {
+  display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 1rem;
 }
 
 .coin-icon {
   width: 32px;
   height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: white;
   border-radius: 50%;
+  font-weight: 600;
+  font-size: 0.875rem;
 }
 
-.balance-header h4 {
-  font-size: 1.1rem;
+.coin-name {
   font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.balance-value {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
 }
 
 .balance-details {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: 1.5rem;
 }
 
 .balance-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 .balance-item .label {
-  color: #888;
-  font-size: 0.9rem;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
 }
 
 .balance-item .value {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
 .balance-item .value.total {
-  font-weight: 700;
-  color: #667eea;
+  color: var(--color-text-primary);
+  font-weight: 600;
 }
 
-.balance-value {
-  font-size: 0.9rem;
-  color: #888;
-  padding-top: 0.75rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+/* 按钮样式 */
+.btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-/* 加载状态 */
-.loading-state {
-  text-align: center;
-  padding: 4rem 2rem;
-  color: #888;
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
 }
 
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-top-color: #667eea;
-  border-radius: 50%;
-  margin: 0 auto 1rem;
+.btn-primary:hover {
+  background-color: var(--color-primary-hover);
+}
+
+.btn-primary:disabled {
+  background-color: var(--color-secondary);
+  cursor: not-allowed;
+}
+
+.btn-outline {
+  background-color: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.btn-outline:hover {
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-text-tertiary);
+}
+
+.btn-outline:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background-color: var(--color-danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #dc2626;
+}
+
+.btn-danger:disabled {
+  background-color: var(--color-secondary);
+  cursor: not-allowed;
+}
+
+.btn-icon {
+  font-size: 1rem;
+}
+
+.spinning {
   animation: spin 1s linear infinite;
 }
 
@@ -965,144 +959,91 @@ section {
   to { transform: rotate(360deg); }
 }
 
-.spinning {
-  display: inline-block;
-  animation: spin 1s linear infinite;
-}
-
-/* 表格样式 */
-.trades-table-wrapper {
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.modern-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.modern-table th {
-  background: rgba(255, 255, 255, 0.05);
-  padding: 1rem;
-  text-align: left;
-  font-weight: 600;
-  color: #888;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.modern-table td {
-  padding: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.table-row {
-  transition: all 0.3s ease;
-}
-
-.table-row:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.symbol-cell {
-  font-weight: 600;
-}
-
-.trade-side {
-  padding: 0.25rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.trade-side.buy {
-  background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
-}
-
-.trade-side.sell {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-}
-
-.total-cell {
-  font-weight: 600;
-}
-
-.status-badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.status-badge.success {
-  background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
-}
-
-/* 按钮样式 */
-.add-btn, .refresh-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.add-btn:hover, .refresh-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-}
-
-.refresh-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.primary-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 1rem 2rem;
-  border-radius: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.primary-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-}
-
 /* 筛选下拉框 */
 .filter-select {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
   cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.filter-select:hover {
-  background: rgba(255, 255, 255, 0.08);
+  transition: all var(--transition-normal);
 }
 
 .filter-select:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* 数据表格 */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.data-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.875rem;
+}
+
+.data-table tbody tr:hover {
+  background-color: var(--color-bg-secondary);
+}
+
+.symbol-cell {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.trade-side {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.trade-side.buy {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.trade-side.sell {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.amount-cell {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.status-badge.success {
+  background-color: #d1fae5;
+  color: #065f46;
 }
 
 /* 分页 */
@@ -1111,24 +1052,23 @@ section {
   justify-content: center;
   align-items: center;
   gap: 1rem;
-  margin-top: 2rem;
+  margin-top: 1.5rem;
 }
 
 .page-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
   padding: 0.5rem 1rem;
-  border-radius: 8px;
+  background-color: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
   cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
+  transition: all var(--transition-normal);
 }
 
 .page-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-text-tertiary);
 }
 
 .page-btn:disabled {
@@ -1137,32 +1077,49 @@ section {
 }
 
 .page-info {
-  color: #888;
-  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+/* 加载状态 */
+.loading-state {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--color-text-tertiary);
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 1rem;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 /* 空状态 */
 .empty-state {
   text-align: center;
-  padding: 4rem 2rem;
-  color: #888;
+  padding: 3rem 2rem;
+  color: var(--color-text-tertiary);
 }
 
 .empty-icon {
-  font-size: 4rem;
+  font-size: 3rem;
+  display: block;
   margin-bottom: 1rem;
-  opacity: 0.3;
+  opacity: 0.5;
 }
 
-/* 弹窗样式 */
+/* 弹窗 */
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(5px);
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1170,94 +1127,118 @@ section {
 }
 
 .modal-content {
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+  background: var(--color-bg);
+  border-radius: var(--radius-lg);
   width: 90%;
   max-width: 500px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.modal-content.danger {
-  border-color: rgba(239, 68, 68, 0.3);
+.modal-sm {
+  max-width: 400px;
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.modal-header h3 {
-  font-size: 1.5rem;
+.modal-title {
+  font-size: 1.125rem;
   font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
 }
 
-.close-btn {
-  background: none;
-  border: none;
-  color: #888;
-  font-size: 2rem;
-  cursor: pointer;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+.modal-close {
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s ease;
+  background-color: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-tertiary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
-.close-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: white;
+.modal-close:hover {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
 }
 
 .modal-body {
-  padding: 2rem;
+  padding: 1.5rem;
+  overflow-y: auto;
 }
 
-.modal-input {
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+/* 表单样式 */
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.form-control {
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
-  padding: 1rem;
-  border-radius: 12px;
-  font-size: 1rem;
-  transition: all 0.3s ease;
+  padding: 0.625rem 0.875rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  transition: all var(--transition-normal);
 }
 
-.modal-input:focus {
+.form-control:focus {
   outline: none;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #667eea;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-.modal-input:disabled {
-  opacity: 0.5;
+.form-control:disabled {
+  background-color: var(--color-bg-tertiary);
   cursor: not-allowed;
 }
 
-.input-hint {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  color: #888;
-  font-size: 0.85rem;
+.form-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  margin-top: 0.25rem;
 }
 
 .popular-symbols {
   margin-top: 1.5rem;
 }
 
-.popular-symbols p {
-  color: #888;
-  font-size: 0.9rem;
-  margin-bottom: 1rem;
+.popular-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.75rem;
 }
 
 .symbol-chips {
@@ -1267,19 +1248,20 @@ section {
 }
 
 .symbol-chip {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
+  padding: 0.375rem 0.875rem;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
   cursor: pointer;
-  transition: all 0.3s ease;
-  font-size: 0.9rem;
+  transition: all var(--transition-fast);
 }
 
 .symbol-chip:hover:not(:disabled) {
-  background: rgba(102, 126, 234, 0.2);
-  border-color: #667eea;
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
 }
 
 .symbol-chip:disabled {
@@ -1287,94 +1269,26 @@ section {
   cursor: not-allowed;
 }
 
+/* 确认消息 */
+.confirm-message {
+  text-align: center;
+  padding: 1rem 0;
+}
+
 .warning-icon {
-  font-size: 4rem;
+  font-size: 3rem;
+  display: block;
   margin-bottom: 1rem;
 }
 
+.confirm-message p {
+  margin: 0.5rem 0;
+  color: var(--color-text-primary);
+}
+
 .warning-text {
-  background: rgba(255, 193, 7, 0.1);
-  border: 1px solid rgba(255, 193, 7, 0.3);
-  color: #fbbf24;
-  padding: 1rem;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  margin-top: 1rem;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 1rem;
-  padding: 2rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.cancel-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
-  padding: 0.75rem 1.5rem;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.cancel-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.cancel-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.confirm-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
-  color: white;
-  padding: 0.75rem 1.5rem;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.confirm-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-}
-
-.confirm-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.danger-btn {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  border: none;
-  color: white;
-  padding: 0.75rem 1.5rem;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.danger-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(239, 68, 68, 0.4);
-}
-
-.danger-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
 }
 
 /* Toast 消息 */
@@ -1382,91 +1296,50 @@ section {
   position: fixed;
   bottom: 2rem;
   right: 2rem;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 1rem 1.5rem;
-  border-radius: 12px;
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   font-weight: 500;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  z-index: 2000;
+  z-index: 1000;
 }
 
 .toast.success {
-  border-color: rgba(34, 197, 94, 0.3);
-  background: rgba(34, 197, 94, 0.1);
+  border-color: var(--color-success);
+  color: var(--color-success);
 }
 
 .toast.error {
-  border-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .toast-icon {
-  font-size: 1.2rem;
+  font-size: 1.25rem;
 }
 
 /* 动画 */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(50px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 弹窗过渡动画 */
-.modal-enter-active, .modal-leave-active {
+.modal-enter-active,
+.modal-leave-active {
   transition: all 0.3s ease;
 }
 
-.modal-enter-from, .modal-leave-to {
+.modal-enter-from,
+.modal-leave-to {
   opacity: 0;
 }
 
 .modal-enter-from .modal-content,
 .modal-leave-to .modal-content {
-  transform: scale(0.9);
+  transform: scale(0.95);
 }
 
-.toast-enter-active, .toast-leave-active {
+.toast-enter-active,
+.toast-leave-active {
   transition: all 0.3s ease;
 }
 
@@ -1482,49 +1355,26 @@ section {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .dashboard-container {
-    padding: 1rem;
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .page-title {
-    font-size: 2rem;
-  }
-
-  .stats-overview {
-    grid-template-columns: 1fr;
-  }
-
-  .price-grid {
-    grid-template-columns: 1fr;
-  }
-
+  .price-grid,
   .balance-grid {
     grid-template-columns: 1fr;
   }
 
-  .section-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: flex-start;
+  .data-table {
+    font-size: 0.75rem;
   }
 
-  .trades-table-wrapper {
-    overflow-x: auto;
-  }
-
-  .modern-table {
-    min-width: 600px;
+  .data-table th,
+  .data-table td {
+    padding: 0.5rem;
   }
 
   .modal-content {
     width: 95%;
-    margin: 1rem;
-  }
-
-  .toast {
-    left: 1rem;
-    right: 1rem;
-    bottom: 1rem;
   }
 }
 </style>
