@@ -17,7 +17,10 @@ func main() {
 	if err := models.MigrateDB(cfg.DB); err != nil {
 		log.Fatalf("数据库迁移失败: %v", err)
 	}
-
+	// 迁移双币投资相关表
+	if err := models.MigrateDualInvestmentTables(cfg.DB); err != nil {
+		log.Fatalf("双币投资表迁移失败: %v", err)
+	}
 	// 初始化默认管理员账号
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
 	if err != nil {
@@ -57,6 +60,7 @@ func main() {
 	go tasks.StartPriceMonitoring(cfg)
 	go tasks.CheckOrders(cfg)
 	go tasks.CheckWithdrawals(cfg)
+	go tasks.StartDualInvestmentTasks(cfg) // 新增：启动双币投资任务
 
 	// 启动服务器
 	log.Printf("服务器启动在端口 8081")

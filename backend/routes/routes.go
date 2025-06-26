@@ -112,6 +112,8 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 			withdrawalGroup.GET("", handlers.GinListWithdrawalRulesHandler(cfg))
 			withdrawalGroup.DELETE("/:id", handlers.GinDeleteWithdrawalRuleHandler(cfg))
 		}
+		// 双币投资路由
+		SetupDualInvestmentRoutes(protected, cfg)
 	}
 
 	// 管理员路由

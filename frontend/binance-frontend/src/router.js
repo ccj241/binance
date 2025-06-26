@@ -21,6 +21,12 @@ const routes = [
         name: 'AuthWithdrawal',
         component: AuthWithdrawal
     },
+    {
+        path: '/dual-investment',
+        name: 'DualInvestment',
+        component: () => import('../views/DualInvestment.vue'),
+        meta: { requiresAuth: true }
+    },
 ];
 
 const router = createRouter({

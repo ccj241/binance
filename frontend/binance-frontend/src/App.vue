@@ -6,6 +6,9 @@
         <router-link to="/orders">Orders</router-link> |
         <router-link to="/strategies">Strategies</router-link> |
         <router-link to="/settings">Settings</router-link>
+        <router-link to="/dual-investment" class="nav-link">
+          <i>💰</i> 双币投资
+        </router-link>
         <span v-if="isAdmin"> | <router-link to="/admin">Admin</router-link></span>
       </div>
       <div class="user-info">
