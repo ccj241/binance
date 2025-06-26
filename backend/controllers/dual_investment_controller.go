@@ -228,7 +228,6 @@ func (ctrl *DualInvestmentController) GetStrategies(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"strategies": responseStrategies})
 }
 
-// UpdateStrategy 更新策略 - 修复版本
 // UpdateStrategy 更新策略 - 修复版本（添加权限验证）
 func (ctrl *DualInvestmentController) UpdateStrategy(c *gin.Context) {
 	userID, _ := c.Get("user_id")
@@ -326,38 +325,6 @@ func (ctrl *DualInvestmentController) DeleteStrategy(c *gin.Context) {
 	if err := ctrl.Config.DB.Where("id = ? AND user_id = ? AND deleted_at IS NULL", strategyID, userID).
 		First(&strategy).Error; err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "策略未找到或无权访问"})
-		return
-	}
-
-	// 检查是否有活跃订单
-	var activeOrders int64
-	ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
-		Where("strategy_id = ? AND status IN ?", strategyID, []string{"pending", "active"}).
-		Count(&activeOrders)
-
-	if activeOrders > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "策略有活跃订单，无法删除"})
-		return
-	}
-
-	if err := ctrl.Config.DB.Delete(&strategy).Error; err != nil {
-		log.Printf("删除策略失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除策略失败"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "策略删除成功"})
-}
-
-// DeleteStrategy 删除策略
-func (ctrl *DualInvestmentController) DeleteStrategy(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	strategyID := c.Param("id")
-
-	var strategy models.DualInvestmentStrategy
-	if err := ctrl.Config.DB.Where("id = ? AND user_id = ?", strategyID, userID).
-		First(&strategy).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "策略未找到"})
 		return
 	}
 
@@ -502,7 +469,6 @@ func (ctrl *DualInvestmentController) CreateOrder(c *gin.Context) {
 	})
 }
 
-// GetOrders 获取用户的双币投资订单
 // GetOrders 获取用户的双币投资订单（添加策略权限验证）
 func (ctrl *DualInvestmentController) GetOrders(c *gin.Context) {
 	userID, _ := c.Get("user_id")

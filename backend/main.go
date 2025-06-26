@@ -5,15 +5,13 @@ import (
 	"github.com/ccj241/binance/models"
 	"github.com/ccj241/binance/routes"
 	"github.com/ccj241/binance/tasks"
-	"github.com/ccj241/binance/utils"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 	"log"
 )
 
 // MigrateEncryptAPIKeys 加密现有的明文API密钥
-func MigrateEncryptAPIKeys(db *gorm.DB) error {
+/*func MigrateEncryptAPIKeys(db *gorm.DB) error {
 	var users []models.User
 
 	// 查询所有用户
@@ -70,13 +68,13 @@ func MigrateEncryptAPIKeys(db *gorm.DB) error {
 	log.Printf("API密钥加密迁移完成: 成功 %d 个，失败 %d 个", successCount, failCount)
 	return nil
 }
-
+*/
 func main() {
 	cfg := config.NewConfig()
 	//执行API密钥加密迁移
-	if err := MigrateEncryptAPIKeys(cfg.DB); err != nil {
-		log.Printf("API密钥加密迁移失败: %v", err)
-	}
+	//if err := MigrateEncryptAPIKeys(cfg.DB); err != nil {
+	//	log.Printf("API密钥加密迁移失败: %v", err)
+	//}
 
 	// 数据库迁移
 	if err := models.MigrateDB(cfg.DB); err != nil {
