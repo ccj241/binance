@@ -658,9 +658,11 @@ export default {
 
       if (this.newStrategy.strategyType === 'custom') {
         if (this.newStrategy.side === 'BUY') {
-          return this.buyQuantitiesInput && this.buyBasisPointsInput && !this.quantityWarning;
+          // 只需要数量配置，价格偏移是可选的
+          return this.buyQuantitiesInput && !this.quantityWarning;
         } else {
-          return this.sellQuantitiesInput && this.sellBasisPointsInput && !this.quantityWarning;
+          // 只需要数量配置，价格偏移是可选的
+          return this.sellQuantitiesInput && !this.quantityWarning;
         }
       }
 

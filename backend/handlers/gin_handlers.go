@@ -1063,7 +1063,7 @@ func GinDeleteWithdrawalRuleHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-// GinCreateStrategyHandler 创建策略处理器
+// GinCreateStrategyHandler 创建策略处理器 - 修复版本
 func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := getUserFromGinContext(c, cfg)
@@ -1073,15 +1073,18 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		var strategyReq struct {
-			Symbol          string    `json:"symbol" binding:"required"`
-			StrategyType    string    `json:"strategyType" binding:"required"`
-			Side            string    `json:"side" binding:"required"`
-			Price           float64   `json:"price" binding:"required,gt=0"`
-			TotalQuantity   float64   `json:"totalQuantity" binding:"required,gt=0"`
-			BuyQuantities   []float64 `json:"buyQuantities"`
-			SellQuantities  []float64 `json:"sellQuantities"`
-			BuyDepthLevels  []int     `json:"buyDepthLevels"`
-			SellDepthLevels []int     `json:"sellDepthLevels"`
+			Symbol             string    `json:"symbol" binding:"required"`
+			StrategyType       string    `json:"strategyType" binding:"required"`
+			Side               string    `json:"side" binding:"required"`
+			Price              float64   `json:"price" binding:"required,gt=0"`
+			TotalQuantity      float64   `json:"totalQuantity" binding:"required,gt=0"`
+			BuyQuantities      []float64 `json:"buyQuantities"`
+			SellQuantities     []float64 `json:"sellQuantities"`
+			BuyDepthLevels     []int     `json:"buyDepthLevels"`
+			SellDepthLevels    []int     `json:"sellDepthLevels"`
+			BuyBasisPoints     []float64 `json:"buyBasisPoints"`  // 新增：买入万分比
+			SellBasisPoints    []float64 `json:"sellBasisPoints"` // 新增：卖出万分比
+			CancelAfterMinutes int       `json:"cancelAfterMinutes"`
 		}
 
 		if err := c.ShouldBindJSON(&strategyReq); err != nil {
@@ -1099,6 +1102,11 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 		if strategyReq.Side != "BUY" && strategyReq.Side != "SELL" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的交易方向"})
 			return
+		}
+
+		// 设置默认的取消时间
+		if strategyReq.CancelAfterMinutes <= 0 {
+			strategyReq.CancelAfterMinutes = 120
 		}
 
 		// 处理默认值
@@ -1132,25 +1140,71 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 			}
 		}
 
-		// 验证自定义策略配置
+		// 验证自定义策略配置 - 修复版本
 		if strategyReq.StrategyType == "custom" {
 			if strategyReq.Side == "BUY" {
-				if len(strategyReq.BuyQuantities) == 0 || len(strategyReq.BuyDepthLevels) == 0 {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "自定义买入策略需要设置数量和深度级别"})
+				// 买入策略需要买入数量
+				if len(strategyReq.BuyQuantities) == 0 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "自定义买入策略需要设置数量"})
 					return
 				}
-				if len(strategyReq.BuyQuantities) != len(strategyReq.BuyDepthLevels) {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "数量和深度级别数量不匹配"})
-					return
+
+				// 如果提供了万分比，使用万分比；否则使用深度级别
+				if len(strategyReq.BuyBasisPoints) > 0 {
+					// 使用万分比，不需要深度级别
+					if len(strategyReq.BuyQuantities) != len(strategyReq.BuyBasisPoints) {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "买入数量和万分比数量不匹配"})
+						return
+					}
+					// 为了兼容，设置默认深度级别
+					strategyReq.BuyDepthLevels = make([]int, len(strategyReq.BuyQuantities))
+					for i := range strategyReq.BuyDepthLevels {
+						strategyReq.BuyDepthLevels[i] = i + 1
+					}
+				} else if len(strategyReq.BuyDepthLevels) > 0 {
+					// 使用深度级别
+					if len(strategyReq.BuyQuantities) != len(strategyReq.BuyDepthLevels) {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "买入数量和深度级别数量不匹配"})
+						return
+					}
+				} else {
+					// 两者都没有，使用默认深度级别
+					strategyReq.BuyDepthLevels = make([]int, len(strategyReq.BuyQuantities))
+					for i := range strategyReq.BuyDepthLevels {
+						strategyReq.BuyDepthLevels[i] = i + 1
+					}
 				}
 			} else {
-				if len(strategyReq.SellQuantities) == 0 || len(strategyReq.SellDepthLevels) == 0 {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "自定义卖出策略需要设置数量和深度级别"})
+				// 卖出策略需要卖出数量
+				if len(strategyReq.SellQuantities) == 0 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "自定义卖出策略需要设置数量"})
 					return
 				}
-				if len(strategyReq.SellQuantities) != len(strategyReq.SellDepthLevels) {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "数量和深度级别数量不匹配"})
-					return
+
+				// 如果提供了万分比，使用万分比；否则使用深度级别
+				if len(strategyReq.SellBasisPoints) > 0 {
+					// 使用万分比，不需要深度级别
+					if len(strategyReq.SellQuantities) != len(strategyReq.SellBasisPoints) {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "卖出数量和万分比数量不匹配"})
+						return
+					}
+					// 为了兼容，设置默认深度级别
+					strategyReq.SellDepthLevels = make([]int, len(strategyReq.SellQuantities))
+					for i := range strategyReq.SellDepthLevels {
+						strategyReq.SellDepthLevels[i] = i + 1
+					}
+				} else if len(strategyReq.SellDepthLevels) > 0 {
+					// 使用深度级别
+					if len(strategyReq.SellQuantities) != len(strategyReq.SellDepthLevels) {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "卖出数量和深度级别数量不匹配"})
+						return
+					}
+				} else {
+					// 两者都没有，使用默认深度级别
+					strategyReq.SellDepthLevels = make([]int, len(strategyReq.SellQuantities))
+					for i := range strategyReq.SellDepthLevels {
+						strategyReq.SellDepthLevels[i] = i + 1
+					}
 				}
 			}
 		}
@@ -1192,20 +1246,42 @@ func GinCreateStrategyHandler(cfg *config.Config) gin.HandlerFunc {
 			sellDepthLevelsStr = strings.Join(strs, ",")
 		}
 
+		// 新增：转换万分比为字符串
+		buyBasisPointsStr := ""
+		if len(strategyReq.BuyBasisPoints) > 0 {
+			strs := make([]string, len(strategyReq.BuyBasisPoints))
+			for i, bp := range strategyReq.BuyBasisPoints {
+				strs[i] = fmt.Sprintf("%.2f", bp)
+			}
+			buyBasisPointsStr = strings.Join(strs, ",")
+		}
+
+		sellBasisPointsStr := ""
+		if len(strategyReq.SellBasisPoints) > 0 {
+			strs := make([]string, len(strategyReq.SellBasisPoints))
+			for i, bp := range strategyReq.SellBasisPoints {
+				strs[i] = fmt.Sprintf("%.2f", bp)
+			}
+			sellBasisPointsStr = strings.Join(strs, ",")
+		}
+
 		// 创建策略
 		strategy := models.Strategy{
-			UserID:          user.ID,
-			Symbol:          strings.ToUpper(strategyReq.Symbol),
-			StrategyType:    strategyReq.StrategyType,
-			Side:            strategyReq.Side,
-			Price:           strategyReq.Price,
-			TotalQuantity:   strategyReq.TotalQuantity,
-			Status:          "active",
-			Enabled:         true,
-			BuyQuantities:   buyQuantitiesStr,
-			SellQuantities:  sellQuantitiesStr,
-			BuyDepthLevels:  buyDepthLevelsStr,
-			SellDepthLevels: sellDepthLevelsStr,
+			UserID:             user.ID,
+			Symbol:             strings.ToUpper(strategyReq.Symbol),
+			StrategyType:       strategyReq.StrategyType,
+			Side:               strategyReq.Side,
+			Price:              strategyReq.Price,
+			TotalQuantity:      strategyReq.TotalQuantity,
+			Status:             "active",
+			Enabled:            true,
+			BuyQuantities:      buyQuantitiesStr,
+			SellQuantities:     sellQuantitiesStr,
+			BuyDepthLevels:     buyDepthLevelsStr,
+			SellDepthLevels:    sellDepthLevelsStr,
+			BuyBasisPoints:     buyBasisPointsStr,  // 新增
+			SellBasisPoints:    sellBasisPointsStr, // 新增
+			CancelAfterMinutes: strategyReq.CancelAfterMinutes,
 		}
 
 		if err := cfg.DB.Create(&strategy).Error; err != nil {
@@ -1285,22 +1361,44 @@ func GinListStrategiesHandler(cfg *config.Config) gin.HandlerFunc {
 				}
 			}
 
+			// 新增：解析万分比
+			buyBasisPoints := []float64{}
+			if s.BuyBasisPoints != "" {
+				for _, bp := range strings.Split(s.BuyBasisPoints, ",") {
+					if basisPoint, err := strconv.ParseFloat(strings.TrimSpace(bp), 64); err == nil {
+						buyBasisPoints = append(buyBasisPoints, basisPoint)
+					}
+				}
+			}
+
+			sellBasisPoints := []float64{}
+			if s.SellBasisPoints != "" {
+				for _, bp := range strings.Split(s.SellBasisPoints, ",") {
+					if basisPoint, err := strconv.ParseFloat(strings.TrimSpace(bp), 64); err == nil {
+						sellBasisPoints = append(sellBasisPoints, basisPoint)
+					}
+				}
+			}
+
 			formattedStrategies = append(formattedStrategies, map[string]interface{}{
-				"id":              s.ID,
-				"symbol":          s.Symbol,
-				"strategyType":    s.StrategyType,
-				"side":            s.Side,
-				"price":           s.Price,
-				"totalQuantity":   s.TotalQuantity,
-				"status":          s.Status,
-				"enabled":         s.Enabled,
-				"buyQuantities":   buyQuantities,
-				"sellQuantities":  sellQuantities,
-				"buyDepthLevels":  buyDepthLevels,
-				"sellDepthLevels": sellDepthLevels,
-				"pendingBatch":    s.PendingBatch,
-				"createdAt":       s.CreatedAt,
-				"updatedAt":       s.UpdatedAt,
+				"id":                 s.ID,
+				"symbol":             s.Symbol,
+				"strategyType":       s.StrategyType,
+				"side":               s.Side,
+				"price":              s.Price,
+				"totalQuantity":      s.TotalQuantity,
+				"status":             s.Status,
+				"enabled":            s.Enabled,
+				"buyQuantities":      buyQuantities,
+				"sellQuantities":     sellQuantities,
+				"buyDepthLevels":     buyDepthLevels,
+				"sellDepthLevels":    sellDepthLevels,
+				"buyBasisPoints":     buyBasisPoints,  // 新增
+				"sellBasisPoints":    sellBasisPoints, // 新增
+				"pendingBatch":       s.PendingBatch,
+				"cancelAfterMinutes": s.CancelAfterMinutes,
+				"createdAt":          s.CreatedAt,
+				"updatedAt":          s.UpdatedAt,
 			})
 		}
 

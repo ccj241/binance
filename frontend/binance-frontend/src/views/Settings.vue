@@ -2,63 +2,57 @@
   <div class="settings-container">
     <!-- 页面标题 -->
     <div class="page-header">
-      <h1 class="page-title">
-        <span class="gradient-text">系统设置</span>
-      </h1>
+      <h1 class="page-title">系统设置</h1>
       <p class="page-subtitle">管理您的API密钥和自动提币规则</p>
     </div>
 
     <!-- 统计卡片 -->
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
-          <i>🔑</i>
+        <div class="stat-icon">
+          <span>🔑</span>
         </div>
         <div class="stat-content">
           <div class="stat-value">{{ apiKey ? '已配置' : '未配置' }}</div>
           <div class="stat-label">API 密钥</div>
         </div>
-        <div class="stat-bg"></div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">
-          <i>🔒</i>
+        <div class="stat-icon">
+          <span>🔒</span>
         </div>
         <div class="stat-content">
           <div class="stat-value">{{ secretKey ? '已配置' : '未配置' }}</div>
           <div class="stat-label">Secret 密钥</div>
         </div>
-        <div class="stat-bg"></div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%)">
-          <i>⚡</i>
+        <div class="stat-icon">
+          <span>⚡</span>
         </div>
         <div class="stat-content">
           <div class="stat-value">{{ withdrawalRules.length }}</div>
           <div class="stat-label">提币规则</div>
         </div>
-        <div class="stat-bg"></div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">
-          <i>✅</i>
+        <div class="stat-icon">
+          <span>✅</span>
         </div>
         <div class="stat-content">
           <div class="stat-value">{{ enabledRulesCount }}</div>
           <div class="stat-label">启用规则</div>
         </div>
-        <div class="stat-bg"></div>
       </div>
     </div>
 
     <!-- 消息提示 -->
     <transition name="toast">
       <div v-if="toastMessage" :class="['toast', toastType]">
-        <i class="toast-icon">{{ toastType === 'success' ? '✅' : '❌' }}</i>
+        <span class="toast-icon">{{ toastType === 'success' ? '✓' : '×' }}</span>
         <span>{{ toastMessage }}</span>
       </div>
     </transition>
@@ -67,12 +61,11 @@
     <div class="settings-section">
       <div class="section-header">
         <h2 class="section-title">
-          <i class="section-icon">🔑</i>
+          <span class="section-icon">🔑</span>
           API 密钥管理
         </h2>
         <button @click="toggleApiSection" class="toggle-btn">
-          <i>{{ showApiSection ? '🔽' : '▶️' }}</i>
-          {{ showApiSection ? '收起' : '展开' }}
+          <span>{{ showApiSection ? '收起' : '展开' }}</span>
         </button>
       </div>
 
@@ -92,7 +85,7 @@
                 <div class="key-value">
                   <span class="masked-key">{{ maskKey(apiKey) }}</span>
                   <button @click="toggleKeyVisibility('api')" class="visibility-btn">
-                    <i>{{ showApiKey ? '🙈' : '👁️' }}</i>
+                    <span>{{ showApiKey ? '隐藏' : '显示' }}</span>
                   </button>
                 </div>
                 <div v-if="showApiKey" class="full-key">{{ apiKey }}</div>
@@ -109,7 +102,7 @@
                 <div class="key-value">
                   <span class="masked-key">{{ maskKey(secretKey) }}</span>
                   <button @click="toggleKeyVisibility('secret')" class="visibility-btn">
-                    <i>{{ showSecretKey ? '🙈' : '👁️' }}</i>
+                    <span>{{ showSecretKey ? '隐藏' : '显示' }}</span>
                   </button>
                 </div>
                 <div v-if="showSecretKey" class="full-key">{{ secretKey }}</div>
@@ -117,7 +110,7 @@
             </div>
 
             <button @click="deleteAPIKey" class="action-btn delete">
-              <i>🗑️</i> 删除 API 密钥
+              删除 API 密钥
             </button>
           </div>
 
@@ -129,29 +122,23 @@
 
           <!-- 添加新密钥 -->
           <div class="add-keys-section">
-            <h3 class="subsection-title">
-              <i>➕</i> 添加新的 API 密钥
-            </h3>
+            <h3 class="subsection-title">添加新的 API 密钥</h3>
 
             <form @submit.prevent="saveAPIKey" class="key-form">
               <div class="form-grid">
                 <div class="form-group">
                   <label>API Key</label>
-                  <div class="input-wrapper">
-                    <i class="input-icon">🔑</i>
-                    <input
-                        v-model="newAPIKey"
-                        type="text"
-                        placeholder="请输入您的 Binance API Key"
-                        required
-                    />
-                  </div>
+                  <input
+                      v-model="newAPIKey"
+                      type="text"
+                      placeholder="请输入您的 Binance API Key"
+                      required
+                  />
                 </div>
 
                 <div class="form-group">
                   <label>Secret Key</label>
-                  <div class="input-wrapper">
-                    <i class="input-icon">🔒</i>
+                  <div class="password-input">
                     <input
                         v-model="newSecretKey"
                         :type="showNewSecretInput ? 'text' : 'password'"
@@ -163,18 +150,18 @@
                         @click="showNewSecretInput = !showNewSecretInput"
                         class="password-toggle"
                     >
-                      <i>{{ showNewSecretInput ? '🙈' : '👁️' }}</i>
+                      {{ showNewSecretInput ? '隐藏' : '显示' }}
                     </button>
                   </div>
                 </div>
               </div>
 
               <div class="form-actions">
-                <button type="submit" class="action-btn save">
-                  <i>💾</i> 保存 API 密钥
+                <button type="submit" class="action-btn primary">
+                  保存 API 密钥
                 </button>
                 <button type="button" @click="resetApiForm" class="action-btn secondary">
-                  <i>🔄</i> 重置表单
+                  重置表单
                 </button>
               </div>
             </form>
@@ -187,12 +174,11 @@
     <div class="settings-section">
       <div class="section-header">
         <h2 class="section-title">
-          <i class="section-icon">⚡</i>
+          <span class="section-icon">⚡</span>
           自动提币设置
         </h2>
         <button @click="toggleWithdrawalSection" class="toggle-btn">
-          <i>{{ showWithdrawalSection ? '🔽' : '▶️' }}</i>
-          {{ showWithdrawalSection ? '收起' : '展开' }}
+          <span>{{ showWithdrawalSection ? '收起' : '展开' }}</span>
         </button>
       </div>
 
@@ -200,66 +186,52 @@
         <div v-if="showWithdrawalSection" class="section-content">
           <!-- 添加提币规则 -->
           <div class="add-rule-section">
-            <h3 class="subsection-title">
-              <i>➕</i> 添加提币规则
-            </h3>
+            <h3 class="subsection-title">添加提币规则</h3>
 
             <form @submit.prevent="createWithdrawalRule" class="rule-form">
               <div class="form-grid">
                 <div class="form-group">
                   <label>币种</label>
-                  <div class="input-wrapper">
-                    <i class="input-icon">🪙</i>
-                    <input
-                        v-model="newWithdrawal.asset"
-                        type="text"
-                        placeholder="例如: BTC, ETH, USDT"
-                        required
-                    />
-                  </div>
+                  <input
+                      v-model="newWithdrawal.asset"
+                      type="text"
+                      placeholder="例如: BTC, ETH, USDT"
+                      required
+                  />
                 </div>
 
                 <div class="form-group">
                   <label>触发阈值</label>
-                  <div class="input-wrapper">
-                    <i class="input-icon">📊</i>
-                    <input
-                        v-model.number="newWithdrawal.threshold"
-                        type="number"
-                        step="0.00000001"
-                        placeholder="余额超过此数量时触发"
-                        required
-                    />
-                  </div>
+                  <input
+                      v-model.number="newWithdrawal.threshold"
+                      type="number"
+                      step="0.00000001"
+                      placeholder="余额超过此数量时触发"
+                      required
+                  />
                 </div>
 
                 <div class="form-group">
                   <label>提币金额</label>
-                  <div class="input-wrapper">
-                    <i class="input-icon">💰</i>
-                    <input
-                        v-model.number="newWithdrawal.amount"
-                        type="number"
-                        step="0.00000001"
-                        min="0"
-                        placeholder="每次提币数量（0表示提取最大可用金额）"
-                        required
-                    />
-                  </div>
+                  <input
+                      v-model.number="newWithdrawal.amount"
+                      type="number"
+                      step="0.00000001"
+                      min="0"
+                      placeholder="每次提币数量（0表示提取最大可用金额）"
+                      required
+                  />
                   <small class="form-hint">设置为0将自动提取所有可用余额</small>
                 </div>
 
                 <div class="form-group">
                   <label>提币地址</label>
-                  <div class="input-wrapper">
-                    <i class="input-icon">🏠</i>
-                    <input
-                        v-model="newWithdrawal.address"
-                        type="text"
-                        placeholder="目标钱包地址"
-                        required
-                    />
-                  </div>
+                  <input
+                      v-model="newWithdrawal.address"
+                      type="text"
+                      placeholder="目标钱包地址"
+                      required
+                  />
                 </div>
               </div>
 
@@ -276,11 +248,11 @@
               </div>
 
               <div class="form-actions">
-                <button type="submit" class="action-btn create">
-                  <i>🚀</i> 创建规则
+                <button type="submit" class="action-btn primary">
+                  创建规则
                 </button>
                 <button type="button" @click="resetWithdrawalForm" class="action-btn secondary">
-                  <i>🔄</i> 重置表单
+                  重置表单
                 </button>
               </div>
             </form>
@@ -288,9 +260,7 @@
 
           <!-- 现有规则列表 -->
           <div class="rules-list">
-            <h3 class="subsection-title">
-              <i>📋</i> 现有规则 ({{ withdrawalRules.length }})
-            </h3>
+            <h3 class="subsection-title">现有规则 ({{ withdrawalRules.length }})</h3>
 
             <div v-if="withdrawalRules.length === 0" class="empty-state">
               <div class="empty-icon">⚡</div>
@@ -306,7 +276,6 @@
                     <div class="asset-info">
                       <h4>{{ rule.asset }}</h4>
                       <span :class="['status-chip', rule.enabled ? 'enabled' : 'disabled']">
-                        <span class="status-dot"></span>
                         {{ rule.enabled ? '启用' : '禁用' }}
                       </span>
                     </div>
@@ -331,10 +300,10 @@
 
                 <div class="rule-actions">
                   <button @click="toggleRuleStatus(rule)" class="action-btn toggle">
-                    <i>{{ rule.enabled ? '⏸️' : '▶️' }}</i> {{ rule.enabled ? '禁用' : '启用' }}
+                    {{ rule.enabled ? '禁用' : '启用' }}
                   </button>
                   <button @click="deleteWithdrawalRule(rule.id)" class="action-btn delete">
-                    <i>🗑️</i> 删除
+                    删除
                   </button>
                 </div>
               </div>
@@ -478,7 +447,7 @@ export default {
             }
         );
 
-        this.showToast(response.data.message || 'API 密钥保存成功 🎉');
+        this.showToast(response.data.message || 'API 密钥保存成功');
         this.resetApiForm();
         await this.fetchAPIKey();
       } catch (err) {
@@ -496,7 +465,7 @@ export default {
         const response = await axios.delete('/api-key/delete', {
           headers: this.getAuthHeaders(),
         });
-        this.showToast(response.data.message || 'API 密钥删除成功 🗑️');
+        this.showToast(response.data.message || 'API 密钥删除成功');
         this.apiKey = '';
         this.secretKey = '';
         this.showApiKey = false;
@@ -516,7 +485,6 @@ export default {
       }
 
       try {
-        // 修复API路径：使用正确的路径 /withdrawals
         const response = await axios.post(
             '/withdrawals',
             {
@@ -530,7 +498,7 @@ export default {
               headers: this.getAuthHeaders(),
             }
         );
-        this.showToast(response.data.message || '自动提币规则创建成功 🚀');
+        this.showToast(response.data.message || '自动提币规则创建成功');
         this.resetWithdrawalForm();
         await this.fetchWithdrawalRules();
       } catch (err) {
@@ -541,7 +509,6 @@ export default {
 
     async fetchWithdrawalRules() {
       try {
-        // 修复API路径：使用正确的路径 /withdrawals
         const response = await axios.get('/withdrawals', {
           headers: this.getAuthHeaders(),
         });
@@ -554,7 +521,6 @@ export default {
 
     async toggleRuleStatus(rule) {
       try {
-        // 修复API路径：使用正确的路径 /withdrawals/:id
         const response = await axios.put(
             `/withdrawals/${rule.id}`,
             {
@@ -579,11 +545,10 @@ export default {
       }
 
       try {
-        // 修复API路径：使用正确的路径 /withdrawals/:id
         const response = await axios.delete(`/withdrawals/${ruleId}`, {
           headers: this.getAuthHeaders(),
         });
-        this.showToast(response.data.message || '提币规则删除成功 🗑️');
+        this.showToast(response.data.message || '提币规则删除成功');
         await this.fetchWithdrawalRules();
       } catch (err) {
         console.error('deleteWithdrawalRule error:', err);
@@ -595,99 +560,75 @@ export default {
 </script>
 
 <style scoped>
-/* 全局样式 */
+/* 容器 */
 .settings-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0;
+  background: #ffffff;
   min-height: 100vh;
-  background: #0f0f0f;
-  color: #ffffff;
-  padding: 2rem;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 
-/* 页面标题 */
+/* 页面头部 */
 .page-header {
-  text-align: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
 }
 
 .page-title {
-  font-size: 3rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
-}
-
-.gradient-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-size: 1.875rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 0.5rem 0;
 }
 
 .page-subtitle {
-  color: #666;
-  font-size: 1.1rem;
+  color: #64748b;
+  font-size: 0.875rem;
 }
 
 /* 统计卡片 */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 3rem;
+  gap: 1rem;
+  margin-bottom: 2rem;
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 2rem;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-5px);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .stat-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 16px;
+  width: 48px;
+  height: 48px;
+  background: #f8fafc;
+  border-radius: 0.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.5rem;
-  margin-bottom: 1rem;
 }
 
 .stat-content {
-  position: relative;
-  z-index: 1;
+  flex: 1;
 }
 
 .stat-value {
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 0.25rem;
 }
 
 .stat-label {
-  color: #999;
-  font-size: 0.9rem;
-}
-
-.stat-bg {
-  position: absolute;
-  top: -50%;
-  right: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%);
-  transform: rotate(45deg);
+  color: #64748b;
+  font-size: 0.875rem;
 }
 
 /* Toast 消息 */
@@ -695,34 +636,40 @@ export default {
   position: fixed;
   bottom: 2rem;
   right: 2rem;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
   padding: 1rem 1.5rem;
-  border-radius: 12px;
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-  font-weight: 500;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  gap: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
   z-index: 1000;
 }
 
 .toast.success {
-  border-color: rgba(34, 197, 94, 0.3);
-  background: rgba(34, 197, 94, 0.1);
+  border-color: #10b981;
 }
 
 .toast.error {
-  border-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
 }
 
 .toast-icon {
-  font-size: 1.2rem;
+  font-size: 1.25rem;
 }
 
-.toast-enter-active, .toast-leave-active {
+.toast.success .toast-icon {
+  color: #10b981;
+}
+
+.toast.error .toast-icon {
+  color: #ef4444;
+}
+
+/* 动画 */
+.toast-enter-active,
+.toast-leave-active {
   transition: all 0.3s ease;
 }
 
@@ -736,222 +683,216 @@ export default {
   opacity: 0;
 }
 
-/* 设置区域 */
+/* 设置区块 */
 .settings-section {
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 24px;
-  padding: 2rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  margin-bottom: 2rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  margin-bottom: 1.5rem;
+  overflow: hidden;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2rem;
+  padding: 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .section-title {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-  font-size: 1.5rem;
+  gap: 0.5rem;
+  font-size: 1.125rem;
   font-weight: 600;
+  color: #0f172a;
   margin: 0;
 }
 
 .section-icon {
-  font-size: 1.8rem;
+  font-size: 1.25rem;
 }
 
 .toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.8rem 1.5rem;
-  background: rgba(255, 255, 255, 0.1);
-  color: #ccc;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
+  padding: 0.5rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
+  color: #475569;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s;
 }
 
 .toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
 }
 
-.section-slide-enter-active, .section-slide-leave-active {
+.section-content {
+  padding: 1.5rem;
+}
+
+.section-slide-enter-active,
+.section-slide-leave-active {
   transition: all 0.3s ease;
 }
 
 .section-slide-enter-from {
   opacity: 0;
-  transform: translateY(-20px);
+  transform: translateY(-10px);
 }
 
 .section-slide-leave-to {
   opacity: 0;
-  transform: translateY(-20px);
+  transform: translateY(-10px);
 }
 
-.section-content {
-  margin-top: 2rem;
-}
-
-/* 当前密钥显示 */
+/* 密钥显示 */
 .current-keys {
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
 }
 
 .key-display {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
 }
 
 .key-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 1.5rem;
-  transition: all 0.3s ease;
-}
-
-.key-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1.25rem;
 }
 
 .key-header {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
   margin-bottom: 1rem;
 }
 
 .key-icon {
-  width: 50px;
-  height: 50px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  width: 40px;
+  height: 40px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
 }
 
 .key-info h4 {
   margin: 0 0 0.25rem 0;
-  color: #fff;
-  font-size: 1.1rem;
+  color: #0f172a;
+  font-size: 1rem;
 }
 
 .key-status {
   margin: 0;
-  color: #22c55e;
-  font-size: 0.9rem;
+  color: #10b981;
+  font-size: 0.875rem;
 }
 
 .key-value {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 0.8rem;
-  border-radius: 8px;
-  margin-bottom: 1rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  margin-bottom: 0.5rem;
 }
 
 .masked-key {
-  font-family: 'Courier New', monospace;
-  color: #ccc;
-  font-size: 0.9rem;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Courier New', monospace;
+  color: #475569;
+  font-size: 0.875rem;
 }
 
 .visibility-btn {
-  background: none;
-  border: none;
-  color: #999;
+  padding: 0.25rem 0.75rem;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.25rem;
+  color: #475569;
+  font-size: 0.75rem;
   cursor: pointer;
-  padding: 0.2rem;
-  border-radius: 4px;
-  transition: all 0.3s ease;
+  transition: all 0.2s;
 }
 
 .visibility-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  background: #e2e8f0;
 }
 
 .full-key {
-  font-family: 'Courier New', monospace;
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  padding: 0.8rem;
-  border-radius: 8px;
-  color: #22c55e;
-  font-size: 0.85rem;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Courier New', monospace;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  color: #16a34a;
+  font-size: 0.8125rem;
   word-break: break-all;
 }
 
-/* 无密钥状态 */
-.no-keys {
+/* 空状态 */
+.no-keys,
+.empty-state {
   text-align: center;
   padding: 3rem 2rem;
-  margin-bottom: 3rem;
 }
 
-.no-keys-icon {
-  font-size: 4rem;
+.no-keys-icon,
+.empty-icon {
+  font-size: 3rem;
   margin-bottom: 1rem;
   opacity: 0.3;
 }
 
-.no-keys-text {
-  color: #666;
-  font-size: 1.2rem;
+.no-keys-text,
+.empty-text {
+  color: #475569;
+  font-size: 1.125rem;
   margin-bottom: 0.5rem;
 }
 
-.no-keys-subtitle {
-  color: #999;
-  font-size: 1rem;
+.no-keys-subtitle,
+.empty-subtitle {
+  color: #94a3b8;
+  font-size: 0.875rem;
 }
 
-/* 添加密钥区域 */
-.add-keys-section, .add-rule-section {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 2rem;
-  margin-bottom: 2rem;
+/* 添加区域 */
+.add-keys-section,
+.add-rule-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
 }
 
 .subsection-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 1.5rem 0;
-  color: #fff;
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 1.5rem 0;
 }
 
-/* 表单样式 */
-.key-form, .rule-form {
-  margin-top: 1.5rem;
-}
-
+/* 表单 */
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 1.5rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .form-group {
@@ -961,177 +902,160 @@ export default {
 }
 
 .form-group label {
-  font-weight: 600;
-  color: #ccc;
-  font-size: 0.9rem;
+  font-weight: 500;
+  color: #475569;
+  font-size: 0.875rem;
 }
 
-.input-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
+.form-group input {
+  padding: 0.625rem 0.875rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
+  color: #0f172a;
+  font-size: 0.875rem;
+  transition: all 0.2s;
 }
 
-.input-icon {
-  position: absolute;
-  left: 1rem;
-  z-index: 1;
-  font-size: 1.2rem;
-}
-
-.input-wrapper input,
-.input-wrapper select {
-  width: 100%;
-  padding: 0.8rem 1rem 0.8rem 3rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: #fff;
-  font-size: 0.9rem;
-  transition: all 0.3s ease;
-}
-
-.input-wrapper input:focus,
-.input-wrapper select:focus {
+.form-group input:focus {
   outline: none;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-.input-wrapper input::placeholder {
-  color: #666;
+.form-group input::placeholder {
+  color: #94a3b8;
+}
+
+.password-input {
+  position: relative;
+}
+
+.password-input input {
+  width: 100%;
+  padding-right: 4rem;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.25rem 0.75rem;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.25rem;
+  color: #475569;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.password-toggle:hover {
+  background: #e2e8f0;
 }
 
 .form-hint {
-  color: #999;
-  font-size: 0.8rem;
-  margin-top: 0.3rem;
-  font-style: italic;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
 }
 
 /* 规则说明 */
 .rule-description {
-  margin: 2rem 0;
+  margin: 1.5rem 0;
 }
 
 .description-card {
   display: flex;
   align-items: flex-start;
   gap: 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 1.5rem;
+  background: #fffbeb;
+  border: 1px solid #fbbf24;
+  border-radius: 0.5rem;
+  padding: 1rem;
 }
 
 .description-icon {
-  font-size: 2rem;
+  font-size: 1.5rem;
   flex-shrink: 0;
 }
 
 .description-content h4 {
   margin: 0 0 0.5rem 0;
-  color: #667eea;
-  font-size: 1.1rem;
+  color: #0f172a;
+  font-size: 0.875rem;
 }
 
 .description-content p {
   margin: 0 0 0.5rem 0;
-  color: #ccc;
+  color: #475569;
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 
 .description-content small {
-  color: #fbbf24;
-  font-size: 0.85rem;
-  display: block;
-  margin-top: 0.5rem;
-}
-
-.password-toggle {
-  position: absolute;
-  right: 1rem;
-  background: none;
-  border: none;
-  color: #999;
-  cursor: pointer;
-  padding: 0.2rem;
-  border-radius: 4px;
-  transition: all 0.3s ease;
-}
-
-.password-toggle:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  color: #92400e;
+  font-size: 0.75rem;
 }
 
 /* 操作按钮 */
 .form-actions {
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.8rem 1.5rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
+  padding: 0.625rem 1.25rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s;
+  flex: 1;
 }
 
-.action-btn i {
-  font-style: normal;
-}
-
-.action-btn.save, .action-btn.create {
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+.action-btn.primary {
+  background: #2563eb;
   color: white;
-  flex: 1;
 }
 
-.action-btn.save:hover, .action-btn.create:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(34, 197, 94, 0.4);
-}
-
-.action-btn.delete {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.action-btn.delete:hover {
-  background: rgba(239, 68, 68, 0.2);
-  transform: translateY(-2px);
-}
-
-.action-btn.toggle {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  flex: 1;
-}
-
-.action-btn.toggle:hover {
-  background: rgba(59, 130, 246, 0.2);
-  transform: translateY(-2px);
+.action-btn.primary:hover {
+  background: #1d4ed8;
 }
 
 .action-btn.secondary {
-  background: rgba(108, 117, 125, 0.1);
-  color: #94a3b8;
-  border: 1px solid rgba(108, 117, 125, 0.3);
+  background: #ffffff;
+  color: #475569;
+  border-color: #e2e8f0;
 }
 
 .action-btn.secondary:hover {
-  background: rgba(108, 117, 125, 0.2);
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.action-btn.delete {
+  background: #ffffff;
+  color: #ef4444;
+  border-color: #fecaca;
+}
+
+.action-btn.delete:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.action-btn.toggle {
+  background: #ffffff;
+  color: #3b82f6;
+  border-color: #bfdbfe;
+}
+
+.action-btn.toggle:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
 }
 
 /* 规则列表 */
@@ -1139,136 +1063,91 @@ export default {
   margin-top: 2rem;
 }
 
-.empty-state {
-  text-align: center;
-  padding: 3rem 2rem;
-}
-
-.empty-icon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
-  opacity: 0.3;
-}
-
-.empty-text {
-  color: #666;
-  font-size: 1.2rem;
-  margin-bottom: 0.5rem;
-}
-
-.empty-subtitle {
-  color: #999;
-  font-size: 1rem;
-}
-
 .rules-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 1.5rem;
-  margin-top: 1.5rem;
+  gap: 1rem;
+  margin-top: 1rem;
 }
 
 .rule-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
   padding: 1.5rem;
-  transition: all 0.3s ease;
+  transition: all 0.2s;
 }
 
 .rule-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
 }
 
 .rule-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .rule-asset {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .asset-icon {
-  width: 50px;
-  height: 50px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  width: 40px;
+  height: 40px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
 }
 
 .asset-info h4 {
-  margin: 0 0 0.5rem 0;
-  color: #fff;
-  font-size: 1.2rem;
+  margin: 0 0 0.25rem 0;
+  color: #0f172a;
+  font-size: 1.125rem;
   font-weight: 600;
 }
 
 .rule-id {
-  color: #666;
-  font-size: 0.8rem;
+  color: #94a3b8;
+  font-size: 0.75rem;
 }
 
 /* 状态标签 */
 .status-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
   font-weight: 500;
-  position: relative;
-  padding-left: 1.5rem;
-}
-
-.status-dot {
-  position: absolute;
-  left: 0.5rem;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
 }
 
 .status-chip.enabled {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.3);
-}
-
-.status-chip.enabled .status-dot {
-  background: #22c55e;
+  background: #d1fae5;
+  color: #065f46;
 }
 
 .status-chip.disabled {
-  background: rgba(108, 117, 125, 0.2);
-  color: #94a3b8;
-  border: 1px solid rgba(108, 117, 125, 0.3);
-}
-
-.status-chip.disabled .status-dot {
-  background: #94a3b8;
+  background: #f3f4f6;
+  color: #6b7280;
 }
 
 /* 规则详情 */
 .rule-details {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .detail-item {
@@ -1278,20 +1157,19 @@ export default {
 }
 
 .detail-label {
-  color: #666;
-  font-size: 0.9rem;
-  font-weight: 500;
+  color: #64748b;
+  font-size: 0.875rem;
 }
 
 .detail-value {
-  color: #ccc;
-  font-size: 0.9rem;
+  color: #0f172a;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
 .detail-value.address {
-  font-family: 'Courier New', monospace;
-  color: #a78bfa;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Courier New', monospace;
+  color: #2563eb;
 }
 
 /* 规则操作 */
@@ -1302,27 +1180,8 @@ export default {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .settings-container {
-    padding: 1rem;
-  }
-
-  .page-title {
-    font-size: 2rem;
-  }
-
   .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-  }
-
-  .stat-card {
-    padding: 1.5rem;
-  }
-
-  .section-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: stretch;
+    grid-template-columns: 1fr 1fr;
   }
 
   .form-grid {

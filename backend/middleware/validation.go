@@ -31,7 +31,8 @@ func ValidationMiddleware() gin.HandlerFunc {
 		case strings.HasSuffix(path, "/api-key"):
 			validateAPIKey(c)
 		case strings.HasSuffix(path, "/strategy"):
-			validateStrategy(c)
+			// 策略验证交给处理器，中间件只做基本检查
+			c.Next()
 		case strings.HasSuffix(path, "/order"):
 			validateOrder(c)
 		case strings.HasSuffix(path, "/withdrawals") || strings.Contains(path, "/withdrawals/"):
@@ -180,54 +181,22 @@ func validateStrategy(c *gin.Context) {
 		})
 	}
 
-	// 验证自定义策略的额外参数
+	// 验证自定义策略的额外参数 - 跳过中间件验证，让后端处理器处理
+	// 因为 Gin 的 JSON binding 会处理数组类型转换
 	if strategyType == "custom" {
+		// 基本检查 - 确保至少有数量配置
 		if side == "BUY" {
-			buyQuantities, _ := data["buyQuantities"].([]interface{})
-			buyDepthLevels, _ := data["buyDepthLevels"].([]interface{})
-
-			if len(buyQuantities) == 0 {
+			if _, hasBuyQuantities := data["buyQuantities"]; !hasBuyQuantities {
 				errors = append(errors, ValidationError{
 					Field:   "buyQuantities",
 					Message: "买入策略需要设置数量分配",
 				})
 			}
-
-			if len(buyDepthLevels) == 0 {
-				errors = append(errors, ValidationError{
-					Field:   "buyDepthLevels",
-					Message: "买入策略需要设置深度级别",
-				})
-			}
-
-			if len(buyQuantities) != len(buyDepthLevels) {
-				errors = append(errors, ValidationError{
-					Field:   "buyQuantities",
-					Message: "数量分配和深度级别的数量必须相同",
-				})
-			}
 		} else {
-			sellQuantities, _ := data["sellQuantities"].([]interface{})
-			sellDepthLevels, _ := data["sellDepthLevels"].([]interface{})
-
-			if len(sellQuantities) == 0 {
+			if _, hasSellQuantities := data["sellQuantities"]; !hasSellQuantities {
 				errors = append(errors, ValidationError{
 					Field:   "sellQuantities",
 					Message: "卖出策略需要设置数量分配",
-				})
-			}
-
-			if len(sellDepthLevels) == 0 {
-				errors = append(errors, ValidationError{
-					Field:   "sellDepthLevels",
-					Message: "卖出策略需要设置深度级别",
-				})
-			}
-
-			if len(sellQuantities) != len(sellDepthLevels) {
-				errors = append(errors, ValidationError{
-					Field:   "sellQuantities",
-					Message: "数量分配和深度级别的数量必须相同",
 				})
 			}
 		}
@@ -314,7 +283,7 @@ func validateOrder(c *gin.Context) {
 	c.Next()
 }
 
-// validateWithdrawal 验证提币规则 - 修复版本
+// validateWithdrawal 验证提币规则
 func validateWithdrawal(c *gin.Context) {
 	// 读取请求体
 	body, err := io.ReadAll(c.Request.Body)

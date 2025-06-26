@@ -13,7 +13,7 @@
           <span class="stat-label">总资产价值</span>
           <span class="stat-icon">💰</span>
         </div>
-        <div class="stat-value">{{ formatCurrency(totalAssetValue) }}</div>
+        <div class="stat-value">${{ formatCurrency(totalAssetValue) }}</div>
         <div class="stat-change positive">
           <span class="change-icon">↑</span>
           <span>+12.5%</span>
@@ -25,7 +25,7 @@
           <span class="stat-label">今日盈亏</span>
           <span class="stat-icon">📈</span>
         </div>
-        <div class="stat-value">{{ formatCurrency(todayPnL) }}</div>
+        <div class="stat-value">${{ formatCurrency(todayPnL) }}</div>
         <div class="stat-change" :class="todayPnL >= 0 ? 'positive' : 'negative'">
           <span class="change-icon">{{ todayPnL >= 0 ? '↑' : '↓' }}</span>
           <span>{{ todayPnL >= 0 ? '+' : '' }}{{ ((todayPnL / totalAssetValue) * 100).toFixed(2) }}%</span>
@@ -134,7 +134,7 @@
               </div>
               <div class="balance-item">
                 <span class="label">总计</span>
-                <span class="value total">{{ formatBalance(balance.free + balance.locked) }}</span>
+                <span class="value total">{{ formatBalance(parseFloat(balance.free) + parseFloat(balance.locked)) }}</span>
               </div>
             </div>
           </div>
@@ -164,7 +164,7 @@
           <p>暂无交易记录</p>
         </div>
 
-        <div v-else>
+        <div v-else class="table-container">
           <table class="data-table">
             <thead>
             <tr>
@@ -182,9 +182,9 @@
               <td>{{ formatTradeTime(trade.time) }}</td>
               <td class="symbol-cell">{{ trade.symbol }}</td>
               <td>
-                  <span :class="['trade-side', trade.side.toLowerCase()]">
-                    {{ trade.side === 'BUY' ? '买入' : '卖出' }}
-                  </span>
+                <span :class="['trade-side', trade.side.toLowerCase()]">
+                  {{ trade.side === 'BUY' ? '买入' : '卖出' }}
+                </span>
               </td>
               <td>${{ formatPrice(trade.price) }}</td>
               <td>{{ formatQuantity(trade.qty) }}</td>
@@ -212,7 +212,7 @@
     <!-- 添加交易对弹窗 -->
     <transition name="modal">
       <div v-if="showAddSymbolModal" class="modal-overlay" @click.self="closeAddSymbolModal">
-        <div class="modal-content" @click.stop>
+        <div class="modal-content">
           <div class="modal-header">
             <h3 class="modal-title">添加交易对</h3>
             <button @click="closeAddSymbolModal" class="modal-close">×</button>
@@ -263,7 +263,7 @@
     <!-- 删除确认弹窗 -->
     <transition name="modal">
       <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="cancelDeleteSymbol">
-        <div class="modal-content modal-sm" @click.stop>
+        <div class="modal-content modal-sm">
           <div class="modal-header">
             <h3 class="modal-title">确认删除</h3>
             <button @click="cancelDeleteSymbol" class="modal-close">×</button>
@@ -300,8 +300,6 @@
 </template>
 
 <script>
-import axios from 'axios';
-
 export default {
   name: 'Dashboard',
   data() {
@@ -344,7 +342,7 @@ export default {
   },
   computed: {
     filteredBalances() {
-      return this.balances.filter(b => (b.free + b.locked) > 0.00001);
+      return this.balances.filter(b => (parseFloat(b.free) + parseFloat(b.locked)) > 0.00001);
     },
 
     filteredTrades() {
@@ -365,9 +363,12 @@ export default {
     },
   },
   mounted() {
+    console.log('Dashboard 组件已挂载');
+    console.log('$axios 是否存在:', !!this.$axios);
     this.initDashboard();
   },
   beforeUnmount() {
+    console.log('Dashboard 组件即将卸载');
     if (this.priceInterval) {
       clearInterval(this.priceInterval);
     }
@@ -375,14 +376,16 @@ export default {
   methods: {
     async initDashboard() {
       try {
-        await Promise.all([
-          this.fetchPrices(),
-          this.fetchBalances(),
-          this.fetchTrades(),
-        ]);
+        console.log('开始初始化 Dashboard...');
+        // 暂时注释掉 API 调用，先确保页面能显示
+        // await Promise.all([
+        //   this.fetchPrices(),
+        //   this.fetchBalances(),
+        //   this.fetchTrades(),
+        // ]);
 
         // 启动价格更新定时器
-        this.priceInterval = setInterval(this.fetchPrices, 5000);
+        // this.priceInterval = setInterval(this.fetchPrices, 5000);
       } catch (error) {
         console.error('初始化仪表盘失败:', error);
         this.showToast('初始化仪表盘失败', 'error');
@@ -409,13 +412,14 @@ export default {
       return new Intl.NumberFormat('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
-      }).format(value);
+      }).format(value || 0);
     },
 
     formatPrice(price) {
-      if (price > 1000) return price.toFixed(2);
-      if (price > 1) return price.toFixed(4);
-      return price.toFixed(8);
+      const numPrice = parseFloat(price);
+      if (numPrice > 1000) return numPrice.toFixed(2);
+      if (numPrice > 1) return numPrice.toFixed(4);
+      return numPrice.toFixed(8);
     },
 
     formatQuantity(qty) {
@@ -423,9 +427,10 @@ export default {
     },
 
     formatBalance(balance) {
-      if (balance === 0) return '0';
-      if (balance < 0.00001) return '< 0.00001';
-      return this.formatQuantity(balance);
+      const numBalance = parseFloat(balance);
+      if (numBalance === 0) return '0';
+      if (numBalance < 0.00001) return '< 0.00001';
+      return this.formatQuantity(numBalance);
     },
 
     formatVolume(volume) {
@@ -453,7 +458,7 @@ export default {
         'USDT': 1,
       };
       const price = mockPrices[balance.asset] || 0;
-      return (balance.free + balance.locked) * price;
+      return (parseFloat(balance.free) + parseFloat(balance.locked)) * price;
     },
 
     getPriceChangeClass(symbol) {
@@ -468,12 +473,12 @@ export default {
 
     getPriceChangePercent(symbol) {
       // 模拟价格变化百分比
-      return Math.abs((Math.random() * 10 - 5).toFixed(2));
+      return (Math.random() * 10 - 5).toFixed(2);
     },
 
     async fetchPrices() {
       try {
-        const response = await axios.get('/prices', {
+        const response = await this.$axios.get('/prices', {
           headers: this.getAuthHeaders(),
         });
         this.prices = response.data.prices || {};
@@ -485,7 +490,7 @@ export default {
     async fetchBalances() {
       this.isLoadingBalances = true;
       try {
-        const response = await axios.get('/balance', {
+        const response = await this.$axios.get('/balance', {
           headers: this.getAuthHeaders(),
         });
         this.balances = response.data.balances || [];
@@ -500,7 +505,7 @@ export default {
     async fetchTrades() {
       this.isLoadingTrades = true;
       try {
-        const response = await axios.get('/trades', {
+        const response = await this.$axios.get('/trades', {
           headers: this.getAuthHeaders(),
         });
         this.trades = response.data.trades || [];
@@ -549,7 +554,7 @@ export default {
 
       this.isAddingSymbol = true;
       try {
-        const response = await axios.post('/symbols',
+        const response = await this.$axios.post('/symbols',
             { symbol: symbol },
             { headers: this.getAuthHeaders() }
         );
@@ -581,7 +586,7 @@ export default {
 
       this.isDeletingSymbol = true;
       try {
-        const response = await axios.delete('/symbols', {
+        const response = await this.$axios.delete('/symbols', {
           data: { symbol: this.symbolToDelete },
           headers: this.getAuthHeaders()
         });
@@ -602,6 +607,7 @@ export default {
 <style scoped>
 /* 页面容器 */
 .dashboard-container {
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
 }
@@ -614,12 +620,12 @@ export default {
 .page-title {
   font-size: 1.875rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
   margin: 0 0 0.5rem 0;
 }
 
 .page-description {
-  color: var(--color-text-secondary);
+  color: #64748b;
   font-size: 0.875rem;
 }
 
@@ -632,9 +638,9 @@ export default {
 }
 
 .stat-card {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
   padding: 1.5rem;
 }
 
@@ -647,7 +653,7 @@ export default {
 
 .stat-label {
   font-size: 0.875rem;
-  color: var(--color-text-secondary);
+  color: #64748b;
   font-weight: 500;
 }
 
@@ -659,7 +665,7 @@ export default {
 .stat-value {
   font-size: 1.75rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
   margin-bottom: 0.5rem;
 }
 
@@ -672,11 +678,11 @@ export default {
 }
 
 .stat-change.positive {
-  color: var(--color-success);
+  color: #10b981;
 }
 
 .stat-change.negative {
-  color: var(--color-danger);
+  color: #ef4444;
 }
 
 .change-icon {
@@ -685,14 +691,14 @@ export default {
 
 .stat-subtitle {
   font-size: 0.875rem;
-  color: var(--color-text-tertiary);
+  color: #94a3b8;
 }
 
 /* 内容卡片 */
 .content-card {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
   margin-bottom: 1.5rem;
 }
 
@@ -701,13 +707,13 @@ export default {
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .card-title {
   font-size: 1.125rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
   margin: 0;
 }
 
@@ -723,14 +729,14 @@ export default {
 }
 
 .price-card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
   padding: 1.25rem;
-  transition: all var(--transition-normal);
+  transition: all 200ms ease;
 }
 
 .price-card:hover {
-  background-color: var(--color-bg-secondary);
+  background-color: #f8fafc;
 }
 
 .price-header {
@@ -743,7 +749,7 @@ export default {
 .symbol-name {
   font-size: 1rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
   margin: 0;
 }
 
@@ -754,17 +760,17 @@ export default {
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.25rem;
+  color: #94a3b8;
   font-size: 1.25rem;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 150ms ease;
 }
 
 .delete-btn:hover {
-  color: var(--color-danger);
-  border-color: var(--color-danger);
+  color: #ef4444;
+  border-color: #ef4444;
   background-color: rgba(239, 68, 68, 0.05);
 }
 
@@ -778,7 +784,7 @@ export default {
 .current-price {
   font-size: 1.5rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
 }
 
 .price-change {
@@ -790,11 +796,11 @@ export default {
 }
 
 .price-change.positive {
-  color: var(--color-success);
+  color: #10b981;
 }
 
 .price-change.negative {
-  color: var(--color-danger);
+  color: #ef4444;
 }
 
 .change-arrow {
@@ -803,8 +809,8 @@ export default {
 
 .price-chart-placeholder {
   height: 60px;
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
+  background: #f8fafc;
+  border-radius: 0.25rem;
 }
 
 /* 余额网格 */
@@ -815,14 +821,14 @@ export default {
 }
 
 .balance-card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
   padding: 1.25rem;
-  transition: all var(--transition-normal);
+  transition: all 200ms ease;
 }
 
 .balance-card:hover {
-  background-color: var(--color-bg-secondary);
+  background-color: #f8fafc;
 }
 
 .balance-header {
@@ -844,7 +850,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-primary);
+  background: #2563eb;
   color: white;
   border-radius: 50%;
   font-weight: 600;
@@ -853,12 +859,12 @@ export default {
 
 .coin-name {
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
 }
 
 .balance-value {
   font-size: 0.875rem;
-  color: var(--color-text-secondary);
+  color: #64748b;
   font-weight: 500;
 }
 
@@ -875,17 +881,17 @@ export default {
 
 .balance-item .label {
   font-size: 0.75rem;
-  color: var(--color-text-tertiary);
+  color: #94a3b8;
 }
 
 .balance-item .value {
   font-size: 0.875rem;
-  color: var(--color-text-secondary);
+  color: #64748b;
   font-weight: 500;
 }
 
 .balance-item .value.total {
-  color: var(--color-text-primary);
+  color: #0f172a;
   font-weight: 600;
 }
 
@@ -893,39 +899,39 @@ export default {
 .btn {
   padding: 0.5rem 1rem;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: 0.375rem;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 150ms ease;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
 }
 
 .btn-primary {
-  background-color: var(--color-primary);
+  background-color: #2563eb;
   color: white;
 }
 
 .btn-primary:hover {
-  background-color: var(--color-primary-hover);
+  background-color: #1d4ed8;
 }
 
 .btn-primary:disabled {
-  background-color: var(--color-secondary);
+  background-color: #64748b;
   cursor: not-allowed;
 }
 
 .btn-outline {
   background-color: transparent;
-  border-color: var(--color-border);
-  color: var(--color-text-secondary);
+  border-color: #e2e8f0;
+  color: #64748b;
 }
 
 .btn-outline:hover {
-  background-color: var(--color-bg-tertiary);
-  border-color: var(--color-text-tertiary);
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .btn-outline:disabled {
@@ -934,7 +940,7 @@ export default {
 }
 
 .btn-danger {
-  background-color: var(--color-danger);
+  background-color: #ef4444;
   color: white;
 }
 
@@ -943,7 +949,7 @@ export default {
 }
 
 .btn-danger:disabled {
-  background-color: var(--color-secondary);
+  background-color: #64748b;
   cursor: not-allowed;
 }
 
@@ -962,50 +968,57 @@ export default {
 /* 筛选下拉框 */
 .filter-select {
   padding: 0.5rem 1rem;
-  background-color: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
+  color: #0f172a;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 200ms ease;
 }
 
 .filter-select:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* 表格容器 */
+.table-container {
+  overflow-x: auto;
 }
 
 /* 数据表格 */
 .data-table {
   width: 100%;
   border-collapse: collapse;
+  background-color: #ffffff;
 }
 
 .data-table th {
   text-align: left;
   padding: 0.75rem 1rem;
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
+  background-color: #f8fafc;
+  color: #64748b;
   font-weight: 600;
   font-size: 0.875rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .data-table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid #e2e8f0;
   font-size: 0.875rem;
+  color: #475569;
 }
 
 .data-table tbody tr:hover {
-  background-color: var(--color-bg-secondary);
+  background-color: #f8fafc;
 }
 
 .symbol-cell {
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
 }
 
 .trade-side {
@@ -1029,7 +1042,7 @@ export default {
 
 .amount-cell {
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
 }
 
 .status-badge {
@@ -1058,17 +1071,17 @@ export default {
 .page-btn {
   padding: 0.5rem 1rem;
   background-color: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
+  color: #64748b;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 200ms ease;
 }
 
 .page-btn:hover:not(:disabled) {
-  background-color: var(--color-bg-tertiary);
-  border-color: var(--color-text-tertiary);
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .page-btn:disabled {
@@ -1077,7 +1090,7 @@ export default {
 }
 
 .page-info {
-  color: var(--color-text-secondary);
+  color: #64748b;
   font-size: 0.875rem;
 }
 
@@ -1085,15 +1098,15 @@ export default {
 .loading-state {
   text-align: center;
   padding: 3rem 2rem;
-  color: var(--color-text-tertiary);
+  color: #94a3b8;
 }
 
 .spinner {
   width: 40px;
   height: 40px;
   margin: 0 auto 1rem;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-primary);
+  border: 3px solid #e2e8f0;
+  border-top-color: #2563eb;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -1102,7 +1115,7 @@ export default {
 .empty-state {
   text-align: center;
   padding: 3rem 2rem;
-  color: var(--color-text-tertiary);
+  color: #94a3b8;
 }
 
 .empty-icon {
@@ -1127,14 +1140,15 @@ export default {
 }
 
 .modal-content {
-  background: var(--color-bg);
-  border-radius: var(--radius-lg);
+  background: #ffffff;
+  border-radius: 0.5rem;
   width: 90%;
   max-width: 500px;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
 }
 
 .modal-sm {
@@ -1146,13 +1160,13 @@ export default {
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .modal-title {
   font-size: 1.125rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
   margin: 0;
 }
 
@@ -1164,16 +1178,16 @@ export default {
   justify-content: center;
   background-color: transparent;
   border: none;
-  border-radius: var(--radius-md);
-  color: var(--color-text-tertiary);
+  border-radius: 0.375rem;
+  color: #94a3b8;
   font-size: 1.5rem;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 150ms ease;
 }
 
 .modal-close:hover {
-  background-color: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
+  background-color: #f1f5f9;
+  color: #0f172a;
 }
 
 .modal-body {
@@ -1186,7 +1200,7 @@ export default {
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid #e2e8f0;
 }
 
 /* 表单样式 */
@@ -1198,35 +1212,35 @@ export default {
   display: block;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-text-primary);
+  color: #0f172a;
   margin-bottom: 0.5rem;
 }
 
 .form-control {
   width: 100%;
   padding: 0.625rem 0.875rem;
-  background-color: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
+  color: #0f172a;
   font-size: 0.875rem;
-  transition: all var(--transition-normal);
+  transition: all 200ms ease;
 }
 
 .form-control:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .form-control:disabled {
-  background-color: var(--color-bg-tertiary);
+  background-color: #f1f5f9;
   cursor: not-allowed;
 }
 
 .form-hint {
   font-size: 0.75rem;
-  color: var(--color-text-tertiary);
+  color: #94a3b8;
   margin-top: 0.25rem;
 }
 
@@ -1237,7 +1251,7 @@ export default {
 .popular-title {
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-text-secondary);
+  color: #64748b;
   margin-bottom: 0.75rem;
 }
 
@@ -1249,18 +1263,18 @@ export default {
 
 .symbol-chip {
   padding: 0.375rem 0.875rem;
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 9999px;
-  color: var(--color-text-secondary);
+  color: #64748b;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 150ms ease;
 }
 
 .symbol-chip:hover:not(:disabled) {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
+  background-color: #2563eb;
+  border-color: #2563eb;
   color: white;
 }
 
@@ -1283,12 +1297,12 @@ export default {
 
 .confirm-message p {
   margin: 0.5rem 0;
-  color: var(--color-text-primary);
+  color: #0f172a;
 }
 
 .warning-text {
   font-size: 0.875rem;
-  color: var(--color-text-secondary);
+  color: #64748b;
 }
 
 /* Toast 消息 */
@@ -1300,22 +1314,22 @@ export default {
   align-items: center;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   font-weight: 500;
   z-index: 1000;
 }
 
 .toast.success {
-  border-color: var(--color-success);
-  color: var(--color-success);
+  border-color: #10b981;
+  color: #10b981;
 }
 
 .toast.error {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
+  border-color: #ef4444;
+  color: #ef4444;
 }
 
 .toast-icon {
