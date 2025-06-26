@@ -9,6 +9,7 @@ import (
 
 	"github.com/ccj241/binance/config"
 	"github.com/ccj241/binance/models"
+	"github.com/ccj241/binance/tasks"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -71,10 +72,8 @@ func (ctrl *DualInvestmentController) CreateStrategy(c *gin.Context) {
 		// 价格触发策略参数
 		TriggerPrice float64 `json:"triggerPrice"`
 		TriggerType  string  `json:"triggerType"`
-		// 梯度策略参数
-		LadderSteps       int     `json:"ladderSteps"`
-		LadderStepPercent float64 `json:"ladderStepPercent"`
-		BasePrice         float64 `json:"basePrice"` // 添加这一行
+		// 梯度策略参数 - 修改：移除百分比，使用深度层数
+		LadderSteps int `json:"ladderSteps"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -111,10 +110,6 @@ func (ctrl *DualInvestmentController) CreateStrategy(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "梯度层数必须在1-10之间"})
 			return
 		}
-		if req.LadderStepPercent <= 0 || req.LadderStepPercent > 10 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "梯度间隔必须在0-10%之间"})
-			return
-		}
 	}
 
 	// 创建策略
@@ -137,8 +132,7 @@ func (ctrl *DualInvestmentController) CreateStrategy(c *gin.Context) {
 		TriggerPrice:         req.TriggerPrice,
 		TriggerType:          req.TriggerType,
 		LadderSteps:          req.LadderSteps,
-		LadderStepPercent:    req.LadderStepPercent,
-		BasePrice:            req.BasePrice, // 添加这一行
+		LadderStepPercent:    0, // 不再使用百分比
 		Enabled:              true,
 		Status:               "active",
 	}
@@ -191,6 +185,7 @@ func (ctrl *DualInvestmentController) UpdateStrategy(c *gin.Context) {
 		MaxSingleAmount      *float64 `json:"maxSingleAmount"`
 		TotalInvestmentLimit *float64 `json:"totalInvestmentLimit"`
 		AutoReinvest         *bool    `json:"autoReinvest"`
+		LadderSteps          *int     `json:"ladderSteps"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -217,6 +212,9 @@ func (ctrl *DualInvestmentController) UpdateStrategy(c *gin.Context) {
 	}
 	if req.AutoReinvest != nil {
 		updates["auto_reinvest"] = *req.AutoReinvest
+	}
+	if req.LadderSteps != nil && strategy.StrategyType == "ladder" {
+		updates["ladder_steps"] = *req.LadderSteps
 	}
 
 	if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
@@ -407,65 +405,72 @@ func (ctrl *DualInvestmentController) GetOrders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"orders": orders})
 }
 
-// GetStats 获取双币投资统计信息
+// GetStats 获取双币投资统计信息 - 修复版本，尝试从币安API获取
 func (ctrl *DualInvestmentController) GetStats(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
-	var stats models.DualInvestmentStats
-	stats.UserID = userID.(uint)
+	// 尝试从币安API获取统计信息
+	stats, err := tasks.GetDualInvestmentStats(ctrl.Config, userID.(uint))
+	if err != nil {
+		log.Printf("获取双币投资统计失败: %v", err)
+		// 如果API获取失败，回退到本地数据
+		stats = &models.DualInvestmentStats{
+			UserID: userID.(uint),
+		}
 
-	// 获取总投资和结算信息
-	ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
-		Where("user_id = ? AND status = ?", userID, "settled").
-		Select("COALESCE(SUM(invest_amount), 0) as total_invested, " +
-			"COALESCE(SUM(settlement_amount), 0) as total_settled, " +
-			"COALESCE(SUM(pn_l), 0) as total_pn_l").
-		Scan(&stats)
+		// 获取总投资和结算信息
+		ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
+			Where("user_id = ? AND status = ?", userID, "settled").
+			Select("COALESCE(SUM(invest_amount), 0) as total_invested, " +
+				"COALESCE(SUM(settlement_amount), 0) as total_settled, " +
+				"COALESCE(SUM(pn_l), 0) as total_pn_l").
+			Scan(stats)
 
-	// 计算总盈亏百分比
-	if stats.TotalInvested > 0 {
-		stats.TotalPnLPercent = (stats.TotalPnL / stats.TotalInvested) * 100
+		// 计算总盈亏百分比
+		if stats.TotalInvested > 0 {
+			stats.TotalPnLPercent = (stats.TotalPnL / stats.TotalInvested) * 100
+		}
+
+		// 获取盈亏统计
+		var winCount int64
+		ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
+			Where("user_id = ? AND status = ? AND pn_l > 0", userID, "settled").
+			Count(&winCount)
+		stats.WinCount = int(winCount)
+
+		var lossCount int64
+		ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
+			Where("user_id = ? AND status = ? AND pn_l < 0", userID, "settled").
+			Count(&lossCount)
+		stats.LossCount = int(lossCount)
+
+		// 计算胜率
+		totalSettled := int64(stats.WinCount + stats.LossCount)
+		if totalSettled > 0 {
+			stats.WinRate = float64(stats.WinCount) / float64(totalSettled) * 100
+		}
+
+		// 获取平均年化收益率
+		var avgAPY float64
+		ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
+			Where("user_id = ? AND status = ?", userID, "settled").
+			Select("COALESCE(AVG(actual_apy), 0)").
+			Scan(&avgAPY)
+		stats.AverageAPY = avgAPY
+
+		// 获取活跃订单信息
+		var activeStats struct {
+			ActiveOrders int64
+			ActiveAmount float64
+		}
+		ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
+			Where("user_id = ? AND status = ?", userID, "active").
+			Select("COUNT(*) as active_orders, COALESCE(SUM(invest_amount), 0) as active_amount").
+			Scan(&activeStats)
+
+		stats.ActiveOrders = int(activeStats.ActiveOrders)
+		stats.ActiveAmount = activeStats.ActiveAmount
 	}
-
-	// 获取盈亏统计
-	var winCount int64
-	ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
-		Where("user_id = ? AND status = ? AND pn_l > 0", userID, "settled").
-		Count(&winCount)
-	stats.WinCount = int(winCount)
-
-	var lossCount int64
-	ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
-		Where("user_id = ? AND status = ? AND pn_l < 0", userID, "settled").
-		Count(&lossCount)
-	stats.LossCount = int(lossCount)
-
-	// 计算胜率
-	totalSettled := int64(stats.WinCount + stats.LossCount)
-	if totalSettled > 0 {
-		stats.WinRate = float64(stats.WinCount) / float64(totalSettled) * 100
-	}
-
-	// 获取平均年化收益率
-	var avgAPY float64
-	ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
-		Where("user_id = ? AND status = ?", userID, "settled").
-		Select("COALESCE(AVG(actual_apy), 0)").
-		Scan(&avgAPY)
-	stats.AverageAPY = avgAPY
-
-	// 获取活跃订单信息
-	var activeStats struct {
-		ActiveOrders int64
-		ActiveAmount float64
-	}
-	ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
-		Where("user_id = ? AND status = ?", userID, "active").
-		Select("COUNT(*) as active_orders, COALESCE(SUM(invest_amount), 0) as active_amount").
-		Scan(&activeStats)
-
-	stats.ActiveOrders = int(activeStats.ActiveOrders)
-	stats.ActiveAmount = activeStats.ActiveAmount
 
 	c.JSON(http.StatusOK, gin.H{"stats": stats})
 }

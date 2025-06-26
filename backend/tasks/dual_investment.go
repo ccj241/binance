@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -57,7 +56,6 @@ func doSyncProducts(cfg *config.Config) {
 	// 实际实现时需要查看币安的具体API文档
 
 	// 模拟产品数据
-	// 模拟产品数据
 	symbols := []string{
 		"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT",
 		"XRPUSDT", "DOTUSDT", "DOGEUSDT", "AVAXUSDT", "SHIBUSDT",
@@ -65,6 +63,12 @@ func doSyncProducts(cfg *config.Config) {
 		"ETCUSDT", "XLMUSDT", "NEARUSDT", "ALGOUSDT", "FILUSDT",
 	}
 	directions := []string{"UP", "DOWN"}
+
+	// 预定义的执行价格梯度（基于当前价格的偏离百分比）
+	priceGradients := map[string][]float64{
+		"UP":   {-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, -4.0, -5.0}, // 看涨时，执行价低于现价
+		"DOWN": {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0},         // 看跌时，执行价高于现价
+	}
 
 	for _, symbol := range symbols {
 		// 获取当前价格
@@ -85,23 +89,16 @@ func doSyncProducts(cfg *config.Config) {
 		quoteAsset := "USDT"
 
 		for _, direction := range directions {
-			// 生成不同执行价格的产品
-			for i := -5; i <= 5; i++ {
-				if i == 0 {
-					continue
-				}
+			gradients := priceGradients[direction]
 
-				// 计算执行价格（偏离当前价格的百分比）
-				offset := float64(i) * 0.01 // 1%的间隔
-				strikePrice := currentPrice * (1 + offset)
+			for i, gradient := range gradients {
+				// 计算执行价格
+				strikePrice := currentPrice * (1 + gradient/100)
 
-				// 根据偏离度计算年化收益率（简化模型）
-				apy := math.Abs(offset) * 100 * 2 // 偏离越大，收益率越高
-				if direction == "DOWN" && i > 0 {
-					apy *= 1.2 // 看跌且执行价高于现价，收益更高
-				} else if direction == "UP" && i < 0 {
-					apy *= 1.2 // 看涨且执行价低于现价，收益更高
-				}
+				// 根据梯度位置计算年化收益率（越深的梯度，收益越高）
+				baseAPY := 20.0                         // 基础年化
+				apyMultiplier := 1 + (float64(i) * 0.1) // 每层增加10%
+				apy := baseAPY * apyMultiplier
 
 				// 创建或更新产品
 				product := models.DualInvestmentProduct{
@@ -113,7 +110,7 @@ func doSyncProducts(cfg *config.Config) {
 					MinAmount:      100,
 					MaxAmount:      10000,
 					SettlementTime: time.Now().Add(7 * 24 * time.Hour),
-					ProductID:      fmt.Sprintf("%s_%s_%d_%d", symbol, direction, int(strikePrice), 7),
+					ProductID:      fmt.Sprintf("%s_%s_%.2f_%d", symbol, direction, strikePrice, 7),
 					Status:         "active",
 					BaseAsset:      baseAsset,
 					QuoteAsset:     quoteAsset,
@@ -239,8 +236,7 @@ func executeAutoReinvestStrategy(cfg *config.Config, strategy models.DualInvestm
 	}
 }
 
-// executeLadderStrategy 执行梯度投资策略
-// executeLadderStrategy 执行梯度投资策略
+// executeLadderStrategy 执行梯度投资策略 - 修复版本，使用币安的深度价格
 func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStrategy, user models.User, symbol string) {
 	// 获取当前价格
 	client := binance.NewClient(user.APIKey, user.SecretKey)
@@ -251,16 +247,7 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 
 	currentPrice, _ := strconv.ParseFloat(prices[0].Price, 64)
 
-	// 如果没有设置基准价格，使用当前价格
-	basePrice := strategy.BasePrice
-	if basePrice <= 0 {
-		basePrice = currentPrice
-		// 更新策略的基准价格
-		cfg.DB.Model(&strategy).Update("base_price", basePrice)
-		log.Printf("策略 %d 未设置基准价格，使用当前价格 %.2f 作为基准", strategy.ID, basePrice)
-	}
-
-	// 检查是否已经在当前价格区间有订单
+	// 检查是否已经有足够的活跃订单
 	var existingOrders int64
 	cfg.DB.Model(&models.DualInvestmentOrder{}).
 		Where("strategy_id = ? AND status IN ? AND created_at > ?",
@@ -282,44 +269,51 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 		amountPerStep = strategy.MaxSingleAmount
 	}
 
-	// 为每个梯度层级寻找产品
-	for i := 0; i < strategy.LadderSteps-int(existingOrders); i++ {
-		// 计算目标执行价格
-		priceOffset := float64(i) * strategy.LadderStepPercent / 100
-		var targetStrikePrice float64
-		var shouldInvest bool
+	// 查询符合梯度要求的产品
+	var products []models.DualInvestmentProduct
+	query := cfg.DB.Where("symbol = ? AND status = ?", symbol, "active")
 
-		if strategy.DirectionPreference == "UP" || strategy.DirectionPreference == "BOTH" {
-			// 看涨：执行价格从基准价格向下排列
-			targetStrikePrice = basePrice * (1 - priceOffset)
-
-			// 只有当执行价格低于基准价格时才投资
-			if targetStrikePrice < basePrice {
-				shouldInvest = true
-				product := findProductByStrikePrice(cfg, symbol, "UP", targetStrikePrice, strategy)
-				if product != nil && shouldInvest {
-					createDualInvestmentOrder(cfg, user, strategy, product, amountPerStep)
-				}
-			}
-		}
-
-		if strategy.DirectionPreference == "DOWN" || strategy.DirectionPreference == "BOTH" {
-			// 看跌：执行价格从基准价格向上排列
-			targetStrikePrice = basePrice * (1 + priceOffset)
-
-			// 只有当执行价格高于基准价格时才投资
-			if targetStrikePrice > basePrice {
-				shouldInvest = true
-				product := findProductByStrikePrice(cfg, symbol, "DOWN", targetStrikePrice, strategy)
-				if product != nil && shouldInvest {
-					createDualInvestmentOrder(cfg, user, strategy, product, amountPerStep)
-				}
-			}
-		}
+	// 根据方向偏好筛选
+	if strategy.DirectionPreference == "UP" {
+		// 看涨：查找执行价低于当前价的产品
+		query = query.Where("direction = ? AND strike_price < ?", "UP", currentPrice)
+		query = query.Order("strike_price desc") // 从高到低排序
+	} else if strategy.DirectionPreference == "DOWN" {
+		// 看跌：查找执行价高于当前价的产品
+		query = query.Where("direction = ? AND strike_price > ?", "DOWN", currentPrice)
+		query = query.Order("strike_price asc") // 从低到高排序
+	} else {
+		// 双向：查找所有产品
+		query = query.Where("(direction = ? AND strike_price < ?) OR (direction = ? AND strike_price > ?)",
+			"UP", currentPrice, "DOWN", currentPrice)
+		// 按照与当前价格的距离排序
+		query = query.Order("ABS(strike_price - " + fmt.Sprintf("%.8f", currentPrice) + ") asc")
 	}
 
-	log.Printf("梯度策略 %d 执行完成，基准价格：%.2f，当前价格：%.2f",
-		strategy.ID, basePrice, currentPrice)
+	// 限制查询数量
+	query = query.Limit(strategy.LadderSteps - int(existingOrders))
+
+	if err := query.Find(&products).Error; err != nil {
+		log.Printf("查询梯度产品失败: %v", err)
+		return
+	}
+
+	// 为每个产品创建订单
+	for i, product := range products {
+		if i >= strategy.LadderSteps-int(existingOrders) {
+			break
+		}
+
+		// 检查产品是否符合其他条件
+		if product.APY < strategy.TargetAPYMin ||
+			(strategy.TargetAPYMax > 0 && product.APY > strategy.TargetAPYMax) {
+			continue
+		}
+
+		createDualInvestmentOrder(cfg, user, strategy, &product, amountPerStep)
+	}
+
+	log.Printf("梯度策略 %d 执行完成，当前价格：%.2f", strategy.ID, currentPrice)
 }
 
 // executePriceTriggerStrategy 执行价格触发策略
@@ -400,24 +394,6 @@ func findBestProduct(cfg *config.Config, strategy models.DualInvestmentStrategy,
 
 	var product models.DualInvestmentProduct
 	if err := query.Order("apy desc").First(&product).Error; err != nil {
-		return nil
-	}
-
-	return &product
-}
-
-// findProductByStrikePrice 根据执行价格查找产品
-func findProductByStrikePrice(cfg *config.Config, symbol, direction string, targetPrice float64,
-	strategy models.DualInvestmentStrategy) *models.DualInvestmentProduct {
-
-	var product models.DualInvestmentProduct
-	err := cfg.DB.Where("symbol = ? AND direction = ? AND status = ?", symbol, direction, "active").
-		Where("ABS(strike_price - ?) / ? < 0.01", targetPrice, targetPrice). // 1%的误差范围
-		Where("apy >= ?", strategy.TargetAPYMin).
-		Order("apy desc").
-		First(&product).Error
-
-	if err != nil {
 		return nil
 	}
 
@@ -619,4 +595,80 @@ func settleOrder(cfg *config.Config, order models.DualInvestmentOrder) {
 	log.Printf("订单 %s 结算完成: %s %.4f -> %s %.4f",
 		order.OrderID, order.InvestAsset, order.InvestAmount,
 		settlementAsset, settlementAmount)
+}
+
+// GetDualInvestmentStats 获取双币投资统计信息（从币安API）
+func GetDualInvestmentStats(cfg *config.Config, userID uint) (*models.DualInvestmentStats, error) {
+	var user models.User
+	if err := cfg.DB.First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("用户未找到: %v", err)
+	}
+
+	if user.APIKey == "" || user.SecretKey == "" {
+		return nil, fmt.Errorf("用户未设置API密钥")
+	}
+
+	// TODO: 调用币安双币投资API获取实际统计数据
+	// client := binance.NewClient(user.APIKey, user.SecretKey)
+	// 这里需要使用币安的双币投资相关API
+
+	// 暂时返回本地统计数据
+	stats := &models.DualInvestmentStats{
+		UserID: userID,
+	}
+
+	// 获取总投资和结算信息
+	cfg.DB.Model(&models.DualInvestmentOrder{}).
+		Where("user_id = ? AND status = ?", userID, "settled").
+		Select("COALESCE(SUM(invest_amount), 0) as total_invested, " +
+			"COALESCE(SUM(settlement_amount), 0) as total_settled, " +
+			"COALESCE(SUM(pn_l), 0) as total_pn_l").
+		Scan(stats)
+
+	// 计算总盈亏百分比
+	if stats.TotalInvested > 0 {
+		stats.TotalPnLPercent = (stats.TotalPnL / stats.TotalInvested) * 100
+	}
+
+	// 获取盈亏统计
+	var winCount int64
+	cfg.DB.Model(&models.DualInvestmentOrder{}).
+		Where("user_id = ? AND status = ? AND pn_l > 0", userID, "settled").
+		Count(&winCount)
+	stats.WinCount = int(winCount)
+
+	var lossCount int64
+	cfg.DB.Model(&models.DualInvestmentOrder{}).
+		Where("user_id = ? AND status = ? AND pn_l < 0", userID, "settled").
+		Count(&lossCount)
+	stats.LossCount = int(lossCount)
+
+	// 计算胜率
+	totalSettled := int64(stats.WinCount + stats.LossCount)
+	if totalSettled > 0 {
+		stats.WinRate = float64(stats.WinCount) / float64(totalSettled) * 100
+	}
+
+	// 获取平均年化收益率
+	var avgAPY float64
+	cfg.DB.Model(&models.DualInvestmentOrder{}).
+		Where("user_id = ? AND status = ?", userID, "settled").
+		Select("COALESCE(AVG(actual_apy), 0)").
+		Scan(&avgAPY)
+	stats.AverageAPY = avgAPY
+
+	// 获取活跃订单信息
+	var activeStats struct {
+		ActiveOrders int64
+		ActiveAmount float64
+	}
+	cfg.DB.Model(&models.DualInvestmentOrder{}).
+		Where("user_id = ? AND status = ?", userID, "active").
+		Select("COUNT(*) as active_orders, COALESCE(SUM(invest_amount), 0) as active_amount").
+		Scan(&activeStats)
+
+	stats.ActiveOrders = int(activeStats.ActiveOrders)
+	stats.ActiveAmount = activeStats.ActiveAmount
+
+	return stats, nil
 }
