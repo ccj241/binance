@@ -72,105 +72,111 @@
 
     <!-- 产品市场 -->
     <div v-if="activeTab === 'market'" class="section">
-      <div class="section-header">
-        <h2 class="section-title">产品市场</h2>
-        <div class="filters">
-          <select v-model="filters.symbol" class="filter-select">
-            <option value="">所有交易对</option>
-            <option value="BTCUSDT">BTC/USDT</option>
-            <option value="ETHUSDT">ETH/USDT</option>
-            <option value="BNBUSDT">BNB/USDT</option>
-            <option value="SOLUSDT">SOL/USDT</option>
-            <option value="ADAUSDT">ADA/USDT</option>
-            <option value="XRPUSDT">XRP/USDT</option>
-            <option value="DOTUSDT">DOT/USDT</option>
-            <option value="DOGEUSDT">DOGE/USDT</option>
-            <option value="AVAXUSDT">AVAX/USDT</option>
-            <option value="SHIBUSDT">SHIB/USDT</option>
-            <option value="MATICUSDT">MATIC/USDT</option>
-            <option value="LTCUSDT">LTC/USDT</option>
-            <option value="UNIUSDT">UNI/USDT</option>
-            <option value="LINKUSDT">LINK/USDT</option>
-            <option value="ATOMUSDT">ATOM/USDT</option>
-            <option value="ETCUSDT">ETC/USDT</option>
-            <option value="XLMUSDT">XLM/USDT</option>
-            <option value="NEARUSDT">NEAR/USDT</option>
-            <option value="ALGOUSDT">ALGO/USDT</option>
-            <option value="FILUSDT">FIL/USDT</option>
-          </select>
-          <select v-model="filters.direction" class="filter-select">
-            <option value="">所有方向</option>
-            <option value="UP">低买(看涨)</option>
-            <option value="DOWN">高卖(看跌)</option>
-          </select>
-          <input
-              v-model.number="filters.minApy"
-              type="number"
-              placeholder="最低年化 %"
-              class="filter-input"
-          />
-          <button @click="fetchProducts" class="filter-btn">
-            <i>🔍</i> 搜索
-          </button>
+      <!-- 币对选择 -->
+      <div v-if="!selectedSymbol" class="symbol-selection">
+        <div class="section-header">
+          <h2 class="section-title">选择投资币对</h2>
+        </div>
+
+        <div class="symbols-grid">
+          <div
+              v-for="item in availableSymbols"
+              :key="item.symbol"
+              @click="selectSymbol(item.symbol)"
+              class="symbol-card"
+          >
+            <div class="symbol-icon">{{ item.icon }}</div>
+            <div class="symbol-name">{{ item.name }}</div>
+            <div class="symbol-info">
+              <span>查看投资产品 →</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div v-if="loadingProducts" class="loading">
-        <div class="loading-spinner"></div>
-        <p>加载产品中...</p>
-      </div>
-
-      <div v-else-if="products.length === 0" class="empty-state">
-        <div class="empty-icon">📦</div>
-        <p>暂无可投资产品</p>
-      </div>
-
-      <div v-else class="products-grid">
-        <div v-for="product in products" :key="product.id" class="product-card">
-          <div class="product-header">
-            <div class="product-symbol">{{ product.symbol }}</div>
-            <div :class="['product-direction', product.direction.toLowerCase()]">
-              <i>{{ product.direction === 'UP' ? '📈' : '📉' }}</i>
-              {{ product.direction === 'UP' ? '低买(看涨)' : '高卖(看跌)' }}
-            </div>
-          </div>
-
-          <div class="product-info">
-            <div class="info-row">
-              <span class="label">年化收益率</span>
-              <span class="value apy">{{ product.apy.toFixed(2) }}%</span>
-            </div>
-            <div class="info-row">
-              <span class="label">执行价格</span>
-              <span class="value">{{ formatPrice(product.strikePrice) }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">当前价格</span>
-              <span class="value">{{ formatPrice(product.currentPrice) }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">价格偏离</span>
-              <span class="value">
-                {{ ((product.strikePrice - product.currentPrice) / product.currentPrice * 100).toFixed(2) }}%
-              </span>
-            </div>
-            <div class="info-row">
-              <span class="label">投资期限</span>
-              <span class="value">{{ product.duration }}天</span>
-            </div>
-            <div class="info-row">
-              <span class="label">投资范围</span>
-              <span class="value">{{ product.minAmount }} - {{ product.maxAmount }}</span>
-            </div>
-          </div>
-
-          <div class="product-actions">
-            <button @click="showInvestModal(product)" class="invest-btn">
-              <i>💸</i> 立即投资
+      <!-- 产品列表 -->
+      <div v-else>
+        <div class="section-header">
+          <h2 class="section-title">
+            <button @click="selectedSymbol = ''" class="back-btn">
+              ← 返回
             </button>
-            <button @click="showSimulateModal(product)" class="simulate-btn">
-              <i>🧮</i> 收益计算
+            {{ selectedSymbol.replace('USDT', '/USDT') }} 投资产品
+          </h2>
+          <div class="filters">
+            <select v-model="filters.direction" class="filter-select">
+              <option value="">所有方向</option>
+              <option value="UP">低买(看涨)</option>
+              <option value="DOWN">高卖(看跌)</option>
+            </select>
+            <input
+                v-model.number="filters.minApy"
+                type="number"
+                placeholder="最低年化 %"
+                class="filter-input"
+            />
+            <button @click="fetchProducts" class="filter-btn">
+              <i>🔍</i> 刷新
             </button>
+          </div>
+        </div>
+
+        <div v-if="loadingProducts" class="loading">
+          <div class="loading-spinner"></div>
+          <p>加载产品中...</p>
+        </div>
+
+        <div v-else-if="filteredProducts.length === 0" class="empty-state">
+          <div class="empty-icon">📦</div>
+          <p>暂无可投资产品</p>
+        </div>
+
+        <div v-else>
+          <!-- 按期限分组展示 -->
+          <div v-for="(group, duration) in groupedProducts" :key="duration" class="duration-group">
+            <h3 class="group-title">{{ duration }}天期限</h3>
+
+            <div class="products-table">
+              <table>
+                <thead>
+                <tr>
+                  <th>方向</th>
+                  <th>执行价格</th>
+                  <th>距离现价</th>
+                  <th>年化收益率</th>
+                  <th>投资范围</th>
+                  <th>操作</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr v-for="product in group" :key="product.id">
+                  <td>
+                  <span :class="['direction-badge', product.direction.toLowerCase()]">
+                    {{ product.direction === 'UP' ? '低买' : '高卖' }}
+                  </span>
+                  </td>
+                  <td>{{ formatPrice(product.strikePrice) }}</td>
+                  <td>
+                  <span :class="getPriceDistanceClass(product)">
+                    {{ getPriceDistance(product) }}%
+                  </span>
+                  </td>
+                  <td class="apy-value">{{ product.apy.toFixed(2) }}%</td>
+                  <td>{{ product.minAmount }} - {{ product.maxAmount }}</td>
+                  <td>
+                    <div class="table-actions">
+                      <button @click="showInvestModal(product)" class="table-invest-btn">
+                        投资
+                      </button>
+                      <button @click="showSimulateModal(product)" class="table-simulate-btn">
+                        计算
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -227,6 +233,10 @@
               <span class="value">
                 {{ strategy.targetApyMin }}% - {{ strategy.targetApyMax }}%
               </span>
+              <div v-if="strategy.strategyType === 'ladder' && strategy.basePrice > 0" class="info-item">
+                <span class="label">基准价格</span>
+                <span class="value">{{ formatPrice(strategy.basePrice) }}</span>
+              </div>
             </div>
             <div class="info-item">
               <span class="label">已投资/限额</span>
@@ -507,6 +517,29 @@
                   />
                 </div>
               </div>
+              <!-- 添加基准价格输入框 -->
+              <div v-if="strategyForm.strategyType === 'ladder'" class="form-group">
+                <label>基准价格 <span class="required">*</span></label>
+                <input
+                    v-model.number="strategyForm.basePrice"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="设置梯度投资的基准价格"
+                    required
+                />
+                <div class="form-hint">
+    <span v-if="strategyForm.directionPreference === 'UP'">
+      只有执行价格低于此价格时才会触发投资
+    </span>
+                  <span v-else-if="strategyForm.directionPreference === 'DOWN'">
+      只有执行价格高于此价格时才会触发投资
+    </span>
+                  <span v-else>
+      看涨：执行价格需低于此价格；看跌：执行价格需高于此价格
+    </span>
+                </div>
+              </div>
 
               <div class="form-group full-width">
                 <label>
@@ -541,10 +574,16 @@
                 <div class="form-group">
                   <label>梯度层数</label>
                   <input v-model.number="strategyForm.ladderSteps" type="number" min="1" max="10" required />
+                  <div class="form-hint">
+                    将在基准价格上下分布多个投资层级
+                  </div>
                 </div>
                 <div class="form-group">
                   <label>每层价格间隔 (%)</label>
                   <input v-model.number="strategyForm.ladderStepPercent" type="number" min="0.1" max="10" step="0.1" required />
+                  <div class="form-hint">
+                    每个层级之间的价格间隔百分比
+                  </div>
                 </div>
               </div>
             </div>
@@ -647,6 +686,15 @@ export default {
         direction: '',
         minApy: null
       },
+      // 在 filters 对象后面添加
+      selectedSymbol: '',
+      availableSymbols: [
+        { symbol: 'BTCUSDT', name: 'BTC/USDT', icon: '₿' },
+        { symbol: 'ETHUSDT', name: 'ETH/USDT', icon: 'Ξ' },
+        { symbol: 'BNBUSDT', name: 'BNB/USDT', icon: '🔶' },
+        { symbol: 'SOLUSDT', name: 'SOL/USDT', icon: '☀️' },
+        // ... 其他币对
+      ],
 
       // 策略相关
       strategies: [],
@@ -670,7 +718,8 @@ export default {
         triggerPrice: 0,
         triggerType: 'above',
         ladderSteps: 5,
-        ladderStepPercent: 1
+        ladderStepPercent: 1,
+        basePrice: 0  // 添加这一行
       },
 
       // 订单相关
@@ -710,6 +759,45 @@ export default {
       if (!this.orderFilter) return this.orders;
       return this.orders.filter(order => order.status === this.orderFilter);
     },
+    // 过滤后的产品
+    filteredProducts() {
+      let products = [...this.products];
+
+      if (this.filters.direction) {
+        products = products.filter(p => p.direction === this.filters.direction);
+      }
+
+      if (this.filters.minApy) {
+        products = products.filter(p => p.apy >= this.filters.minApy);
+      }
+
+      return products;
+    },
+
+// 按期限分组的产品
+    groupedProducts() {
+      const groups = {};
+
+      this.filteredProducts.forEach(product => {
+        if (!groups[product.duration]) {
+          groups[product.duration] = [];
+        }
+        groups[product.duration].push(product);
+      });
+
+      // 每组内按执行价格排序
+      Object.keys(groups).forEach(duration => {
+        groups[duration].sort((a, b) => {
+          if (a.direction === 'UP') {
+            return a.strikePrice - b.strikePrice;
+          } else {
+            return b.strikePrice - a.strikePrice;
+          }
+        });
+      });
+
+      return groups;
+    },
 
     isInvestValid() {
       return this.investAmount >= this.selectedProduct.minAmount &&
@@ -718,7 +806,7 @@ export default {
   },
 
   mounted() {
-    this.fetchProducts();
+    // 不自动加载产品，等待用户选择币对
     this.fetchStrategies();
     this.fetchOrders();
     this.fetchStats();
@@ -732,6 +820,7 @@ export default {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       };
+
     },
 
     showToast(message, type = 'success') {
@@ -808,6 +897,26 @@ export default {
       } finally {
         this.loadingProducts = false;
       }
+    },
+    // 选择币对
+    selectSymbol(symbol) {
+      this.selectedSymbol = symbol;
+      this.filters.symbol = symbol;
+      this.fetchProducts();
+    },
+
+// 获取价格距离百分比
+    getPriceDistance(product) {
+      const distance = ((product.strikePrice - product.currentPrice) / product.currentPrice) * 100;
+      return distance > 0 ? `+${distance.toFixed(2)}` : distance.toFixed(2);
+    },
+
+// 获取价格距离样式类
+    getPriceDistanceClass(product) {
+      const distance = Math.abs((product.strikePrice - product.currentPrice) / product.currentPrice) * 100;
+      if (distance < 1) return 'near';
+      if (distance < 3) return 'medium';
+      return 'far';
     },
 
     showInvestModal(product) {
@@ -897,12 +1006,17 @@ export default {
         triggerPrice: 0,
         triggerType: 'above',
         ladderSteps: 5,
-        ladderStepPercent: 1
+        ladderStepPercent: 1,
+        basePrice: 0  // 添加这一行
       };
     },
 
     async saveStrategy() {
       try {
+        if (strategyData.strategyType === 'ladder' && (!strategyData.basePrice || strategyData.basePrice <= 0)) {
+          this.showToast('梯度投资策略需要设置基准价格', 'error');
+          return;
+        }
         if (this.editingStrategy) {
           await axios.put(`/dual-investment/strategies/${this.editingStrategy.id}`,
               this.strategyForm, {
@@ -2114,5 +2228,183 @@ input:checked + .slider:before {
     right: 1rem;
     bottom: 1rem;
   }
+}
+/* 币对选择 */
+.symbol-selection {
+  padding: 2rem 0;
+}
+
+.symbols-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.symbol-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.symbol-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #667eea;
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+}
+
+.symbol-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.symbol-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 0.5rem;
+}
+
+.symbol-info {
+  color: #999;
+  font-size: 0.9rem;
+}
+
+/* 返回按钮 */
+.back-btn {
+  background: none;
+  border: none;
+  color: #667eea;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.5rem;
+  margin-right: 1rem;
+  transition: all 0.3s ease;
+}
+
+.back-btn:hover {
+  color: #764ba2;
+  transform: translateX(-3px);
+}
+
+/* 期限分组 */
+.duration-group {
+  margin-bottom: 2rem;
+}
+
+.group-title {
+  background: rgba(102, 126, 234, 0.1);
+  border-left: 4px solid #667eea;
+  padding: 0.8rem 1.5rem;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* 产品表格 */
+.products-table {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.products-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.products-table th {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #ccc;
+  font-size: 0.9rem;
+}
+
+.products-table td {
+  padding: 1rem;
+  color: #ccc;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.products-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.apy-value {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.near {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.medium {
+  color: #3b82f6;
+}
+
+.far {
+  color: #94a3b8;
+}
+
+.table-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.table-invest-btn,
+.table-simulate-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.table-invest-btn {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+}
+
+.table-invest-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 3px 10px rgba(34, 197, 94, 0.3);
+}
+
+.table-simulate-btn {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.table-simulate-btn:hover {
+  background: rgba(139, 92, 246, 0.2);
+}
+.form-hint {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: #999;
+  line-height: 1.4;
+}
+
+.form-hint span {
+  display: block;
+  padding: 0.5rem;
+  background: rgba(102, 126, 234, 0.1);
+  border-left: 3px solid #667eea;
+  border-radius: 4px;
 }
 </style>

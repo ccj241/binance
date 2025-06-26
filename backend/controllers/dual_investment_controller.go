@@ -74,6 +74,7 @@ func (ctrl *DualInvestmentController) CreateStrategy(c *gin.Context) {
 		// 梯度策略参数
 		LadderSteps       int     `json:"ladderSteps"`
 		LadderStepPercent float64 `json:"ladderStepPercent"`
+		BasePrice         float64 `json:"basePrice"` // 添加这一行
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -137,6 +138,7 @@ func (ctrl *DualInvestmentController) CreateStrategy(c *gin.Context) {
 		TriggerType:          req.TriggerType,
 		LadderSteps:          req.LadderSteps,
 		LadderStepPercent:    req.LadderStepPercent,
+		BasePrice:            req.BasePrice, // 添加这一行
 		Enabled:              true,
 		Status:               "active",
 	}

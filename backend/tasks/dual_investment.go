@@ -57,7 +57,13 @@ func doSyncProducts(cfg *config.Config) {
 	// 实际实现时需要查看币安的具体API文档
 
 	// 模拟产品数据
-	symbols := []string{"BTCUSDT", "ETHUSDT", "BNBUSDT"}
+	// 模拟产品数据
+	symbols := []string{
+		"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT",
+		"XRPUSDT", "DOTUSDT", "DOGEUSDT", "AVAXUSDT", "SHIBUSDT",
+		"MATICUSDT", "LTCUSDT", "UNIUSDT", "LINKUSDT", "ATOMUSDT",
+		"ETCUSDT", "XLMUSDT", "NEARUSDT", "ALGOUSDT", "FILUSDT",
+	}
 	directions := []string{"UP", "DOWN"}
 
 	for _, symbol := range symbols {
@@ -234,6 +240,7 @@ func executeAutoReinvestStrategy(cfg *config.Config, strategy models.DualInvestm
 }
 
 // executeLadderStrategy 执行梯度投资策略
+// executeLadderStrategy 执行梯度投资策略
 func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStrategy, user models.User, symbol string) {
 	// 获取当前价格
 	client := binance.NewClient(user.APIKey, user.SecretKey)
@@ -243,6 +250,15 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 	}
 
 	currentPrice, _ := strconv.ParseFloat(prices[0].Price, 64)
+
+	// 如果没有设置基准价格，使用当前价格
+	basePrice := strategy.BasePrice
+	if basePrice <= 0 {
+		basePrice = currentPrice
+		// 更新策略的基准价格
+		cfg.DB.Model(&strategy).Update("base_price", basePrice)
+		log.Printf("策略 %d 未设置基准价格，使用当前价格 %.2f 作为基准", strategy.ID, basePrice)
+	}
 
 	// 检查是否已经在当前价格区间有订单
 	var existingOrders int64
@@ -271,23 +287,39 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 		// 计算目标执行价格
 		priceOffset := float64(i) * strategy.LadderStepPercent / 100
 		var targetStrikePrice float64
+		var shouldInvest bool
 
 		if strategy.DirectionPreference == "UP" || strategy.DirectionPreference == "BOTH" {
-			targetStrikePrice = currentPrice * (1 + priceOffset)
-			product := findProductByStrikePrice(cfg, symbol, "UP", targetStrikePrice, strategy)
-			if product != nil {
-				createDualInvestmentOrder(cfg, user, strategy, product, amountPerStep)
+			// 看涨：执行价格从基准价格向下排列
+			targetStrikePrice = basePrice * (1 - priceOffset)
+
+			// 只有当执行价格低于基准价格时才投资
+			if targetStrikePrice < basePrice {
+				shouldInvest = true
+				product := findProductByStrikePrice(cfg, symbol, "UP", targetStrikePrice, strategy)
+				if product != nil && shouldInvest {
+					createDualInvestmentOrder(cfg, user, strategy, product, amountPerStep)
+				}
 			}
 		}
 
 		if strategy.DirectionPreference == "DOWN" || strategy.DirectionPreference == "BOTH" {
-			targetStrikePrice = currentPrice * (1 - priceOffset)
-			product := findProductByStrikePrice(cfg, symbol, "DOWN", targetStrikePrice, strategy)
-			if product != nil {
-				createDualInvestmentOrder(cfg, user, strategy, product, amountPerStep)
+			// 看跌：执行价格从基准价格向上排列
+			targetStrikePrice = basePrice * (1 + priceOffset)
+
+			// 只有当执行价格高于基准价格时才投资
+			if targetStrikePrice > basePrice {
+				shouldInvest = true
+				product := findProductByStrikePrice(cfg, symbol, "DOWN", targetStrikePrice, strategy)
+				if product != nil && shouldInvest {
+					createDualInvestmentOrder(cfg, user, strategy, product, amountPerStep)
+				}
 			}
 		}
 	}
+
+	log.Printf("梯度策略 %d 执行完成，基准价格：%.2f，当前价格：%.2f",
+		strategy.ID, basePrice, currentPrice)
 }
 
 // executePriceTriggerStrategy 执行价格触发策略
