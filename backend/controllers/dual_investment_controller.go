@@ -516,6 +516,7 @@ func (ctrl *DualInvestmentController) GetOrders(c *gin.Context) {
 }
 
 // GetStats 获取双币投资统计信息 - 使用币安API
+// GetStats 获取双币投资统计信息 - 使用币安API
 func (ctrl *DualInvestmentController) GetStats(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
@@ -536,8 +537,35 @@ func (ctrl *DualInvestmentController) GetStats(c *gin.Context) {
 		return
 	}
 
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		log.Printf("解密用户 %d API Key失败: %v", user.ID, err)
+		// 如果解密失败，使用本地数据
+		stats := ctrl.getLocalStats(userID.(uint))
+		c.JSON(http.StatusOK, gin.H{"stats": stats})
+		return
+	}
+
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		log.Printf("解密用户 %d Secret Key失败: %v", user.ID, err)
+		// 如果解密失败，使用本地数据
+		stats := ctrl.getLocalStats(userID.(uint))
+		c.JSON(http.StatusOK, gin.H{"stats": stats})
+		return
+	}
+
+	// 检查解密后的密钥是否为空
+	if apiKey == "" || secretKey == "" {
+		log.Printf("用户 %d 解密后的API密钥为空", user.ID)
+		stats := ctrl.getLocalStats(userID.(uint))
+		c.JSON(http.StatusOK, gin.H{"stats": stats})
+		return
+	}
+
 	// 从币安获取双币投资统计数据
-	client := binance.NewClient(user.APIKey, user.SecretKey)
+	client := binance.NewClient(apiKey, secretKey)
 
 	// 获取账户总览信息
 	account, err := client.NewGetAccountService().Do(context.Background())

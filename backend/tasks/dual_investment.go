@@ -1128,7 +1128,18 @@ func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestm
 	log.Printf("价格触发策略 %d 触发: %s 当前价格 %.2f, 触发条件 %s %.2f",
 		strategy.ID, symbol, currentPrice, strategy.TriggerType, strategy.TriggerPrice)
 
-	// 重要修改：添加额外的日志说明策略意图
+	// 检查是否还有可用额度
+	availableAmount := strategy.TotalInvestmentLimit - strategy.CurrentInvested
+	if availableAmount <= 0 {
+		log.Printf("价格触发策略 %d 已达到总投资限额，标记为完成", strategy.ID)
+		// 达到限额，标记为完成
+		cfg.DB.Model(&strategy).Updates(map[string]interface{}{
+			"status": "completed",
+			"notes":  fmt.Sprintf("达到总投资限额 %.2f", strategy.TotalInvestmentLimit),
+		})
+		return
+	}
+
 	log.Printf("策略意图: 方向=%s, 基准价格=%.2f, 目标年化=%v%%-%v%%",
 		strategy.DirectionPreference, strategy.BasePrice, strategy.TargetAPYMin, strategy.TargetAPYMax)
 
@@ -1137,7 +1148,7 @@ func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestm
 	if product == nil {
 		log.Printf("未找到符合条件的产品：方向=%s, 基准价格=%.2f",
 			strategy.DirectionPreference, strategy.BasePrice)
-		// 继续监控
+		// 继续监控，5分钟后再检查
 		nextCheckTime := time.Now().Add(5 * time.Minute)
 		cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
 		return
@@ -1149,17 +1160,38 @@ func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestm
 
 	investAmount := calculateInvestAmount(strategy, product)
 	if investAmount <= 0 {
+		log.Printf("计算的投资金额为0，跳过本次投资")
+		// 1分钟后再试
+		nextCheckTime := time.Now().Add(1 * time.Minute)
+		cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
 		return
 	}
 
 	// 创建订单
 	if createDualInvestmentOrder(cfg, user, strategy, product, investAmount) {
-		// 更新策略状态为已完成
-		cfg.DB.Model(&strategy).Updates(map[string]interface{}{
-			"status":           "completed",
+		// 更新策略信息
+		updatedInvested := strategy.CurrentInvested + investAmount
+
+		updateData := map[string]interface{}{
 			"last_executed_at": time.Now(),
-		})
-		log.Printf("价格触发策略 %d 执行成功，策略已完成", strategy.ID)
+			"next_check_time":  time.Now().Add(5 * time.Minute), // 5分钟后再检查
+		}
+
+		// 检查是否达到限额
+		if updatedInvested >= strategy.TotalInvestmentLimit {
+			log.Printf("价格触发策略 %d 达到总投资限额 %.2f，标记为完成",
+				strategy.ID, strategy.TotalInvestmentLimit)
+			updateData["status"] = "completed"
+			updateData["notes"] = fmt.Sprintf("达到总投资限额 %.2f", strategy.TotalInvestmentLimit)
+		} else {
+			log.Printf("价格触发策略 %d 执行成功，已投资 %.2f/%.2f，继续监控",
+				strategy.ID, updatedInvested, strategy.TotalInvestmentLimit)
+			// 保持 active 状态，继续执行
+			remainingAmount := strategy.TotalInvestmentLimit - updatedInvested
+			updateData["notes"] = fmt.Sprintf("剩余可投资额度 %.2f", remainingAmount)
+		}
+
+		cfg.DB.Model(&strategy).Updates(updateData)
 	} else {
 		// 失败后5分钟再试
 		nextCheckTime := time.Now().Add(5 * time.Minute)
@@ -1284,7 +1316,6 @@ func calculateInvestAmount(strategy models.DualInvestmentStrategy, product *mode
 	return amount
 }
 
-// cleanupOrphanedProducts 清理孤立的双币投资产品（可选功能）
 // cleanupOrphanedProducts 清理孤立的双币投资产品（可选功能）
 func cleanupOrphanedProducts(cfg *config.Config) {
 	// 获取所有已添加的交易对

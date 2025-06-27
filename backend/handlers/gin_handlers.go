@@ -192,61 +192,75 @@ func GinTradesHandler(cfg *config.Config) gin.HandlerFunc {
 
 		// 如果用户设置了API密钥，尝试从币安获取最新交易
 		if user.APIKey != "" && user.SecretKey != "" {
-			client := binance.NewClient(user.APIKey, user.SecretKey)
-
-			// 获取用户的所有交易对
-			var symbols []string
-			cfg.DB.Model(&models.CustomSymbol{}).
-				Where("user_id = ? AND deleted_at IS NULL", user.ID).
-				Pluck("symbol", &symbols)
-
-			// 为每个交易对获取最近的交易
-			for _, symbol := range symbols {
-				// 获取最近24小时的交易
-				endTime := time.Now().UnixMilli()
-				startTime := time.Now().Add(-24 * time.Hour).UnixMilli()
-
-				trades, err := client.NewListTradesService().
-					Symbol(symbol).
-					StartTime(startTime).
-					EndTime(endTime).
-					Limit(100). // 每个交易对最多获取100条记录
-					Do(context.Background())
-
+			// 解密API密钥
+			apiKey, err := user.GetDecryptedAPIKey()
+			if err != nil {
+				log.Printf("解密用户 %d API Key失败: %v", user.ID, err)
+				// 继续返回数据库中的交易记录
+			} else {
+				secretKey, err := user.GetDecryptedSecretKey()
 				if err != nil {
-					log.Printf("获取 %s 交易记录失败: %v", symbol, err)
-					continue
-				}
+					log.Printf("解密用户 %d Secret Key失败: %v", user.ID, err)
+					// 继续返回数据库中的交易记录
+				} else if apiKey != "" && secretKey != "" {
+					// 使用解密后的密钥创建客户端
+					client := binance.NewClient(apiKey, secretKey)
 
-				// 将新交易保存到数据库
-				for _, trade := range trades {
-					price, _ := strconv.ParseFloat(trade.Price, 64)
-					qty, _ := strconv.ParseFloat(trade.Quantity, 64) // 使用 Quantity 而不是 Qty
+					// 获取用户的所有交易对
+					var symbols []string
+					cfg.DB.Model(&models.CustomSymbol{}).
+						Where("user_id = ? AND deleted_at IS NULL", user.ID).
+						Pluck("symbol", &symbols)
 
-					// 检查交易是否已存在
-					var exists bool
-					cfg.DB.Model(&models.Trade{}).
-						Where("user_id = ? AND symbol = ? AND time = ?", user.ID, symbol, trade.Time).
-						Select("count(*) > 0").
-						Find(&exists)
+					// 为每个交易对获取最近的交易
+					for _, symbol := range symbols {
+						// 获取最近24小时的交易
+						endTime := time.Now().UnixMilli()
+						startTime := time.Now().Add(-24 * time.Hour).UnixMilli()
 
-					if !exists {
-						newTrade := models.Trade{
-							UserID: user.ID,
-							Symbol: symbol,
-							Price:  price,
-							Qty:    qty,
-							Time:   trade.Time,
+						trades, err := client.NewListTradesService().
+							Symbol(symbol).
+							StartTime(startTime).
+							EndTime(endTime).
+							Limit(100). // 每个交易对最多获取100条记录
+							Do(context.Background())
+
+						if err != nil {
+							log.Printf("获取 %s 交易记录失败: %v", symbol, err)
+							continue
 						}
-						if err := cfg.DB.Create(&newTrade).Error; err != nil {
-							log.Printf("保存交易记录失败: %v", err)
+
+						// 将新交易保存到数据库
+						for _, trade := range trades {
+							price, _ := strconv.ParseFloat(trade.Price, 64)
+							qty, _ := strconv.ParseFloat(trade.Quantity, 64) // 使用 Quantity 而不是 Qty
+
+							// 检查交易是否已存在
+							var exists bool
+							cfg.DB.Model(&models.Trade{}).
+								Where("user_id = ? AND symbol = ? AND time = ?", user.ID, symbol, trade.Time).
+								Select("count(*) > 0").
+								Find(&exists)
+
+							if !exists {
+								newTrade := models.Trade{
+									UserID: user.ID,
+									Symbol: symbol,
+									Price:  price,
+									Qty:    qty,
+									Time:   trade.Time,
+								}
+								if err := cfg.DB.Create(&newTrade).Error; err != nil {
+									log.Printf("保存交易记录失败: %v", err)
+								}
+							}
 						}
 					}
+
+					// 重新查询数据库以获取所有交易（包括新添加的）
+					cfg.DB.Where("user_id = ?", user.ID).Order("time desc").Find(&dbTrades)
 				}
 			}
-
-			// 重新查询数据库以获取所有交易（包括新添加的）
-			cfg.DB.Where("user_id = ?", user.ID).Order("time desc").Find(&dbTrades)
 		}
 
 		// 格式化交易记录
