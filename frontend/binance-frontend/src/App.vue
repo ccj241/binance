@@ -64,12 +64,18 @@ export default {
     },
     isAdmin() {
       const token = localStorage.getItem('token');
-      if (!token) return false;
+      // 检查是否是无效的 token
+      if (!token || token === 'undefined' || token === 'null') {
+        return false;
+      }
 
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
         return payload.role === 'admin';
       } catch (e) {
+        console.error('Token 解析失败:', e);
+        // 清理无效的 token
+        localStorage.removeItem('token');
         return false;
       }
     },
