@@ -5,8 +5,8 @@ frontend/binance-frontend/src/assets/
 frontend/binance-frontend/src/components/
 pkg/
 idea/
-docker-compose.yml
-.env
-Dockerfile
-.dockerignore
-Makefile
+./docker-compose.yml
+./.env
+./Dockerfile
+./.dockerignore
+./Makefile
