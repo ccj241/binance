@@ -14,7 +14,8 @@ import (
 func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 配置CORS中间件
 	corsConfig := cors.Config{
-		AllowOrigins:     []string{"http://localhost:8080", "http://127.0.0.1:8080", "*"},
+		AllowOrigins: []string{"http://localhost:8080", "http://127.0.0.1:8080", "*"},
+		//AllowOrigins:     []string{"http://localhost:23338", "http://127.0.0.1:23338", "*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},

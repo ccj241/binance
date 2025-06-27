@@ -471,6 +471,39 @@
                   <option value="BOTH">双向</option>
                 </select>
               </div>
+              <div class="form-group">
+                <label class="form-label">单笔最大金额</label>
+                <input v-model.number="strategyForm.maxSingleAmount" type="number" class="form-control" min="0" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">总投资限额</label>
+                <input v-model.number="strategyForm.totalInvestmentLimit" type="number" class="form-control" min="0" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">单笔最大金额</label>
+                <input v-model.number="strategyForm.maxSingleAmount" type="number" class="form-control" min="0" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">总投资限额</label>
+                <input v-model.number="strategyForm.totalInvestmentLimit" type="number" class="form-control" min="0" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">投资期限范围（天）</label>
+                <div class="input-range">
+                  <select v-model.number="strategyForm.minDuration" class="form-control">
+                    <option v-for="n in 10" :key="'min-'+n" :value="n">{{ n }}天</option>
+                  </select>
+                  <span class="range-separator">-</span>
+                  <select v-model.number="strategyForm.maxDuration" class="form-control">
+                    <option v-for="n in 10" :key="'max-'+n" :value="n">{{ n }}天</option>
+                  </select>
+                </div>
+                <small class="form-hint">只选择在此期限范围内的产品进行投资</small>
+              </div>
 
               <div class="form-group">
                 <label class="form-label">基准价格</label>

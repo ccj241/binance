@@ -376,36 +376,52 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 }
 
 // executePriceTriggerStrategy 执行价格触发策略
+// executePriceTriggerStrategy 执行价格触发策略
 func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestmentStrategy, user models.User, symbol string) {
 	// 获取当前价格
 	client := binance.NewClient(user.APIKey, user.SecretKey)
 	prices, err := client.NewListPricesService().Symbol(symbol).Do(context.Background())
 	if err != nil || len(prices) == 0 {
+		log.Printf("获取 %s 价格失败: %v", symbol, err)
 		return
 	}
 
 	currentPrice, _ := strconv.ParseFloat(prices[0].Price, 64)
+	log.Printf("价格触发策略 %d: %s 当前价格 %.2f, 触发价格 %.2f, 触发类型 %s",
+		strategy.ID, symbol, currentPrice, strategy.TriggerPrice, strategy.TriggerType)
 
 	// 检查是否触发
 	triggered := false
 	if strategy.TriggerType == "above" && currentPrice >= strategy.TriggerPrice {
 		triggered = true
+		log.Printf("价格触发策略 %d 触发: 当前价格 %.2f >= 触发价格 %.2f",
+			strategy.ID, currentPrice, strategy.TriggerPrice)
 	} else if strategy.TriggerType == "below" && currentPrice <= strategy.TriggerPrice {
 		triggered = true
+		log.Printf("价格触发策略 %d 触发: 当前价格 %.2f <= 触发价格 %.2f",
+			strategy.ID, currentPrice, strategy.TriggerPrice)
 	}
 
 	if !triggered {
+		// 更新下次检查时间（1分钟后）
+		nextCheckTime := time.Now().Add(1 * time.Minute)
+		cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
 		return
 	}
 
 	// 触发后执行投资
 	product := findBestProduct(cfg, strategy, symbol)
 	if product == nil {
+		log.Printf("价格触发策略 %d 触发但没有找到合适的产品", strategy.ID)
+		// 继续监控，5分钟后再次检查
+		nextCheckTime := time.Now().Add(5 * time.Minute)
+		cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
 		return
 	}
 
 	investAmount := calculateInvestAmount(strategy, product)
 	if investAmount <= 0 {
+		log.Printf("价格触发策略 %d 触发但投资金额计算为0", strategy.ID)
 		return
 	}
 
@@ -416,6 +432,11 @@ func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestm
 			"status":           "completed",
 			"last_executed_at": time.Now(),
 		})
+		log.Printf("价格触发策略 %d 执行成功，策略已完成", strategy.ID)
+	} else {
+		// 失败后5分钟再试
+		nextCheckTime := time.Now().Add(5 * time.Minute)
+		cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
 	}
 }
 
