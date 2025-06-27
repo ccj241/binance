@@ -4,7 +4,6 @@ yarn config set registry https://registry.npmmirror.com
 
 if [ ! -d "binance-frontend/src" ]; then
   echo "Running create-vue..."
-  # 方法1：交互式（推荐）
   CI=true yarn create vue || {
     echo "create-vue failed, exiting"
     exit 1
@@ -23,4 +22,4 @@ fi
 # 启动Vite开发服务器
 echo "Starting Vite..."
 cd /app/binance-frontend
-yarn dev --host 0.0.0.0 --port 8080
+yarn dev --host 0.0.0.0 --port 8080  # 容器内部使用 8080
