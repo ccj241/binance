@@ -2,9 +2,15 @@ package tasks
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,7 +25,7 @@ import (
 // 双币投资API响应结构体
 type DCIProductListResponse struct {
 	Total int                  `json:"total"`
-	Rows  []DCIProductListItem `json:"rows"`
+	List  []DCIProductListItem `json:"list"` // 币安实际返回的是list
 }
 
 type DCIProductListItem struct {
@@ -37,6 +43,8 @@ type DCIProductListItem struct {
 	BaseAsset       string `json:"baseAsset"`
 	QuoteAsset      string `json:"quoteAsset"`
 	InvestAsset     string `json:"investAsset"`
+	InvestCoin      string `json:"investCoin"`    // 币安返回的字段名
+	ExercisedCoin   string `json:"exercisedCoin"` // 币安返回的字段名
 }
 
 type DCISubscribeResponse struct {
@@ -67,6 +75,100 @@ type DCIPositionItem struct {
 	SettleAmount string `json:"settleAmount"`
 	ProfitAmount string `json:"profitAmount"`
 	ProfitAsset  string `json:"profitAsset"`
+}
+
+// BinanceAPIError 币安API错误响应
+type BinanceAPIError struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
+
+// dciRequest 用于处理双币投资API请求的辅助函数
+func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]interface{}) ([]byte, error) {
+	baseURL := "https://api.binance.com"
+
+	// 添加时间戳
+	params["timestamp"] = fmt.Sprintf("%d", time.Now().UnixMilli())
+
+	// 构建查询字符串
+	query := buildQueryString(params)
+
+	// 生成签名
+	signature := sign(query, secretKey)
+	query += "&signature=" + signature
+
+	// 构建完整URL
+	fullURL := baseURL + endpoint
+	if method == "GET" {
+		fullURL += "?" + query
+	}
+
+	// 创建请求
+	var req *http.Request
+	var err error
+
+	if method == "GET" {
+		req, err = http.NewRequest(method, fullURL, nil)
+	} else {
+		req, err = http.NewRequest(method, fullURL, strings.NewReader(query))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %v", err)
+	}
+
+	// 设置请求头
+	req.Header.Set("X-MBX-APIKEY", apiKey)
+
+	// 发送请求
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("发送请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 读取响应
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %v", err)
+	}
+
+	// 检查HTTP状态码
+	if resp.StatusCode != http.StatusOK {
+		var apiErr BinanceAPIError
+		if err := json.Unmarshal(body, &apiErr); err == nil {
+			return nil, fmt.Errorf("API错误 [%d]: %s", apiErr.Code, apiErr.Msg)
+		}
+		return nil, fmt.Errorf("HTTP错误 %d: %s", resp.StatusCode, string(body))
+	}
+
+	return body, nil
+}
+
+// buildQueryString 构建查询字符串
+func buildQueryString(params map[string]interface{}) string {
+	var keys []string
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var parts []string
+	for _, k := range keys {
+		v := params[k]
+		parts = append(parts, fmt.Sprintf("%s=%v", k, url.QueryEscape(fmt.Sprintf("%v", v))))
+	}
+
+	return strings.Join(parts, "&")
+}
+
+// sign 生成签名
+func sign(message, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(message))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // StartDualInvestmentTasks 启动双币投资相关任务
@@ -135,7 +237,7 @@ func doSyncProducts(cfg *config.Config) {
 		currentPrice, _ := strconv.ParseFloat(prices[0].Price, 64)
 
 		// 调用双币投资产品列表API
-		products, err := getDCIProductList(client, symbol)
+		products, err := getDCIProductList(apiKey, secretKey, symbol)
 		if err != nil {
 			log.Printf("获取 %s 双币投资产品失败: %v", symbol, err)
 			continue
@@ -191,49 +293,139 @@ func doSyncProducts(cfg *config.Config) {
 }
 
 // getDCIProductList 获取双币投资产品列表
-func getDCIProductList(client *binance.Client, symbol string) ([]DCIProductListItem, error) {
-	// 构建请求参数
-	params := map[string]interface{}{
-		"optionType": "CALL", // 先获取看涨期权
-		"symbol":     symbol,
-		"pageSize":   100,
-		"pageIndex":  1,
-	}
-
-	// 调用API
-	res, err := client.NewRequestBuilder().
-		SetMethod("GET").
-		SetPath("/sapi/v1/dci/product/list").
-		SetParams(params).
-		Do(context.Background())
-
-	if err != nil {
-		return nil, err
-	}
-
-	var response DCIProductListResponse
-	if err := json.Unmarshal(res, &response); err != nil {
-		return nil, err
-	}
-
-	products := response.Rows
-
-	// 再获取看跌期权
-	params["optionType"] = "PUT"
-	res, err = client.NewRequestBuilder().
-		SetMethod("GET").
-		SetPath("/sapi/v1/dci/product/list").
-		SetParams(params).
-		Do(context.Background())
-
-	if err == nil {
-		var putResponse DCIProductListResponse
-		if err := json.Unmarshal(res, &putResponse); err == nil {
-			products = append(products, putResponse.Rows...)
+func getDCIProductList(apiKey, secretKey, symbol string) ([]DCIProductListItem, error) {
+	// 从交易对中解析基础资产和计价资产
+	// 例如 BTCUSDT -> BTC 和 USDT
+	var baseAsset, quoteAsset string
+	if strings.HasSuffix(symbol, "USDT") {
+		baseAsset = strings.TrimSuffix(symbol, "USDT")
+		quoteAsset = "USDT"
+	} else if strings.HasSuffix(symbol, "BUSD") {
+		baseAsset = strings.TrimSuffix(symbol, "BUSD")
+		quoteAsset = "BUSD"
+	} else {
+		// 其他情况，简单处理
+		if len(symbol) >= 6 {
+			baseAsset = symbol[:3]
+			quoteAsset = symbol[3:]
+		} else {
+			return nil, fmt.Errorf("无法解析交易对: %s", symbol)
 		}
 	}
 
-	return products, nil
+	var allProducts []DCIProductListItem
+
+	// 1. 查询看涨期权产品（CALL）
+	params := map[string]interface{}{
+		"optionType":    "CALL",
+		"investCoin":    baseAsset,
+		"exercisedCoin": quoteAsset,
+		"pageSize":      100,
+		"pageIndex":     1,
+	}
+
+	res, err := dciRequest(apiKey, secretKey, "GET", "/sapi/v1/dci/product/list", params)
+	if err != nil {
+		log.Printf("获取 %s CALL产品失败 (投资币种=%s): %v", symbol, baseAsset, err)
+	} else {
+		var response DCIProductListResponse
+		if err := json.Unmarshal(res, &response); err == nil {
+			log.Printf("获取到 %d 个CALL产品 (投资币种=%s)", len(response.List), baseAsset)
+
+			// 打印前3个产品的详细信息进行调试
+			for i, product := range response.List {
+				if i < 3 {
+					log.Printf("CALL产品[%d]: ID=%s, Symbol='%s', InvestCoin=%s, ExercisedCoin=%s, StrikePrice=%s",
+						i, product.Id, product.Symbol, product.InvestCoin, product.ExercisedCoin, product.StrikePrice)
+				}
+
+				// 设置产品属性
+				response.List[i].Direction = "UP"
+
+				// 如果Symbol为空，根据投资币种和行权币种构建
+				if response.List[i].Symbol == "" {
+					response.List[i].Symbol = baseAsset + quoteAsset
+					log.Printf("为产品 %s 设置Symbol: %s", product.Id, response.List[i].Symbol)
+				}
+
+				// 设置BaseAsset和QuoteAsset
+				response.List[i].BaseAsset = baseAsset
+				response.List[i].QuoteAsset = quoteAsset
+				response.List[i].InvestAsset = product.InvestCoin
+			}
+			allProducts = append(allProducts, response.List...)
+		} else {
+			log.Printf("解析CALL响应失败: %v", err)
+		}
+	}
+
+	// 2. 查询看跌期权产品（PUT）
+	params = map[string]interface{}{
+		"optionType":    "PUT",
+		"investCoin":    quoteAsset,
+		"exercisedCoin": baseAsset,
+		"pageSize":      100,
+		"pageIndex":     1,
+	}
+
+	res, err = dciRequest(apiKey, secretKey, "GET", "/sapi/v1/dci/product/list", params)
+	if err != nil {
+		log.Printf("获取 %s PUT产品失败 (投资币种=%s): %v", symbol, quoteAsset, err)
+	} else {
+		var response DCIProductListResponse
+		if err := json.Unmarshal(res, &response); err == nil {
+			log.Printf("获取到 %d 个PUT产品 (投资币种=%s)", len(response.List), quoteAsset)
+
+			// 打印前3个产品的详细信息进行调试
+			for i, product := range response.List {
+				if i < 3 {
+					log.Printf("PUT产品[%d]: ID=%s, Symbol='%s', InvestCoin=%s, ExercisedCoin=%s, StrikePrice=%s",
+						i, product.Id, product.Symbol, product.InvestCoin, product.ExercisedCoin, product.StrikePrice)
+				}
+
+				// 设置产品属性
+				response.List[i].Direction = "DOWN"
+
+				// 如果Symbol为空，根据投资币种和行权币种构建
+				if response.List[i].Symbol == "" {
+					response.List[i].Symbol = baseAsset + quoteAsset
+					log.Printf("为产品 %s 设置Symbol: %s", product.Id, response.List[i].Symbol)
+				}
+
+				// 设置BaseAsset和QuoteAsset
+				response.List[i].BaseAsset = baseAsset
+				response.List[i].QuoteAsset = quoteAsset
+				response.List[i].InvestAsset = product.InvestCoin
+			}
+			allProducts = append(allProducts, response.List...)
+		} else {
+			log.Printf("解析PUT响应失败: %v", err)
+		}
+	}
+
+	// 统计所有产品的Symbol
+	symbolCount := make(map[string]int)
+	for _, product := range allProducts {
+		symbolCount[product.Symbol]++
+	}
+
+	log.Printf("所有产品的Symbol分布:")
+	for sym, count := range symbolCount {
+		if count > 0 {
+			log.Printf("  '%s': %d 个产品", sym, count)
+		}
+	}
+
+	// 过滤只保留指定交易对的产品
+	var filteredProducts []DCIProductListItem
+	for _, product := range allProducts {
+		if product.Symbol == symbol {
+			filteredProducts = append(filteredProducts, product)
+		}
+	}
+
+	log.Printf("交易对 %s 共获取到 %d 个有效产品 (期望Symbol='%s')", symbol, len(filteredProducts), symbol)
+	return filteredProducts, nil
 }
 
 // mapProductStatus 映射产品状态
@@ -338,8 +530,6 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 		return false
 	}
 
-	client := binance.NewClient(apiKey, secretKey)
-
 	// 调用双币投资下单API
 	params := map[string]interface{}{
 		"productId":    product.ProductID,
@@ -347,12 +537,7 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 		"autoCompound": "false", // 是否自动复投
 	}
 
-	res, err := client.NewRequestBuilder().
-		SetMethod("POST").
-		SetPath("/sapi/v1/dci/product/subscribe").
-		SetParams(params).
-		Do(context.Background())
-
+	res, err := dciRequest(apiKey, secretKey, "POST", "/sapi/v1/dci/product/subscribe", params)
 	if err != nil {
 		log.Printf("调用双币投资下单API失败: %v", err)
 		return false
@@ -457,10 +642,8 @@ func checkUserOrders(cfg *config.Config, userID uint, orders []models.DualInvest
 		return
 	}
 
-	client := binance.NewClient(apiKey, secretKey)
-
 	// 获取用户的所有持仓
-	positions, err := getDCIPositions(client)
+	positions, err := getDCIPositions(apiKey, secretKey)
 	if err != nil {
 		log.Printf("获取用户 %d 的双币投资持仓失败: %v", userID, err)
 		return
@@ -488,18 +671,13 @@ func checkUserOrders(cfg *config.Config, userID uint, orders []models.DualInvest
 }
 
 // getDCIPositions 获取双币投资持仓
-func getDCIPositions(client *binance.Client) ([]DCIPositionItem, error) {
+func getDCIPositions(apiKey, secretKey string) ([]DCIPositionItem, error) {
 	params := map[string]interface{}{
 		"pageSize":  100,
 		"pageIndex": 1,
 	}
 
-	res, err := client.NewRequestBuilder().
-		SetMethod("GET").
-		SetPath("/sapi/v1/dci/product/positions").
-		SetParams(params).
-		Do(context.Background())
-
+	res, err := dciRequest(apiKey, secretKey, "GET", "/sapi/v1/dci/product/positions", params)
 	if err != nil {
 		return nil, err
 	}
