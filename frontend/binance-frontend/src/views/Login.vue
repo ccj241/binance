@@ -142,8 +142,33 @@ export default {
           password: this.password,
         });
 
+        // 添加详细的调试日志
+        console.log('登录响应:', response);
+        console.log('响应数据:', response.data);
+        console.log('Token 值:', response.data.token);
+        console.log('Token 类型:', typeof response.data.token);
+
+        // 严格验证 token 存在且有效
+        if (!response.data.token ||
+            response.data.token === 'undefined' ||
+            response.data.token === 'null' ||
+            response.data.token === '') {
+          console.error('服务器返回的 token 无效:', response.data);
+          this.error = '登录失败：服务器未返回有效的认证信息';
+          return;
+        }
+
+        // 验证 token 格式（JWT 应该有3个部分）
+        const tokenParts = response.data.token.split('.');
+        if (tokenParts.length !== 3) {
+          console.error('Token 格式错误，应该包含3个部分，实际:', tokenParts.length);
+          this.error = '登录失败：服务器返回的认证信息格式错误';
+          return;
+        }
+
         // 保存token
         localStorage.setItem('token', response.data.token);
+        console.log('Token 已保存到 localStorage');
 
         // 记住用户名
         if (this.rememberMe) {
@@ -159,6 +184,10 @@ export default {
           this.$router.push('/');
         }
       } catch (err) {
+        console.error('登录错误:', err);
+        console.log('错误响应:', err.response);
+        console.log('错误响应数据:', err.response?.data);
+
         if (err.response?.status === 403) {
           this.error = err.response.data.message || '账号状态异常，请联系管理员';
         } else if (err.response?.status === 401) {

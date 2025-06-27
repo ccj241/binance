@@ -9,16 +9,28 @@ axios.defaults.baseURL = '';
 axios.defaults.timeout = 10000;
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 // 添加请求拦截器
+// 添加请求拦截器
 axios.interceptors.request.use(
     config => {
         const token = localStorage.getItem('token');
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`
+
+        // 验证 token 有效性
+        if (token && token !== 'undefined' && token !== 'null' && token !== '') {
+            // 额外验证 token 格式
+            const parts = token.split('.');
+            if (parts.length === 3) {
+                config.headers.Authorization = `Bearer ${token}`;
+            } else {
+                console.error('检测到无效的 token 格式，清理中...');
+                localStorage.removeItem('token');
+            }
         }
-// 确保所有请求都有正确的 Content-Type
+
+        // 确保所有请求都有正确的 Content-Type
         if (!config.headers['Content-Type']) {
             config.headers['Content-Type'] = 'application/json';
         }
+
         // 开发环境下打印请求信息
         if (process.env.NODE_ENV === 'development') {
             console.log(`📤 ${config.method?.toUpperCase()} ${config.url}`);

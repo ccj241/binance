@@ -122,16 +122,31 @@ const router = createRouter({
 });
 
 // 导航守卫
+// 导航守卫
 router.beforeEach((to, from, next) => {
     // 设置页面标题
     document.title = to.meta.title ? `${to.meta.title} - 交易系统` : '交易系统';
 
     const token = localStorage.getItem('token');
+
+    // 验证 token 有效性
+    const isValidToken = token &&
+        token !== 'undefined' &&
+        token !== 'null' &&
+        token !== '' &&
+        token.split('.').length === 3;
+
     const requiresAuth = to.meta.requiresAuth;
     const requiresAdmin = to.meta.requiresAdmin;
 
-    // 需要认证但未登录
-    if (requiresAuth && !token) {
+    // 需要认证但 token 无效
+    if (requiresAuth && !isValidToken) {
+        // 清理无效 token
+        if (token && !isValidToken) {
+            console.log('清理无效的 token');
+            localStorage.removeItem('token');
+        }
+
         next({
             path: '/login',
             query: { redirect: to.fullPath } // 保存原始访问路径
@@ -140,13 +155,13 @@ router.beforeEach((to, from, next) => {
     }
 
     // 已登录用户访问登录/注册页面
-    if (token && (to.path === '/login' || to.path === '/register')) {
+    if (isValidToken && (to.path === '/login' || to.path === '/register')) {
         next('/');
         return;
     }
 
     // 需要管理员权限
-    if (requiresAdmin && token) {
+    if (requiresAdmin && isValidToken) {
         try {
             const payload = JSON.parse(atob(token.split('.')[1]));
             if (payload.role !== 'admin') {

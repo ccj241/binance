@@ -60,17 +60,36 @@
 export default {
   computed: {
     isLoggedIn() {
-      return !!localStorage.getItem('token');
+      const token = localStorage.getItem('token');
+      // 增强验证：检查 token 是否存在且不是无效值
+      if (!token || token === 'undefined' || token === 'null' || token === '') {
+        return false;
+      }
+      // 检查 token 格式
+      const parts = token.split('.');
+      return parts.length === 3;
     },
+
     isAdmin() {
       const token = localStorage.getItem('token');
-      // 检查是否是无效的 token
-      if (!token || token === 'undefined' || token === 'null') {
+
+      // 检查 token 是否有效
+      if (!token || token === 'undefined' || token === 'null' || token === '') {
         return false;
       }
 
       try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
+        // 验证 token 格式
+        const parts = token.split('.');
+        if (parts.length !== 3) {
+          console.error('Token 格式错误，清理无效 token');
+          localStorage.removeItem('token');
+          return false;
+        }
+
+        // 解析 payload
+        const payload = JSON.parse(atob(parts[1]));
+        console.log('当前用户角色:', payload.role);
         return payload.role === 'admin';
       } catch (e) {
         console.error('Token 解析失败:', e);
@@ -79,12 +98,22 @@ export default {
         return false;
       }
     },
+
     username() {
       const token = localStorage.getItem('token');
-      if (!token) return '';
+
+      // 检查 token 是否有效
+      if (!token || token === 'undefined' || token === 'null' || token === '') {
+        return '';
+      }
 
       try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
+        const parts = token.split('.');
+        if (parts.length !== 3) {
+          return '';
+        }
+
+        const payload = JSON.parse(atob(parts[1]));
         return payload.username || '';
       } catch (e) {
         return '';
