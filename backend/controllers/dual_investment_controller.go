@@ -252,78 +252,119 @@ func (ctrl *DualInvestmentController) UpdateStrategy(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Enabled              *bool                     `json:"enabled"`
-		TargetAPYMin         *float64                  `json:"targetApyMin"`
-		TargetAPYMax         *float64                  `json:"targetApyMax"`
-		MaxSingleAmount      *float64                  `json:"maxSingleAmount"`
-		TotalInvestmentLimit *float64                  `json:"totalInvestmentLimit"`
-		AutoReinvest         *bool                     `json:"autoReinvest"`
-		BasePrice            *float64                  `json:"basePrice"`
-		LadderConfig         []models.LadderConfigItem `json:"ladderConfig"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// 修改：直接使用map来接收更新数据，避免指针问题
+	var updateData map[string]interface{}
+	if err := c.ShouldBindJSON(&updateData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据"})
 		return
 	}
 
-	// 更新字段
+	// 创建更新映射
 	updates := make(map[string]interface{})
-	if req.Enabled != nil {
-		updates["enabled"] = *req.Enabled
+
+	// 处理各个字段的更新
+	if val, ok := updateData["enabled"]; ok {
+		updates["enabled"] = val
 	}
-	if req.TargetAPYMin != nil {
-		updates["target_apy_min"] = *req.TargetAPYMin
+	if val, ok := updateData["targetApyMin"]; ok {
+		updates["target_apy_min"] = val
 	}
-	if req.TargetAPYMax != nil {
-		updates["target_apy_max"] = *req.TargetAPYMax
+	if val, ok := updateData["targetApyMax"]; ok {
+		updates["target_apy_max"] = val
 	}
-	if req.MaxSingleAmount != nil {
-		updates["max_single_amount"] = *req.MaxSingleAmount
+	if val, ok := updateData["maxSingleAmount"]; ok {
+		updates["max_single_amount"] = val
 	}
-	if req.TotalInvestmentLimit != nil {
-		updates["total_investment_limit"] = *req.TotalInvestmentLimit
+	if val, ok := updateData["totalInvestmentLimit"]; ok {
+		updates["total_investment_limit"] = val
 	}
-	if req.AutoReinvest != nil {
-		updates["auto_reinvest"] = *req.AutoReinvest
+	if val, ok := updateData["autoReinvest"]; ok {
+		updates["auto_reinvest"] = val
 	}
-	if req.BasePrice != nil {
-		updates["base_price"] = *req.BasePrice
+	if val, ok := updateData["basePrice"]; ok {
+		updates["base_price"] = val
+	}
+	if val, ok := updateData["maxStrikePriceOffset"]; ok {
+		updates["max_strike_price_offset"] = val
+	}
+	if val, ok := updateData["minDuration"]; ok {
+		updates["min_duration"] = val
+	}
+	if val, ok := updateData["maxDuration"]; ok {
+		updates["max_duration"] = val
+	}
+	if val, ok := updateData["maxPositionRatio"]; ok {
+		updates["max_position_ratio"] = val
 	}
 
-	// 更新梯度配置
-	if strategy.StrategyType == "ladder" && len(req.LadderConfig) > 0 {
-		// 验证梯度配置
-		totalPercentage := 0.0
-		for _, config := range req.LadderConfig {
-			if config.MinDepth <= 0 || config.Percentage <= 0 || config.Percentage > 100 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "无效的梯度配置"})
-				return
+	// 处理梯度配置
+	if ladderConfig, ok := updateData["ladderConfig"]; ok {
+		if strategy.StrategyType == "ladder" && ladderConfig != nil {
+			// 将interface{}转换为正确的类型
+			if configArray, ok := ladderConfig.([]interface{}); ok {
+				var ladderItems []models.LadderConfigItem
+				for _, item := range configArray {
+					if itemMap, ok := item.(map[string]interface{}); ok {
+						ladderItem := models.LadderConfigItem{}
+						if minDepth, ok := itemMap["minDepth"].(float64); ok {
+							ladderItem.MinDepth = int(minDepth)
+						}
+						if percentage, ok := itemMap["percentage"].(float64); ok {
+							ladderItem.Percentage = percentage
+						}
+						ladderItems = append(ladderItems, ladderItem)
+					}
+				}
+
+				// 验证梯度配置
+				totalPercentage := 0.0
+				for _, config := range ladderItems {
+					if config.MinDepth <= 0 || config.Percentage <= 0 || config.Percentage > 100 {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "无效的梯度配置"})
+						return
+					}
+					totalPercentage += config.Percentage
+				}
+
+				if totalPercentage > 100 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "总投资百分比不能超过100%"})
+					return
+				}
+
+				// 转换为JSON字符串
+				configBytes, err := json.Marshal(ladderItems)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "处理梯度配置失败"})
+					return
+				}
+				updates["ladder_config"] = string(configBytes)
 			}
-			totalPercentage += config.Percentage
 		}
-
-		if totalPercentage > 100 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "总投资百分比不能超过100%"})
-			return
-		}
-
-		configBytes, err := json.Marshal(req.LadderConfig)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "处理梯度配置失败"})
-			return
-		}
-		updates["ladder_config"] = string(configBytes)
 	}
 
+	// 添加更新时间
+	updates["updated_at"] = time.Now()
+
+	// 记录更新前的数据（用于日志）
+	log.Printf("更新策略 %s 前: enabled=%v, target_apy_min=%.2f, target_apy_max=%.2f, max_single_amount=%.2f",
+		strategyID, strategy.Enabled, strategy.TargetAPYMin, strategy.TargetAPYMax, strategy.MaxSingleAmount)
+
+	// 执行更新
 	if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
 		log.Printf("更新策略失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "策略更新成功"})
+	// 重新查询更新后的策略
+	if err := ctrl.Config.DB.First(&strategy, strategyID).Error; err != nil {
+		log.Printf("重新查询策略失败: %v", err)
+	} else {
+		log.Printf("更新策略 %s 后: enabled=%v, target_apy_min=%.2f, target_apy_max=%.2f, max_single_amount=%.2f",
+			strategyID, strategy.Enabled, strategy.TargetAPYMin, strategy.TargetAPYMax, strategy.MaxSingleAmount)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "策略更新成功", "strategy": strategy})
 }
 
 // DeleteStrategy 删除策略（添加权限验证）
@@ -331,29 +372,74 @@ func (ctrl *DualInvestmentController) DeleteStrategy(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	strategyID := c.Param("id")
 
+	// 开始事务
+	tx := ctrl.Config.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("删除策略时发生panic: %v", r)
+		}
+	}()
+
 	var strategy models.DualInvestmentStrategy
-	// 添加用户权限验证
-	if err := ctrl.Config.DB.Where("id = ? AND user_id = ? AND deleted_at IS NULL", strategyID, userID).
+	// 添加用户权限验证，使用事务
+	if err := tx.Where("id = ? AND user_id = ? AND deleted_at IS NULL", strategyID, userID).
 		First(&strategy).Error; err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "策略未找到或无权访问"})
+		tx.Rollback()
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "策略未找到"})
+		} else {
+			c.JSON(http.StatusForbidden, gin.H{"error": "无权访问该策略"})
+		}
 		return
 	}
+
+	// 记录删除前的信息
+	log.Printf("准备删除策略: ID=%s, Name=%s, UserID=%d", strategyID, strategy.StrategyName, userID)
 
 	// 检查是否有活跃订单
 	var activeOrders int64
-	ctrl.Config.DB.Model(&models.DualInvestmentOrder{}).
+	if err := tx.Model(&models.DualInvestmentOrder{}).
 		Where("strategy_id = ? AND status IN ?", strategyID, []string{"pending", "active"}).
-		Count(&activeOrders)
-
-	if activeOrders > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "策略有活跃订单，无法删除"})
+		Count(&activeOrders).Error; err != nil {
+		tx.Rollback()
+		log.Printf("检查活跃订单失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "检查订单状态失败"})
 		return
 	}
 
-	if err := ctrl.Config.DB.Delete(&strategy).Error; err != nil {
+	if activeOrders > 0 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("策略有 %d 个活跃订单，无法删除", activeOrders)})
+		return
+	}
+
+	// 执行软删除 - 使用 Update 方法显式设置 deleted_at
+	now := time.Now()
+	if err := tx.Model(&strategy).Updates(map[string]interface{}{
+		"deleted_at": now,
+		"enabled":    false, // 同时禁用策略
+		"status":     "deleted",
+	}).Error; err != nil {
+		tx.Rollback()
 		log.Printf("删除策略失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除策略失败"})
 		return
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("提交删除策略事务失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除策略失败"})
+		return
+	}
+
+	// 验证删除结果
+	var deletedCheck models.DualInvestmentStrategy
+	if err := ctrl.Config.DB.Unscoped().Where("id = ?", strategyID).First(&deletedCheck).Error; err != nil {
+		log.Printf("验证删除结果失败: %v", err)
+	} else {
+		log.Printf("策略删除成功: ID=%s, DeletedAt=%v", strategyID, deletedCheck.DeletedAt)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "策略删除成功"})
