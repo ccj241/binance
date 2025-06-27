@@ -169,7 +169,7 @@
                 {{ product.direction === 'UP' ? '看涨' : '看跌' }}
               </div>
               <div class="product-apy">
-                <span class="apy-value">{{ product.apy.toFixed(2) }}%</span>
+                <span class="apy-value">{{ formatAPY(product.apy) }}%</span>
                 <span class="apy-label">年化收益</span>
               </div>
             </div>
@@ -189,7 +189,7 @@
               </div>
               <div class="detail-item">
                 <span class="label">投资范围</span>
-                <span class="value">{{ product.minAmount }} - {{ product.maxAmount }}</span>
+                <span class="value">{{ formatAmount(product.minAmount) }} - {{ formatAmount(product.maxAmount) }}</span>
               </div>
             </div>
 
@@ -362,7 +362,7 @@
                 </div>
                 <div class="summary-item">
                   <span class="label">年化收益率</span>
-                  <span class="value highlight">{{ selectedProduct.apy?.toFixed(2) }}%</span>
+                  <span class="value highlight">{{ formatAPY(selectedProduct.apy) }}%</span>
                 </div>
                 <div class="summary-item">
                   <span class="label">执行价格</span>
@@ -452,6 +452,12 @@
                   <option value="ETH">ETH</option>
                   <option value="BNB">BNB</option>
                   <option value="SOL">SOL</option>
+                  <option value="DOGE">DOGE</option>
+                  <option value="ADA">ADA</option>
+                  <option value="XRP">XRP</option>
+                  <option value="DOT">DOT</option>
+                  <option value="AVAX">AVAX</option>
+                  <option value="MATIC">MATIC</option>
                 </select>
               </div>
 
@@ -475,11 +481,11 @@
                 <label class="form-label">投资期限范围（天）</label>
                 <div class="input-range">
                   <select v-model.number="strategyForm.minDuration" class="form-control">
-                    <option v-for="n in 10" :key="'min-'+n" :value="n">{{ n }}天</option>
+                    <option v-for="n in 30" :key="'min-'+n" :value="n">{{ n }}天</option>
                   </select>
                   <span class="range-separator">-</span>
                   <select v-model.number="strategyForm.maxDuration" class="form-control">
-                    <option v-for="n in 10" :key="'max-'+n" :value="n">{{ n }}天</option>
+                    <option v-for="n in 30" :key="'max-'+n" :value="n">{{ n }}天</option>
                   </select>
                 </div>
                 <small class="form-hint">只选择在此期限范围内的产品进行投资</small>
@@ -681,7 +687,13 @@ export default {
         { symbol: 'BTCUSDT', displaySymbol: 'BTC/USDT', icon: '₿', currentPrice: 45000, change24h: 2.5, productCount: 0 },
         { symbol: 'ETHUSDT', displaySymbol: 'ETH/USDT', icon: 'Ξ', currentPrice: 3000, change24h: -1.2, productCount: 0 },
         { symbol: 'BNBUSDT', displaySymbol: 'BNB/USDT', icon: '🔸', currentPrice: 350, change24h: 0.8, productCount: 0 },
-        { symbol: 'SOLUSDT', displaySymbol: 'SOL/USDT', icon: '◎', currentPrice: 120, change24h: 5.3, productCount: 0 }
+        { symbol: 'SOLUSDT', displaySymbol: 'SOL/USDT', icon: '◎', currentPrice: 120, change24h: 5.3, productCount: 0 },
+        { symbol: 'DOGEUSDT', displaySymbol: 'DOGE/USDT', icon: '🐕', currentPrice: 0.08, change24h: 3.2, productCount: 0 },
+        { symbol: 'ADAUSDT', displaySymbol: 'ADA/USDT', icon: '₳', currentPrice: 0.5, change24h: 1.8, productCount: 0 },
+        { symbol: 'XRPUSDT', displaySymbol: 'XRP/USDT', icon: '✕', currentPrice: 0.6, change24h: -0.5, productCount: 0 },
+        { symbol: 'DOTUSDT', displaySymbol: 'DOT/USDT', icon: '◉', currentPrice: 8, change24h: 2.1, productCount: 0 },
+        { symbol: 'AVAXUSDT', displaySymbol: 'AVAX/USDT', icon: '🔺', currentPrice: 35, change24h: 4.2, productCount: 0 },
+        { symbol: 'MATICUSDT', displaySymbol: 'MATIC/USDT', icon: '⬟', currentPrice: 0.9, change24h: -1.5, productCount: 0 }
       ],
       selectedSymbol: null,
       products: [],
@@ -750,12 +762,14 @@ export default {
       if (!this.products.length) return [];
 
       return this.products.filter(product => {
+        // 修复：使用正确的字段名进行过滤
         if (this.productFilter.direction && product.direction !== this.productFilter.direction) {
           return false;
         }
         if (this.productFilter.duration && product.duration !== parseInt(this.productFilter.duration)) {
           return false;
         }
+        // 修复：APY字段名和比较逻辑
         if (this.productFilter.minApy && product.apy < this.productFilter.minApy) {
           return false;
         }
@@ -822,6 +836,18 @@ export default {
     formatDate(dateString) {
       if (!dateString) return '-';
       return new Date(dateString).toLocaleDateString('zh-CN');
+    },
+
+    // 新增：格式化APY显示
+    formatAPY(apy) {
+      if (!apy && apy !== 0) return '0.00';
+      return parseFloat(apy).toFixed(2);
+    },
+
+    // 新增：格式化金额显示
+    formatAmount(amount) {
+      if (!amount && amount !== 0) return '0';
+      return parseFloat(amount).toFixed(2);
     },
 
     getStrategyTypeText(type) {
@@ -903,7 +929,34 @@ export default {
           headers: this.getAuthHeaders()
         });
 
-        this.products = response.data.products || [];
+        console.log('获取到的产品数据:', response.data); // 调试日志
+
+        // 修复：处理返回的数据结构
+        const products = response.data.products || [];
+
+        // 修复：确保每个产品都有正确的字段映射
+        this.products = products.map(product => {
+          return {
+            id: product.id || product.ID,
+            symbol: product.symbol || product.Symbol,
+            direction: product.direction || product.Direction,
+            strikePrice: product.strikePrice || product.StrikePrice,
+            apy: product.apy || product.APY || product.Apy,
+            duration: product.duration || product.Duration,
+            minAmount: product.minAmount || product.MinAmount,
+            maxAmount: product.maxAmount || product.MaxAmount,
+            settlementTime: product.settlementTime || product.SettlementTime,
+            productId: product.productId || product.ProductID,
+            status: product.status || product.Status,
+            baseAsset: product.baseAsset || product.BaseAsset,
+            quoteAsset: product.quoteAsset || product.QuoteAsset,
+            currentPrice: product.currentPrice || product.CurrentPrice,
+            depthLevel: product.depthLevel || product.DepthLevel
+          };
+        });
+
+        console.log('处理后的产品数据:', this.products); // 调试日志
+
       } catch (error) {
         console.error('获取产品失败:', error);
         this.showToast('获取产品失败', 'error');
@@ -1161,7 +1214,6 @@ export default {
         const response = await axios.get('/dual-investment/orders', {
           headers: this.getAuthHeaders()
         });
-        this.orders = response.data.orders || [];
         this.orders = response.data.orders || [];
       } catch (error) {
         console.error('获取订单失败:', error);
