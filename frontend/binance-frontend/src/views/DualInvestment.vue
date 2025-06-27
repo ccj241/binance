@@ -1273,24 +1273,17 @@ export default {
         this.strategyForm.ladderConfig.splice(index, 1);
       }
     },// 获取可用的交易对列表
+// 获取可用的交易对列表
     async fetchAvailableSymbols() {
       try {
-        // 修改：获取用户已添加的交易对
-        // 先获取 Symbol 表的数据
+        // 获取用户已添加的交易对
         const symbolsResponse = await axios.get('/symbols', {
           headers: this.getAuthHeaders()
         });
         const userSymbols = symbolsResponse.data.symbols || [];
 
-        // 再获取 CustomSymbol 表的数据
-        const customSymbolsResponse = await axios.get('/custom-symbols', {
-          headers: this.getAuthHeaders()
-        });
-        const customSymbols = customSymbolsResponse.data.customSymbols || [];
-
-        // 合并两个列表并去重
-        const allUserSymbols = [...userSymbols, ...customSymbols];
-        const userSymbolSet = new Set(allUserSymbols.map(sym => sym.symbol));
+        // 创建交易对集合用于去重
+        const userSymbolSet = new Set(userSymbols);
 
         // 获取所有产品
         const response = await axios.get('/dual-investment/products', {
