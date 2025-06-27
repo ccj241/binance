@@ -50,6 +50,7 @@ func checkPendingOrders(cfg *config.Config) {
 }
 
 // processUserOrders 处理单个用户的订单
+// processUserOrders 处理单个用户的订单
 func processUserOrders(cfg *config.Config, userID uint, orders []models.Order) {
 	// 获取用户信息
 	var user models.User
@@ -58,12 +59,24 @@ func processUserOrders(cfg *config.Config, userID uint, orders []models.Order) {
 		return
 	}
 
-	if user.APIKey == "" || user.SecretKey == "" {
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		log.Printf("解密用户 %d API Key失败: %v", userID, err)
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		log.Printf("解密用户 %d Secret Key失败: %v", userID, err)
+		return
+	}
+
+	if apiKey == "" || secretKey == "" {
 		log.Printf("用户 %d 未设置 API 密钥，跳过订单检查", user.ID)
 		return
 	}
 
-	client := binance.NewClient(user.APIKey, user.SecretKey)
+	client := binance.NewClient(apiKey, secretKey)
 
 	// 按交易对分组订单，减少API调用
 	symbolOrders := make(map[string][]models.Order)

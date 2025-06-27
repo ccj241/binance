@@ -60,12 +60,24 @@ func processUserWithdrawalRules(cfg *config.Config, userID uint, rules []models.
 		return
 	}
 
-	if user.APIKey == "" || user.SecretKey == "" {
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		log.Printf("解密用户 %d API Key失败: %v", userID, err)
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		log.Printf("解密用户 %d Secret Key失败: %v", userID, err)
+		return
+	}
+
+	if apiKey == "" || secretKey == "" {
 		log.Printf("用户 %d 未设置 API 密钥，跳过提币规则检查", user.ID)
 		return
 	}
 
-	client := binance.NewClient(user.APIKey, user.SecretKey)
+	client := binance.NewClient(apiKey, secretKey)
 
 	// 获取账户余额
 	account, err := client.NewGetAccountService().Do(context.Background())

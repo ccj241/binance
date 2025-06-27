@@ -472,26 +472,6 @@
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">单笔最大金额</label>
-                <input v-model.number="strategyForm.maxSingleAmount" type="number" class="form-control" min="0" required />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">总投资限额</label>
-                <input v-model.number="strategyForm.totalInvestmentLimit" type="number" class="form-control" min="0" required />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">单笔最大金额</label>
-                <input v-model.number="strategyForm.maxSingleAmount" type="number" class="form-control" min="0" required />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">总投资限额</label>
-                <input v-model.number="strategyForm.totalInvestmentLimit" type="number" class="form-control" min="0" required />
-              </div>
-
-              <div class="form-group">
                 <label class="form-label">投资期限范围（天）</label>
                 <div class="input-range">
                   <select v-model.number="strategyForm.minDuration" class="form-control">
@@ -1181,6 +1161,7 @@ export default {
         const response = await axios.get('/dual-investment/orders', {
           headers: this.getAuthHeaders()
         });
+        this.orders = response.data.orders || [];
         this.orders = response.data.orders || [];
       } catch (error) {
         console.error('获取订单失败:', error);
