@@ -27,6 +27,9 @@ func (ctrl *DualInvestmentController) GetProducts(c *gin.Context) {
 	direction := c.Query("direction")
 	minAPY := c.Query("minApy")
 
+	// 简化日志输出
+	log.Printf("获取双币产品: symbol=%s, direction=%s, minAPY=%s", symbol, direction, minAPY)
+
 	query := ctrl.Config.DB.Model(&models.DualInvestmentProduct{}).
 		Where("status = ?", "active")
 
@@ -47,6 +50,14 @@ func (ctrl *DualInvestmentController) GetProducts(c *gin.Context) {
 		log.Printf("获取双币产品失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取产品列表失败"})
 		return
+	}
+
+	// 只在调试模式下打印详细信息
+	if symbol == "SOLUSDT" && len(products) > 0 {
+		log.Printf("SOLUSDT产品数量: %d, 最高APY: %.2f%%, 最低APY: %.2f%%",
+			len(products),
+			products[0].APY,
+			products[len(products)-1].APY)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"products": products})

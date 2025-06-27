@@ -472,10 +472,14 @@
               <div class="form-group">
                 <label class="form-label">方向偏好</label>
                 <select v-model="strategyForm.directionPreference" class="form-control" required>
-                  <option value="UP">看涨(低买)</option>
-                  <option value="DOWN">看跌(高卖)</option>
+                  <option value="UP">低买 (用USDT买入)</option>
+                  <option value="DOWN">高卖 (卖出持有币种)</option>
                   <option value="BOTH">双向</option>
                 </select>
+                <small class="form-hint">
+                  低买：投资USDT，当价格低于执行价时买入基础资产<br>
+                  高卖：投资基础资产，当价格高于执行价时卖出获得USDT
+                </small>
               </div>
               <div class="form-group">
                 <label class="form-label">投资期限范围（天）</label>
@@ -796,11 +800,11 @@ export default {
   },
 
   mounted() {
+    // 先获取真实的交易对和产品
+    this.fetchAvailableSymbols();
     this.fetchStrategies();
     this.fetchOrders();
     this.fetchStats();
-    this.updateSymbolPrices();
-    this.fetchSymbolProductCounts();
   },
 
   methods: {
@@ -900,14 +904,34 @@ export default {
     },
 
     // 获取每个交易对的产品数量
+// 获取每个交易对的产品数量
     async fetchSymbolProductCounts() {
       try {
-        for (let symbol of this.availableSymbols) {
-          const response = await axios.get(`/dual-investment/products?symbol=${symbol.symbol}`, {
-            headers: this.getAuthHeaders()
-          });
-          symbol.productCount = response.data.products?.length || 0;
-        }
+        // 先获取所有产品，然后按交易对统计
+        const response = await axios.get('/dual-investment/products', {
+          headers: this.getAuthHeaders()
+        });
+
+        const products = response.data.products || [];
+
+        // 统计每个交易对的产品数量
+        const symbolCounts = {};
+        products.forEach(product => {
+          const symbol = product.symbol || product.Symbol;
+          if (symbol) {
+            symbolCounts[symbol] = (symbolCounts[symbol] || 0) + 1;
+          }
+        });
+
+        // 更新 availableSymbols 中的产品数量
+        this.availableSymbols.forEach(symbol => {
+          symbol.productCount = symbolCounts[symbol.symbol] || 0;
+        });
+
+        // 过滤掉没有产品的交易对
+        this.availableSymbols = this.availableSymbols.filter(symbol => symbol.productCount > 0);
+
+        console.log('各交易对产品数量:', symbolCounts);
       } catch (error) {
         console.error('获取产品数量失败:', error);
       }
@@ -1247,6 +1271,111 @@ export default {
     removeLadderConfig(index) {
       if (this.strategyForm.ladderConfig.length > 1) {
         this.strategyForm.ladderConfig.splice(index, 1);
+      }
+    },// 获取可用的交易对列表
+    async fetchAvailableSymbols() {
+      try {
+        // 修改：获取用户已添加的交易对
+        // 先获取 Symbol 表的数据
+        const symbolsResponse = await axios.get('/symbols', {
+          headers: this.getAuthHeaders()
+        });
+        const userSymbols = symbolsResponse.data.symbols || [];
+
+        // 再获取 CustomSymbol 表的数据
+        const customSymbolsResponse = await axios.get('/custom-symbols', {
+          headers: this.getAuthHeaders()
+        });
+        const customSymbols = customSymbolsResponse.data.customSymbols || [];
+
+        // 合并两个列表并去重
+        const allUserSymbols = [...userSymbols, ...customSymbols];
+        const userSymbolSet = new Set(allUserSymbols.map(sym => sym.symbol));
+
+        // 获取所有产品
+        const response = await axios.get('/dual-investment/products', {
+          headers: this.getAuthHeaders()
+        });
+
+        const products = response.data.products || [];
+
+        // 从产品中提取唯一的交易对，并且只保留用户已添加的
+        const symbolMap = new Map();
+
+        products.forEach(product => {
+          const symbol = product.symbol || product.Symbol;
+          // 只处理用户已添加的交易对
+          if (symbol && userSymbolSet.has(symbol) && !symbolMap.has(symbol)) {
+            // 解析交易对信息
+            let baseAsset = '';
+            let quoteAsset = 'USDT';
+            let displaySymbol = symbol;
+            let icon = '💰';
+
+            // 解析基础资产
+            if (symbol.endsWith('USDT')) {
+              baseAsset = symbol.slice(0, -4);
+              displaySymbol = `${baseAsset}/USDT`;
+            } else if (symbol.endsWith('BUSD')) {
+              baseAsset = symbol.slice(0, -4);
+              quoteAsset = 'BUSD';
+              displaySymbol = `${baseAsset}/BUSD`;
+            }
+
+            // 设置图标
+            const iconMap = {
+              'BTC': '₿',
+              'ETH': 'Ξ',
+              'BNB': '🔸',
+              'SOL': '◎',
+              'DOGE': '🐕',
+              'ADA': '₳',
+              'XRP': '✕',
+              'DOT': '◉',
+              'AVAX': '🔺',
+              'MATIC': '⬟'
+            };
+            icon = iconMap[baseAsset] || '💰';
+
+            symbolMap.set(symbol, {
+              symbol: symbol,
+              displaySymbol: displaySymbol,
+              icon: icon,
+              currentPrice: 0,
+              change24h: 0,
+              productCount: 0
+            });
+          }
+        });
+
+        // 转换为数组
+        this.availableSymbols = Array.from(symbolMap.values());
+
+        // 统计每个交易对的产品数量
+        const symbolCounts = {};
+        products.forEach(product => {
+          const symbol = product.symbol || product.Symbol;
+          if (symbol && userSymbolSet.has(symbol)) {
+            symbolCounts[symbol] = (symbolCounts[symbol] || 0) + 1;
+          }
+        });
+
+        // 更新产品数量
+        this.availableSymbols.forEach(symbol => {
+          symbol.productCount = symbolCounts[symbol.symbol] || 0;
+        });
+
+        // 按产品数量排序
+        this.availableSymbols.sort((a, b) => b.productCount - a.productCount);
+
+        console.log('可用交易对（仅用户已添加）:', this.availableSymbols);
+
+        // 获取价格信息
+        await this.updateSymbolPrices();
+
+      } catch (error) {
+        console.error('获取可用交易对失败:', error);
+        this.showToast('获取交易对失败', 'error');
       }
     }
   }

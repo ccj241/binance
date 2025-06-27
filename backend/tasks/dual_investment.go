@@ -30,6 +30,7 @@ type DCIProductListResponse struct {
 
 type DCIProductListItem struct {
 	Id              string `json:"id"`
+	OrderId         int64  `json:"orderId"` // 添加orderId字段
 	Symbol          string `json:"symbol"`
 	Direction       string `json:"direction"` // UP/DOWN
 	StrikePrice     string `json:"strikePrice"`
@@ -45,6 +46,22 @@ type DCIProductListItem struct {
 	InvestAsset     string `json:"investAsset"`
 	InvestCoin      string `json:"investCoin"`    // 币安返回的字段名
 	ExercisedCoin   string `json:"exercisedCoin"` // 币安返回的字段名
+
+	// 添加更多可能的字段名
+	AnnualizedYield string `json:"annualizedYield"` // 可能的年化收益率字段
+	Yield           string `json:"yield"`           // 可能的收益率字段
+	SettleDate      int64  `json:"settleDate"`      // 可能的结算日期字段
+	ExpiryDate      int64  `json:"expiryDate"`      // 可能的到期日期字段
+	Status          string `json:"status"`          // 可能的状态字段
+
+	// 币安实际返回的字段名
+	APR                  string   `json:"apr"`                  // 年化收益率（币安使用apr而不是apy）
+	CanPurchase          bool     `json:"canPurchase"`          // 是否可购买
+	CreateTimestamp      int64    `json:"createTimestamp"`      // 创建时间戳
+	IsAutoCompoundEnable bool     `json:"isAutoCompoundEnable"` // 是否支持自动复投
+	OptionType           string   `json:"optionType"`           // 期权类型 PUT/CALL
+	PurchaseDecimal      int      `json:"purchaseDecimal"`      // 购买精度
+	AutoCompoundPlanList []string `json:"autoCompoundPlanList"` // 自动复投计划列表
 }
 
 type DCISubscribeResponse struct {
@@ -84,6 +101,7 @@ type BinanceAPIError struct {
 }
 
 // dciRequest 用于处理双币投资API请求的辅助函数
+// dciRequest 用于处理双币投资API请求的辅助函数
 func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]interface{}) ([]byte, error) {
 	baseURL := "https://api.binance.com"
 
@@ -96,6 +114,12 @@ func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]in
 	// 生成签名
 	signature := sign(query, secretKey)
 	query += "&signature=" + signature
+
+	// 调试日志：打印完整的请求信息
+	log.Printf("双币投资API请求详情:")
+	log.Printf("  - Endpoint: %s %s", method, endpoint)
+	log.Printf("  - Parameters: %+v", params)
+	log.Printf("  - Query String: %s", query)
 
 	// 构建完整URL
 	fullURL := baseURL + endpoint
@@ -121,6 +145,12 @@ func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]in
 	// 设置请求头
 	req.Header.Set("X-MBX-APIKEY", apiKey)
 
+	// 调试日志：打印请求URL（POST请求）
+	if method == "POST" {
+		log.Printf("  - Full URL: %s", fullURL)
+		log.Printf("  - Request Body: %s", query)
+	}
+
 	// 发送请求
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -134,6 +164,10 @@ func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]in
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %v", err)
 	}
+
+	// 调试日志：打印响应
+	log.Printf("  - Response Status: %d", resp.StatusCode)
+	//log.Printf("  - Response Body: %s", string(body))
 
 	// 检查HTTP状态码
 	if resp.StatusCode != http.StatusOK {
@@ -197,6 +231,7 @@ func syncDualInvestmentProducts(cfg *config.Config) {
 }
 
 // doSyncProducts 执行产品同步 - 真实API版本
+// doSyncProducts 执行产品同步 - 真实API版本
 func doSyncProducts(cfg *config.Config) {
 	log.Println("开始同步双币投资产品...")
 
@@ -221,13 +256,46 @@ func doSyncProducts(cfg *config.Config) {
 
 	client := binance.NewClient(apiKey, secretKey)
 
-	// 定义要同步的交易对列表
-	symbols := []string{
-		"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT",
-		"XRPUSDT", "DOTUSDT", "DOGEUSDT", "AVAXUSDT", "MATICUSDT",
+	// 重要修改：从数据库获取所有用户已添加的交易对
+	// 从 Symbol 表和 CustomSymbol 表中获取
+	symbolMap := make(map[string]bool)
+
+	// 获取 Symbol 表中的交易对
+	var symbols []models.Symbol
+	if err := cfg.DB.Where("deleted_at IS NULL").Find(&symbols).Error; err != nil {
+		log.Printf("获取交易对列表失败: %v", err)
+		return
 	}
 
-	for _, symbol := range symbols {
+	for _, sym := range symbols {
+		symbolMap[sym.Symbol] = true
+	}
+
+	// 获取 CustomSymbol 表中的交易对
+	var customSymbols []models.CustomSymbol
+	if err := cfg.DB.Where("deleted_at IS NULL").Find(&customSymbols).Error; err != nil {
+		log.Printf("获取自定义交易对列表失败: %v", err)
+	} else {
+		for _, sym := range customSymbols {
+			symbolMap[sym.Symbol] = true
+		}
+	}
+
+	// 转换为数组
+	var uniqueSymbols []string
+	for symbol := range symbolMap {
+		uniqueSymbols = append(uniqueSymbols, symbol)
+	}
+
+	if len(uniqueSymbols) == 0 {
+		log.Printf("没有找到已添加的交易对")
+		return
+	}
+
+	log.Printf("准备同步 %d 个交易对的双币投资产品: %v", len(uniqueSymbols), uniqueSymbols)
+
+	totalSynced := 0
+	for _, symbol := range uniqueSymbols {
 		// 获取当前价格
 		prices, err := client.NewListPricesService().Symbol(symbol).Do(context.Background())
 		if err != nil || len(prices) == 0 {
@@ -244,15 +312,69 @@ func doSyncProducts(cfg *config.Config) {
 		}
 
 		// 保存产品到数据库
+		savedCount := 0
 		for _, p := range products {
 			strikePrice, _ := strconv.ParseFloat(p.StrikePrice, 64)
-			apy, _ := strconv.ParseFloat(p.Apy, 64)
+
+			// 尝试多个可能的APY字段，优先使用APR
+			apy := 0.0
+			if p.APR != "" {
+				apy, _ = strconv.ParseFloat(p.APR, 64)
+			} else if p.Apy != "" {
+				apy, _ = strconv.ParseFloat(p.Apy, 64)
+			} else if p.AnnualizedYield != "" {
+				apy, _ = strconv.ParseFloat(p.AnnualizedYield, 64)
+			} else if p.Yield != "" {
+				apy, _ = strconv.ParseFloat(p.Yield, 64)
+			}
+
 			minAmount, _ := strconv.ParseFloat(p.MinAmount, 64)
 			maxAmount, _ := strconv.ParseFloat(p.MaxAmount, 64)
 
-			// 计算深度级别（基于执行价格与当前价格的偏离度）
+			// 尝试多个可能的日期字段
+			var settlementTime time.Time
+			if p.SettleDate > 0 {
+				settlementTime = time.Unix(p.SettleDate/1000, 0)
+			} else if p.DeliveryDate > 0 {
+				settlementTime = time.Unix(p.DeliveryDate/1000, 0)
+			} else if p.ExpiryDate > 0 {
+				settlementTime = time.Unix(p.ExpiryDate/1000, 0)
+			} else if p.PurchaseEndTime > 0 {
+				settlementTime = time.Unix(p.PurchaseEndTime/1000, 0).AddDate(0, 0, p.Duration)
+			} else {
+				settlementTime = time.Now().AddDate(0, 0, p.Duration)
+			}
+
+			// 处理状态
+			status := "active"
+			if p.CanPurchase {
+				status = "active"
+			} else {
+				status = "sold_out"
+			}
+			if p.ProductStatus != "" {
+				status = mapProductStatus(p.ProductStatus)
+			}
+			if status == "unknown" && p.Status != "" {
+				status = mapProductStatus(p.Status)
+			}
+
+			// 计算深度级别
 			priceOffset := abs((strikePrice - currentPrice) / currentPrice * 100)
-			depthLevel := int(priceOffset/0.5) + 1 // 每0.5%为一个深度级别
+			depthLevel := int(priceOffset/0.5) + 1
+
+			// 构造保存用的ProductID，可能需要包含orderId信息
+			productIdToSave := p.Id
+			if p.OrderId > 0 {
+				// 如果有orderId，可以考虑将其包含在ProductID中，用分隔符
+				productIdToSave = fmt.Sprintf("%s|%d", p.Id, p.OrderId)
+			}
+
+			// 调试日志
+			if symbol == "SOLUSDT" && savedCount < 3 {
+				log.Printf("SOLUSDT产品示例 - ID: %s, OrderID: %d, APY: %.2f%%, StrikePrice: %.2f",
+					p.Id, p.OrderId, apy*100, strikePrice)
+			}
 
 			product := models.DualInvestmentProduct{
 				Symbol:         p.Symbol,
@@ -262,9 +384,9 @@ func doSyncProducts(cfg *config.Config) {
 				Duration:       p.Duration,
 				MinAmount:      minAmount,
 				MaxAmount:      maxAmount,
-				SettlementTime: time.Unix(p.DeliveryDate/1000, 0),
-				ProductID:      p.Id,
-				Status:         mapProductStatus(p.ProductStatus),
+				SettlementTime: settlementTime,
+				ProductID:      productIdToSave, // 保存包含orderId的信息
+				Status:         status,
 				BaseAsset:      p.BaseAsset,
 				QuoteAsset:     p.QuoteAsset,
 				CurrentPrice:   currentPrice,
@@ -276,10 +398,15 @@ func doSyncProducts(cfg *config.Config) {
 				Assign(product).
 				FirstOrCreate(&product).Error; err != nil {
 				log.Printf("保存产品失败: %v", err)
+			} else {
+				savedCount++
 			}
 		}
 
-		log.Printf("同步 %s 产品完成，共 %d 个产品", symbol, len(products))
+		if savedCount > 0 {
+			log.Printf("同步 %s 产品 %d 个", symbol, savedCount)
+		}
+		totalSynced += savedCount
 	}
 
 	// 清理过期产品
@@ -289,143 +416,23 @@ func doSyncProducts(cfg *config.Config) {
 		log.Printf("更新过期产品失败: %v", err)
 	}
 
-	log.Println("双币投资产品同步完成")
+	// 清理不在交易对列表中的产品（可选）
+	if len(uniqueSymbols) > 0 {
+		if err := cfg.DB.Where("symbol NOT IN ? AND deleted_at IS NULL", uniqueSymbols).
+			Delete(&models.DualInvestmentProduct{}).Error; err != nil {
+			log.Printf("清理无效产品失败: %v", err)
+		}
+	}
+
+	log.Printf("双币投资产品同步完成，共同步 %d 个产品", totalSynced)
 }
 
-// getDCIProductList 获取双币投资产品列表
-func getDCIProductList(apiKey, secretKey, symbol string) ([]DCIProductListItem, error) {
-	// 从交易对中解析基础资产和计价资产
-	// 例如 BTCUSDT -> BTC 和 USDT
-	var baseAsset, quoteAsset string
-	if strings.HasSuffix(symbol, "USDT") {
-		baseAsset = strings.TrimSuffix(symbol, "USDT")
-		quoteAsset = "USDT"
-	} else if strings.HasSuffix(symbol, "BUSD") {
-		baseAsset = strings.TrimSuffix(symbol, "BUSD")
-		quoteAsset = "BUSD"
-	} else {
-		// 其他情况，简单处理
-		if len(symbol) >= 6 {
-			baseAsset = symbol[:3]
-			quoteAsset = symbol[3:]
-		} else {
-			return nil, fmt.Errorf("无法解析交易对: %s", symbol)
-		}
+// 辅助函数
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-
-	var allProducts []DCIProductListItem
-
-	// 1. 查询看涨期权产品（CALL）
-	params := map[string]interface{}{
-		"optionType":    "CALL",
-		"investCoin":    baseAsset,
-		"exercisedCoin": quoteAsset,
-		"pageSize":      100,
-		"pageIndex":     1,
-	}
-
-	res, err := dciRequest(apiKey, secretKey, "GET", "/sapi/v1/dci/product/list", params)
-	if err != nil {
-		log.Printf("获取 %s CALL产品失败 (投资币种=%s): %v", symbol, baseAsset, err)
-	} else {
-		var response DCIProductListResponse
-		if err := json.Unmarshal(res, &response); err == nil {
-			log.Printf("获取到 %d 个CALL产品 (投资币种=%s)", len(response.List), baseAsset)
-
-			// 打印前3个产品的详细信息进行调试
-			for i, product := range response.List {
-				if i < 3 {
-					log.Printf("CALL产品[%d]: ID=%s, Symbol='%s', InvestCoin=%s, ExercisedCoin=%s, StrikePrice=%s",
-						i, product.Id, product.Symbol, product.InvestCoin, product.ExercisedCoin, product.StrikePrice)
-				}
-
-				// 设置产品属性
-				response.List[i].Direction = "UP"
-
-				// 如果Symbol为空，根据投资币种和行权币种构建
-				if response.List[i].Symbol == "" {
-					response.List[i].Symbol = baseAsset + quoteAsset
-					log.Printf("为产品 %s 设置Symbol: %s", product.Id, response.List[i].Symbol)
-				}
-
-				// 设置BaseAsset和QuoteAsset
-				response.List[i].BaseAsset = baseAsset
-				response.List[i].QuoteAsset = quoteAsset
-				response.List[i].InvestAsset = product.InvestCoin
-			}
-			allProducts = append(allProducts, response.List...)
-		} else {
-			log.Printf("解析CALL响应失败: %v", err)
-		}
-	}
-
-	// 2. 查询看跌期权产品（PUT）
-	params = map[string]interface{}{
-		"optionType":    "PUT",
-		"investCoin":    quoteAsset,
-		"exercisedCoin": baseAsset,
-		"pageSize":      100,
-		"pageIndex":     1,
-	}
-
-	res, err = dciRequest(apiKey, secretKey, "GET", "/sapi/v1/dci/product/list", params)
-	if err != nil {
-		log.Printf("获取 %s PUT产品失败 (投资币种=%s): %v", symbol, quoteAsset, err)
-	} else {
-		var response DCIProductListResponse
-		if err := json.Unmarshal(res, &response); err == nil {
-			log.Printf("获取到 %d 个PUT产品 (投资币种=%s)", len(response.List), quoteAsset)
-
-			// 打印前3个产品的详细信息进行调试
-			for i, product := range response.List {
-				if i < 3 {
-					log.Printf("PUT产品[%d]: ID=%s, Symbol='%s', InvestCoin=%s, ExercisedCoin=%s, StrikePrice=%s",
-						i, product.Id, product.Symbol, product.InvestCoin, product.ExercisedCoin, product.StrikePrice)
-				}
-
-				// 设置产品属性
-				response.List[i].Direction = "DOWN"
-
-				// 如果Symbol为空，根据投资币种和行权币种构建
-				if response.List[i].Symbol == "" {
-					response.List[i].Symbol = baseAsset + quoteAsset
-					log.Printf("为产品 %s 设置Symbol: %s", product.Id, response.List[i].Symbol)
-				}
-
-				// 设置BaseAsset和QuoteAsset
-				response.List[i].BaseAsset = baseAsset
-				response.List[i].QuoteAsset = quoteAsset
-				response.List[i].InvestAsset = product.InvestCoin
-			}
-			allProducts = append(allProducts, response.List...)
-		} else {
-			log.Printf("解析PUT响应失败: %v", err)
-		}
-	}
-
-	// 统计所有产品的Symbol
-	symbolCount := make(map[string]int)
-	for _, product := range allProducts {
-		symbolCount[product.Symbol]++
-	}
-
-	log.Printf("所有产品的Symbol分布:")
-	for sym, count := range symbolCount {
-		if count > 0 {
-			log.Printf("  '%s': %d 个产品", sym, count)
-		}
-	}
-
-	// 过滤只保留指定交易对的产品
-	var filteredProducts []DCIProductListItem
-	for _, product := range allProducts {
-		if product.Symbol == symbol {
-			filteredProducts = append(filteredProducts, product)
-		}
-	}
-
-	log.Printf("交易对 %s 共获取到 %d 个有效产品 (期望Symbol='%s')", symbol, len(filteredProducts), symbol)
-	return filteredProducts, nil
+	return b
 }
 
 // mapProductStatus 映射产品状态
@@ -448,10 +455,9 @@ func executeDualInvestmentStrategies(cfg *config.Config) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// 查询所有启用的策略，需要检查的策略
+		// 查询所有启用的策略
 		var strategies []models.DualInvestmentStrategy
 		now := time.Now()
-		// 价格触发策略即使状态是completed也要继续监控，除非被禁用
 		if err := cfg.DB.Where("enabled = ? AND (status = ? OR (status = ? AND strategy_type != ?)) AND (next_check_time IS NULL OR next_check_time <= ?)",
 			true, "active", "completed", "price_trigger", now).
 			Find(&strategies).Error; err != nil {
@@ -459,7 +465,9 @@ func executeDualInvestmentStrategies(cfg *config.Config) {
 			continue
 		}
 
-		log.Printf("找到 %d 个需要检查的双币投资策略", len(strategies))
+		if len(strategies) > 0 {
+			log.Printf("检查 %d 个双币投资策略", len(strategies))
+		}
 
 		for _, strategy := range strategies {
 			go executeStrategy(cfg, strategy)
@@ -490,13 +498,11 @@ func executeStrategy(cfg *config.Config, strategy models.DualInvestmentStrategy)
 	}
 
 	if apiKey == "" || secretKey == "" {
-		log.Printf("用户 %d 未设置 API 密钥，跳过策略 %d", user.ID, strategy.ID)
 		return
 	}
 
 	// 检查投资限额
 	if strategy.CurrentInvested >= strategy.TotalInvestmentLimit {
-		log.Printf("策略 %d 已达到投资限额", strategy.ID)
 		return
 	}
 
@@ -530,23 +536,95 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 		return false
 	}
 
-	// 调用双币投资下单API
-	params := map[string]interface{}{
-		"productId":    product.ProductID,
-		"investAmount": fmt.Sprintf("%.8f", investAmount),
-		"autoCompound": "false", // 是否自动复投
+	log.Printf("=== 双币投资下单调试信息 ===")
+	log.Printf("产品信息:")
+	log.Printf("  - ProductID: %s", product.ProductID)
+	log.Printf("  - Symbol: %s", product.Symbol)
+	log.Printf("  - Direction: %s", product.Direction)
+	log.Printf("  - StrikePrice: %.2f", product.StrikePrice)
+	log.Printf("  - InvestAmount: %.8f", investAmount)
+
+	// 首先需要获取产品的orderId
+	// 重新查询产品列表以获取orderId
+	products, err := getDCIProductList(apiKey, secretKey, product.Symbol)
+	if err != nil {
+		log.Printf("获取产品列表失败: %v", err)
+		return false
 	}
+
+	// 查找匹配的产品以获取orderId
+	var targetProduct *DCIProductListItem
+	for _, p := range products {
+		if p.Id == product.ProductID {
+			targetProduct = &p
+			break
+		}
+	}
+
+	if targetProduct == nil {
+		log.Printf("未找到匹配的产品，ProductID: %s", product.ProductID)
+		return false
+	}
+
+	log.Printf("找到产品详情: ID=%s, OrderID=%d", targetProduct.Id, targetProduct.OrderId)
+
+	// 根据官方文档构造参数
+	params := map[string]interface{}{
+		"id":               targetProduct.Id,                         // 产品ID
+		"orderId":          fmt.Sprintf("%d", targetProduct.OrderId), // 订单ID需要转为字符串
+		"depositAmount":    fmt.Sprintf("%.8f", investAmount),        // 申购金额
+		"autoCompoundPlan": "NONE",                                   // 关闭自动复投
+		"recvWindow":       5000,
+	}
+
+	log.Printf("下单参数: %+v", params)
 
 	res, err := dciRequest(apiKey, secretKey, "POST", "/sapi/v1/dci/product/subscribe", params)
 	if err != nil {
 		log.Printf("调用双币投资下单API失败: %v", err)
+
+		// 如果orderId为0，尝试只使用id
+		if targetProduct.OrderId == 0 {
+			log.Printf("OrderID为0，尝试使用产品ID作为OrderID")
+			params["orderId"] = targetProduct.Id
+			res, err = dciRequest(apiKey, secretKey, "POST", "/sapi/v1/dci/product/subscribe", params)
+			if err != nil {
+				log.Printf("重试失败: %v", err)
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+
+	log.Printf("下单成功，解析响应...")
+
+	// 解析响应
+	var subscribeResp map[string]interface{}
+	if err := json.Unmarshal(res, &subscribeResp); err != nil {
+		log.Printf("解析下单响应失败: %v, 原始响应: %s", err, string(res))
 		return false
 	}
 
-	var subscribeResp DCISubscribeResponse
-	if err := json.Unmarshal(res, &subscribeResp); err != nil {
-		log.Printf("解析下单响应失败: %v", err)
+	// 从响应中获取positionId
+	positionIdFloat, ok := subscribeResp["positionId"].(float64)
+	if !ok {
+		log.Printf("响应中未找到positionId")
 		return false
+	}
+	positionId := fmt.Sprintf("%.0f", positionIdFloat)
+
+	// 确定投资资产
+	investAsset := ""
+	if investCoin, ok := subscribeResp["investCoin"].(string); ok {
+		investAsset = investCoin
+	} else {
+		// 如果响应中没有，则根据方向判断
+		if product.Direction == "UP" {
+			investAsset = product.BaseAsset
+		} else {
+			investAsset = product.QuoteAsset
+		}
 	}
 
 	// 创建订单记录
@@ -554,9 +632,9 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 		UserID:         user.ID,
 		StrategyID:     &strategy.ID,
 		ProductID:      product.ID,
-		OrderID:        subscribeResp.PositionId, // 使用币安返回的positionId
+		OrderID:        positionId,
 		Symbol:         product.Symbol,
-		InvestAsset:    product.BaseAsset, // 根据产品确定投资资产
+		InvestAsset:    investAsset,
 		InvestAmount:   investAmount,
 		StrikePrice:    product.StrikePrice,
 		APY:            product.APY,
@@ -589,8 +667,8 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 		return false
 	}
 
-	log.Printf("创建双币投资订单成功: 策略=%d, 产品=%s, 金额=%.2f, 币安订单ID=%s",
-		strategy.ID, product.Symbol, investAmount, subscribeResp.PositionId)
+	log.Printf("双币投资订单创建成功: 用户=%d, 策略=%d, %s %s, 金额=%.2f %s, 年化=%.2f%%, PositionID=%s",
+		user.ID, strategy.ID, product.Symbol, product.Direction, investAmount, investAsset, product.APY, positionId)
 	return true
 }
 
@@ -661,13 +739,103 @@ func checkUserOrders(cfg *config.Config, userID uint, orders []models.DualInvest
 			updateOrderFromPosition(cfg, &order, pos)
 		} else {
 			// 如果在持仓中找不到，可能已经结算或取消
-			// 检查是否超过结算时间
 			if time.Now().After(order.SettlementTime) {
 				order.Status = "settled"
 				cfg.DB.Save(&order)
 			}
 		}
 	}
+}
+
+// getDCIProductList 获取双币投资产品列表
+func getDCIProductList(apiKey, secretKey, symbol string) ([]DCIProductListItem, error) {
+	// 从交易对中解析基础资产和计价资产
+	var baseAsset, quoteAsset string
+	if strings.HasSuffix(symbol, "USDT") {
+		baseAsset = strings.TrimSuffix(symbol, "USDT")
+		quoteAsset = "USDT"
+	} else if strings.HasSuffix(symbol, "BUSD") {
+		baseAsset = strings.TrimSuffix(symbol, "BUSD")
+		quoteAsset = "BUSD"
+	} else {
+		if len(symbol) >= 6 {
+			baseAsset = symbol[:3]
+			quoteAsset = symbol[3:]
+		} else {
+			return nil, fmt.Errorf("无法解析交易对: %s", symbol)
+		}
+	}
+
+	var allProducts []DCIProductListItem
+
+	// 重要修改：修正期权类型和方向的映射关系
+	// PUT期权 = 低买策略（用USDT买入基础资产）
+	params := map[string]interface{}{
+		"optionType":    "PUT",
+		"investCoin":    quoteAsset, // USDT - 投资币种
+		"exercisedCoin": baseAsset,  // SOL - 行权后获得的币种
+		"pageSize":      100,
+		"pageIndex":     1,
+	}
+
+	res, err := dciRequest(apiKey, secretKey, "GET", "/sapi/v1/dci/product/list", params)
+	if err != nil {
+		log.Printf("获取 %s PUT产品失败: %v", symbol, err)
+	} else {
+		var response DCIProductListResponse
+		if err := json.Unmarshal(res, &response); err == nil {
+			for i := range response.List {
+				// PUT期权对应UP方向（低买）
+				response.List[i].Direction = "UP"
+				if response.List[i].Symbol == "" {
+					response.List[i].Symbol = baseAsset + quoteAsset
+				}
+				response.List[i].BaseAsset = baseAsset
+				response.List[i].QuoteAsset = quoteAsset
+				response.List[i].InvestAsset = response.List[i].InvestCoin
+			}
+			allProducts = append(allProducts, response.List...)
+		}
+	}
+
+	// CALL期权 = 高卖策略（用基础资产卖出）
+	params = map[string]interface{}{
+		"optionType":    "CALL",
+		"investCoin":    baseAsset,  // SOL - 投资币种
+		"exercisedCoin": quoteAsset, // USDT - 行权后获得的币种
+		"pageSize":      100,
+		"pageIndex":     1,
+	}
+
+	res, err = dciRequest(apiKey, secretKey, "GET", "/sapi/v1/dci/product/list", params)
+	if err != nil {
+		log.Printf("获取 %s CALL产品失败: %v", symbol, err)
+	} else {
+		var response DCIProductListResponse
+		if err := json.Unmarshal(res, &response); err == nil {
+			for i := range response.List {
+				// CALL期权对应DOWN方向（高卖）
+				response.List[i].Direction = "DOWN"
+				if response.List[i].Symbol == "" {
+					response.List[i].Symbol = baseAsset + quoteAsset
+				}
+				response.List[i].BaseAsset = baseAsset
+				response.List[i].QuoteAsset = quoteAsset
+				response.List[i].InvestAsset = response.List[i].InvestCoin
+			}
+			allProducts = append(allProducts, response.List...)
+		}
+	}
+
+	// 过滤只保留指定交易对的产品
+	var filteredProducts []DCIProductListItem
+	for _, product := range allProducts {
+		if product.Symbol == symbol {
+			filteredProducts = append(filteredProducts, product)
+		}
+	}
+
+	return filteredProducts, nil
 }
 
 // getDCIPositions 获取双币投资持仓
@@ -684,7 +852,7 @@ func getDCIPositions(apiKey, secretKey string) ([]DCIPositionItem, error) {
 
 	var response DCIPositionResponse
 	if err := json.Unmarshal(res, &response); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解析持仓响应失败: %v", err)
 	}
 
 	return response.Rows, nil
@@ -712,14 +880,11 @@ func updateOrderFromPosition(cfg *config.Config, order *models.DualInvestmentOrd
 
 		// 计算盈亏
 		if position.SettleAsset == position.InvestAsset {
-			// 同币种结算，直接计算差额
 			order.PnL = profitAmount
 			order.PnLPercent = (profitAmount / order.InvestAmount) * 100
 		} else {
-			// 不同币种结算，需要根据当前价格计算
-			// 这里简化处理，实际应该获取结算时的价格
 			order.PnL = profitAmount
-			order.PnLPercent = 0 // 需要更复杂的计算
+			order.PnLPercent = 0
 		}
 
 		// 计算实际年化收益率
@@ -732,6 +897,9 @@ func updateOrderFromPosition(cfg *config.Config, order *models.DualInvestmentOrd
 				Where("id = ?", *order.StrategyID).
 				Update("current_invested", gorm.Expr("current_invested - ?", order.InvestAmount))
 		}
+
+		log.Printf("双币投资订单结算: 订单=%s, 结算金额=%.2f %s, 盈亏=%.2f",
+			order.OrderID, settlementAmount, order.SettlementAsset, profitAmount)
 	}
 
 	// 保存更新
@@ -739,10 +907,6 @@ func updateOrderFromPosition(cfg *config.Config, order *models.DualInvestmentOrd
 		log.Printf("更新订单 %s 状态失败: %v", order.OrderID, err)
 	}
 }
-
-// 保留其他函数不变...
-// executeSingleStrategy, executeAutoReinvestStrategy, executeLadderStrategy, executePriceTriggerStrategy
-// findBestProduct, calculateInvestAmount, abs 等函数保持原样
 
 // executeSingleStrategy 执行单次投资策略
 func executeSingleStrategy(cfg *config.Config, strategy models.DualInvestmentStrategy, user models.User, symbol string) {
@@ -786,21 +950,21 @@ func executeAutoReinvestStrategy(cfg *config.Config, strategy models.DualInvestm
 			investAmount = strategy.MaxSingleAmount
 		}
 
-		createDualInvestmentOrder(cfg, user, strategy, product, investAmount)
+		if createDualInvestmentOrder(cfg, user, strategy, product, investAmount) {
+			log.Printf("自动复投成功: 策略=%d, 原订单=%s, 复投金额=%.2f", strategy.ID, order.OrderID, investAmount)
+		}
 	}
 }
 
-// executeLadderStrategy 执行梯度投资策略 - 完全重写版本
+// executeLadderStrategy 执行梯度投资策略
 func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStrategy, user models.User, symbol string) {
 	// 解密API密钥
 	apiKey, err := user.GetDecryptedAPIKey()
 	if err != nil {
-		log.Printf("解密API Key失败: %v", err)
 		return
 	}
 	secretKey, err := user.GetDecryptedSecretKey()
 	if err != nil {
-		log.Printf("解密Secret Key失败: %v", err)
 		return
 	}
 
@@ -812,9 +976,7 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 		return
 	}
 
-	currentPrice, _ := strconv.ParseFloat(prices[0].Price, 64)
-	log.Printf("梯度策略 %d: %s 当前价格 %.2f, 基准价格 %.2f",
-		strategy.ID, symbol, currentPrice, strategy.BasePrice)
+	_, _ = strconv.ParseFloat(prices[0].Price, 64)
 
 	// 解析梯度配置
 	var ladderConfig []models.LadderConfigItem
@@ -824,7 +986,6 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 	}
 
 	if len(ladderConfig) == 0 {
-		log.Printf("梯度策略 %d 没有配置梯度参数", strategy.ID)
 		return
 	}
 
@@ -833,27 +994,22 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 
 	// 基准价格过滤
 	if strategy.DirectionPreference == "UP" {
-		// 看涨：只选择执行价格 <= 基准价格的产品
 		query = query.Where("direction = ? AND strike_price <= ?", "UP", strategy.BasePrice)
 	} else if strategy.DirectionPreference == "DOWN" {
-		// 看跌：只选择执行价格 >= 基准价格的产品
 		query = query.Where("direction = ? AND strike_price >= ?", "DOWN", strategy.BasePrice)
 	} else {
-		// 双向：根据方向选择
 		query = query.Where(
 			"(direction = ? AND strike_price <= ?) OR (direction = ? AND strike_price >= ?)",
 			"UP", strategy.BasePrice, "DOWN", strategy.BasePrice)
 	}
 
-	// APY筛选
+	// APY和期限筛选
 	if strategy.TargetAPYMin > 0 {
 		query = query.Where("apy >= ?", strategy.TargetAPYMin)
 	}
 	if strategy.TargetAPYMax > 0 {
 		query = query.Where("apy <= ?", strategy.TargetAPYMax)
 	}
-
-	// 期限筛选
 	if strategy.MinDuration > 0 {
 		query = query.Where("duration >= ?", strategy.MinDuration)
 	}
@@ -863,12 +1019,10 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 
 	var products []models.DualInvestmentProduct
 	if err := query.Find(&products).Error; err != nil {
-		log.Printf("查询梯度产品失败: %v", err)
 		return
 	}
 
 	if len(products) == 0 {
-		log.Printf("没有找到符合条件的产品")
 		return
 	}
 
@@ -892,7 +1046,6 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 		}
 
 		if targetProduct == nil {
-			log.Printf("没有找到深度 >= %d 的产品", config.MinDepth)
 			continue
 		}
 
@@ -907,7 +1060,6 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 
 		// 确保满足产品最小投资额
 		if investAmount < targetProduct.MinAmount {
-			log.Printf("投资金额 %.2f 小于产品最小额 %.2f，跳过", investAmount, targetProduct.MinAmount)
 			continue
 		}
 
@@ -920,17 +1072,16 @@ func executeLadderStrategy(cfg *config.Config, strategy models.DualInvestmentStr
 		if createDualInvestmentOrder(cfg, user, strategy, targetProduct, investAmount) {
 			totalInvested += investAmount
 			successCount++
-			log.Printf("梯度投资成功: 深度=%d, 执行价=%.2f, 年化=%.2f%%, 金额=%.2f",
-				targetProduct.DepthLevel, targetProduct.StrikePrice, targetProduct.APY, investAmount)
 		}
 	}
 
-	// 更新下次检查时间（10分钟后）
+	// 更新下次检查时间
 	nextCheckTime := time.Now().Add(10 * time.Minute)
 	cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
 
-	log.Printf("梯度策略 %d 执行完成: 成功投资 %d 笔，总金额 %.2f，下次检查时间 %s",
-		strategy.ID, successCount, totalInvested, nextCheckTime.Format("15:04:05"))
+	if successCount > 0 {
+		log.Printf("梯度策略 %d 执行: 成功投资 %d 笔，总金额 %.2f", strategy.ID, successCount, totalInvested)
+	}
 }
 
 // executePriceTriggerStrategy 执行价格触发策略
@@ -938,12 +1089,10 @@ func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestm
 	// 解密API密钥
 	apiKey, err := user.GetDecryptedAPIKey()
 	if err != nil {
-		log.Printf("解密API Key失败: %v", err)
 		return
 	}
 	secretKey, err := user.GetDecryptedSecretKey()
 	if err != nil {
-		log.Printf("解密Secret Key失败: %v", err)
 		return
 	}
 
@@ -951,71 +1100,50 @@ func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestm
 	client := binance.NewClient(apiKey, secretKey)
 	prices, err := client.NewListPricesService().Symbol(symbol).Do(context.Background())
 	if err != nil || len(prices) == 0 {
-		log.Printf("获取 %s 价格失败: %v", symbol, err)
 		return
 	}
 
 	currentPrice, _ := strconv.ParseFloat(prices[0].Price, 64)
-	log.Printf("价格触发策略 %d: %s 当前价格 %.2f, 触发价格 %.2f, 触发类型 %s",
-		strategy.ID, symbol, currentPrice, strategy.TriggerPrice, strategy.TriggerType)
 
 	// 检查是否触发
 	triggered := false
 	if strategy.TriggerType == "above" && currentPrice >= strategy.TriggerPrice {
 		triggered = true
-		log.Printf("价格触发策略 %d 触发: 当前价格 %.2f >= 触发价格 %.2f",
-			strategy.ID, currentPrice, strategy.TriggerPrice)
 	} else if strategy.TriggerType == "below" && currentPrice <= strategy.TriggerPrice {
 		triggered = true
-		log.Printf("价格触发策略 %d 触发: 当前价格 %.2f <= 触发价格 %.2f",
-			strategy.ID, currentPrice, strategy.TriggerPrice)
 	}
 
 	if !triggered {
-		// 更新下次检查时间（1分钟后）
+		// 更新下次检查时间
 		nextCheckTime := time.Now().Add(1 * time.Minute)
 		cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
 		return
 	}
 
-	// 触发后，先查询所有该交易对的产品进行调试
-	log.Printf("=== 开始调试：查询 %s 的所有产品 ===", symbol)
-	var allProducts []models.DualInvestmentProduct
-	if err := cfg.DB.Where("symbol = ?", symbol).Find(&allProducts).Error; err != nil {
-		log.Printf("查询所有产品失败: %v", err)
-	} else {
-		log.Printf("找到 %s 的产品总数: %d", symbol, len(allProducts))
-		for i, p := range allProducts {
-			log.Printf("产品[%d]: ID=%d, 方向=%s, 执行价=%.2f, 年化=%.2f%%, 期限=%d天, 状态=%s, 最小额=%.2f, 最大额=%.2f",
-				i+1, p.ID, p.Direction, p.StrikePrice, p.APY, p.Duration, p.Status, p.MinAmount, p.MaxAmount)
-		}
-	}
+	log.Printf("价格触发策略 %d 触发: %s 当前价格 %.2f, 触发条件 %s %.2f",
+		strategy.ID, symbol, currentPrice, strategy.TriggerType, strategy.TriggerPrice)
 
-	// 打印策略的筛选条件
-	log.Printf("=== 策略 %d 的筛选条件 ===", strategy.ID)
-	log.Printf("方向偏好: %s", strategy.DirectionPreference)
-	log.Printf("目标年化: %.2f%% - %.2f%%", strategy.TargetAPYMin, strategy.TargetAPYMax)
-	log.Printf("期限范围: %d - %d 天", strategy.MinDuration, strategy.MaxDuration)
-	log.Printf("最大执行价格偏离度: %.2f%%", strategy.MaxStrikePriceOffset)
-	log.Printf("单笔最大金额: %.2f", strategy.MaxSingleAmount)
-	log.Printf("=== 筛选条件结束 ===")
+	// 重要修改：添加额外的日志说明策略意图
+	log.Printf("策略意图: 方向=%s, 基准价格=%.2f, 目标年化=%v%%-%v%%",
+		strategy.DirectionPreference, strategy.BasePrice, strategy.TargetAPYMin, strategy.TargetAPYMax)
 
 	// 查找最佳产品
 	product := findBestProduct(cfg, strategy, symbol)
 	if product == nil {
-		log.Printf("价格触发策略 %d 触发但没有找到合适的产品", strategy.ID)
-		// 继续监控，5分钟后再次检查
+		log.Printf("未找到符合条件的产品：方向=%s, 基准价格=%.2f",
+			strategy.DirectionPreference, strategy.BasePrice)
+		// 继续监控
 		nextCheckTime := time.Now().Add(5 * time.Minute)
 		cfg.DB.Model(&strategy).Update("next_check_time", nextCheckTime)
 		return
 	}
 
-	log.Printf("找到合适的产品: ID=%d, 方向=%s, 执行价=%.2f, 年化=%.2f%%",
-		product.ID, product.Direction, product.StrikePrice, product.APY)
+	// 添加产品信息日志
+	log.Printf("找到产品: 方向=%s, 执行价格=%.2f, 年化=%.2f%%, 投资资产=%s",
+		product.Direction, product.StrikePrice, product.APY, product.BaseAsset)
 
 	investAmount := calculateInvestAmount(strategy, product)
 	if investAmount <= 0 {
-		log.Printf("价格触发策略 %d 触发但投资金额计算为0", strategy.ID)
 		return
 	}
 
@@ -1034,55 +1162,44 @@ func executePriceTriggerStrategy(cfg *config.Config, strategy models.DualInvestm
 	}
 }
 
-// findBestProduct 查找最佳产品 - 修复SQL注入
+// findBestProduct 查找最佳产品
 func findBestProduct(cfg *config.Config, strategy models.DualInvestmentStrategy, symbol string) *models.DualInvestmentProduct {
-	log.Printf("=== findBestProduct 开始查找产品 ===")
-
 	query := cfg.DB.Model(&models.DualInvestmentProduct{}).
 		Where("symbol = ? AND status = ?", symbol, "active")
-
-	// 先统计初始产品数量
-	var initialCount int64
-	query.Count(&initialCount)
-	log.Printf("步骤1: 交易对=%s, 状态=active 的产品数量: %d", symbol, initialCount)
 
 	// 方向筛选
 	if strategy.DirectionPreference != "BOTH" {
 		query = query.Where("direction = ?", strategy.DirectionPreference)
-		var directionCount int64
-		query.Count(&directionCount)
-		log.Printf("步骤2: 方向筛选(%s)后的产品数量: %d", strategy.DirectionPreference, directionCount)
 	}
 
 	// APY筛选
 	if strategy.TargetAPYMin > 0 {
 		query = query.Where("apy >= ?", strategy.TargetAPYMin)
-		var apyMinCount int64
-		query.Count(&apyMinCount)
-		log.Printf("步骤3: 最小年化(>= %.2f%%)筛选后的产品数量: %d", strategy.TargetAPYMin, apyMinCount)
 	}
 	if strategy.TargetAPYMax > 0 {
 		query = query.Where("apy <= ?", strategy.TargetAPYMax)
-		var apyMaxCount int64
-		query.Count(&apyMaxCount)
-		log.Printf("步骤4: 最大年化(<= %.2f%%)筛选后的产品数量: %d", strategy.TargetAPYMax, apyMaxCount)
 	}
 
 	// 期限筛选
 	if strategy.MinDuration > 0 {
 		query = query.Where("duration >= ?", strategy.MinDuration)
-		var minDurCount int64
-		query.Count(&minDurCount)
-		log.Printf("步骤5: 最小期限(>= %d天)筛选后的产品数量: %d", strategy.MinDuration, minDurCount)
 	}
 	if strategy.MaxDuration > 0 {
 		query = query.Where("duration <= ?", strategy.MaxDuration)
-		var maxDurCount int64
-		query.Count(&maxDurCount)
-		log.Printf("步骤6: 最大期限(<= %d天)筛选后的产品数量: %d", strategy.MaxDuration, maxDurCount)
 	}
 
-	// 执行价格偏离度筛选 - 修复SQL注入
+	// 重要修改：基准价格筛选逻辑
+	if strategy.BasePrice > 0 {
+		// UP方向（低买）：选择执行价格低于基准价格的产品
+		// DOWN方向（高卖）：选择执行价格高于基准价格的产品
+		if strategy.DirectionPreference == "UP" {
+			query = query.Where("strike_price < ?", strategy.BasePrice)
+		} else if strategy.DirectionPreference == "DOWN" {
+			query = query.Where("strike_price > ?", strategy.BasePrice)
+		}
+	}
+
+	// 执行价格偏离度筛选
 	if strategy.MaxStrikePriceOffset > 0 {
 		// 先获取产品，然后在应用层过滤
 		var products []models.DualInvestmentProduct
@@ -1091,36 +1208,31 @@ func findBestProduct(cfg *config.Config, strategy models.DualInvestmentStrategy,
 			return nil
 		}
 
-		log.Printf("步骤7: 获取到 %d 个产品，开始进行价格偏离度筛选", len(products))
-
 		// 在应用层进行价格偏离度过滤
 		var filteredProducts []models.DualInvestmentProduct
 		for _, product := range products {
 			if product.CurrentPrice > 0 {
 				offset := abs((product.StrikePrice - product.CurrentPrice) / product.CurrentPrice * 100)
-				log.Printf("  产品ID=%d: 当前价=%.2f, 执行价=%.2f, 偏离度=%.2f%% (最大允许=%.2f%%)",
-					product.ID, product.CurrentPrice, product.StrikePrice, offset, strategy.MaxStrikePriceOffset)
 				if offset <= strategy.MaxStrikePriceOffset {
 					filteredProducts = append(filteredProducts, product)
 				}
-			} else {
-				log.Printf("  产品ID=%d: 当前价格为0，跳过", product.ID)
 			}
 		}
-
-		log.Printf("步骤8: 价格偏离度筛选后的产品数量: %d", len(filteredProducts))
 
 		// 按APY排序选择最佳
 		if len(filteredProducts) > 0 {
 			sort.Slice(filteredProducts, func(i, j int) bool {
 				return filteredProducts[i].APY > filteredProducts[j].APY
 			})
-			selectedProduct := &filteredProducts[0]
-			log.Printf("=== 选中产品: ID=%d, 年化=%.2f%%, 执行价=%.2f ===",
-				selectedProduct.ID, selectedProduct.APY, selectedProduct.StrikePrice)
-			return selectedProduct
+
+			// 添加日志
+			log.Printf("找到 %d 个符合条件的产品，选择APY最高的: %.2f%%",
+				len(filteredProducts), filteredProducts[0].APY)
+
+			return &filteredProducts[0]
 		}
-		log.Printf("=== 没有找到符合条件的产品 ===")
+
+		log.Printf("没有找到符合价格偏离度要求的产品")
 		return nil
 	}
 
@@ -1131,8 +1243,6 @@ func findBestProduct(cfg *config.Config, strategy models.DualInvestmentStrategy,
 		return nil
 	}
 
-	log.Printf("=== 选中产品: ID=%d, 年化=%.2f%%, 执行价=%.2f ===",
-		product.ID, product.APY, product.StrikePrice)
 	return &product
 }
 
@@ -1163,8 +1273,51 @@ func calculateInvestAmount(strategy models.DualInvestmentStrategy, product *mode
 		amount = product.MaxAmount
 	}
 	if amount < product.MinAmount {
-		return 0 // 低于最小限额
+		return 0
 	}
 
 	return amount
+}
+
+// cleanupOrphanedProducts 清理孤立的双币投资产品（可选功能）
+// cleanupOrphanedProducts 清理孤立的双币投资产品（可选功能）
+func cleanupOrphanedProducts(cfg *config.Config) {
+	// 获取所有已添加的交易对
+	symbolMap := make(map[string]bool)
+
+	// 从 Symbol 表获取
+	var symbols []models.Symbol
+	if err := cfg.DB.Where("deleted_at IS NULL").Find(&symbols).Error; err == nil {
+		for _, sym := range symbols {
+			symbolMap[sym.Symbol] = true
+		}
+	}
+
+	// 从 CustomSymbol 表获取
+	var customSymbols []models.CustomSymbol
+	if err := cfg.DB.Where("deleted_at IS NULL").Find(&customSymbols).Error; err == nil {
+		for _, sym := range customSymbols {
+			symbolMap[sym.Symbol] = true
+		}
+	}
+
+	// 转换为数组
+	var validSymbols []string
+	for symbol := range symbolMap {
+		validSymbols = append(validSymbols, symbol)
+	}
+
+	if len(validSymbols) == 0 {
+		return
+	}
+
+	// 软删除不在交易对列表中的产品
+	result := cfg.DB.Where("symbol NOT IN ? AND deleted_at IS NULL", validSymbols).
+		Delete(&models.DualInvestmentProduct{})
+
+	if result.Error != nil {
+		log.Printf("清理孤立产品失败: %v", result.Error)
+	} else if result.RowsAffected > 0 {
+		log.Printf("清理了 %d 个孤立的双币投资产品", result.RowsAffected)
+	}
 }
