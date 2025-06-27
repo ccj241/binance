@@ -554,15 +554,20 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 
 	// 查找匹配的产品以获取orderId
 	var targetProduct *DCIProductListItem
+
+	// 处理可能包含 orderId 的 ProductID
+	productIDParts := strings.Split(product.ProductID, "|")
+	searchProductID := productIDParts[0] // 获取纯产品ID部分
+
 	for _, p := range products {
-		if p.Id == product.ProductID {
+		if p.Id == searchProductID {
 			targetProduct = &p
 			break
 		}
 	}
 
 	if targetProduct == nil {
-		log.Printf("未找到匹配的产品，ProductID: %s", product.ProductID)
+		log.Printf("未找到匹配的产品，ProductID: %s, 搜索ID: %s", product.ProductID, searchProductID)
 		return false
 	}
 

@@ -92,7 +92,7 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		// 交易对和价格
 		protected.GET("/symbols", handlers.GinListSymbolsHandler(cfg))
 		protected.POST("/symbols", handlers.GinAddSymbolHandler(cfg))
-		protected.DELETE("/symbols", handlers.GinDeleteSymbolHandler(cfg)) // 删除交易对
+		protected.POST("/symbols/delete", handlers.GinDeleteSymbolHandler(cfg)) // 修改为POST请求，路径改为 /symbols/delete
 		protected.GET("/prices", handlers.GinPricesHandler(cfg))
 
 		// 账户信息
