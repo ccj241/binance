@@ -16,7 +16,7 @@ type Config struct {
 func NewConfig() *Config {
 	dsn := os.Getenv("DATABASE_DSN")
 	if dsn == "" {
-		dsn = "root:123456@tcp(127.0.0.1:3306)/binance?charset=utf8mb4&parseTime=True&loc=Local"
+		dsn = "root:123456@tcp(mysql:3306)/binance?charset=utf8mb4&parseTime=True&loc=Local"
 		log.Println("未设置 DATABASE_DSN，使用默认值")
 	}
 

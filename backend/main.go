@@ -34,6 +34,6 @@ func main() {
 
 	// 启动服务器
 	log.Printf("服务器启动在端口 8081")
-	log.Fatal(router.Run(":8081")) //23337
+	log.Fatal(router.Run(":23337")) //23337
 
 }

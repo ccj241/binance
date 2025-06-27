@@ -730,8 +730,10 @@ export default {
 
       this.isDeletingSymbol = true;
       try {
-        const response = await axios.delete('/symbols', {
-          data: { symbol: this.symbolToDelete },
+        // 修改：使用 POST 方法而不是 DELETE
+        const response = await axios.post('/symbols/delete', {
+          symbol: this.symbolToDelete
+        }, {
           headers: this.getAuthHeaders()
         });
 
