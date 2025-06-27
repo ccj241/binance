@@ -120,7 +120,36 @@ func main() {
 			log.Fatalf("创建管理员用户失败: %v", err)
 		}
 
+		// 重要修改：确保角色确实被设置为 admin
+		// 由于 GORM 可能有默认值或钩子函数，我们需要再次查询并更新
+		var createdUser models.User
+		if err := cfg.DB.Where("username = ?", adminUsername).First(&createdUser).Error; err != nil {
+			log.Fatalf("查询新创建的用户失败: %v", err)
+		}
+
+		// 如果角色不是 admin，强制更新为 admin
+		if createdUser.Role != "admin" {
+			log.Printf("检测到角色不是 admin (%s)，正在修正...", createdUser.Role)
+			if err := cfg.DB.Model(&createdUser).Updates(map[string]interface{}{
+				"role":   "admin",
+				"status": "active",
+			}).Error; err != nil {
+				log.Fatalf("更新用户角色失败: %v", err)
+			}
+		}
+
+		// 再次验证角色是否正确设置
+		var finalUser models.User
+		if err := cfg.DB.Where("username = ?", adminUsername).First(&finalUser).Error; err != nil {
+			log.Fatalf("最终验证用户失败: %v", err)
+		}
+
+		if finalUser.Role != "admin" {
+			log.Fatalf("错误：无法将用户角色设置为 admin，当前角色为: %s", finalUser.Role)
+		}
+
 		fmt.Printf("\n✅ 管理员账号创建成功！\n")
+		fmt.Printf("验证信息 - 用户ID: %d, 角色: %s, 状态: %s\n", finalUser.ID, finalUser.Role, finalUser.Status)
 	}
 
 	fmt.Printf("\n管理员用户名: %s\n", adminUsername)
