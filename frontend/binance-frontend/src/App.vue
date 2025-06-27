@@ -68,7 +68,7 @@ export default {
 
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        return payload.role === 'admin';
+        return payload.is_admin === 'admin';
       } catch (e) {
         return false;
       }
