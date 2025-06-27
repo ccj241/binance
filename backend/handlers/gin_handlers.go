@@ -299,57 +299,80 @@ func GinOrdersHandler(cfg *config.Config) gin.HandlerFunc {
 
 		// 如果用户设置了API密钥，同步开放订单
 		if user.APIKey != "" && user.SecretKey != "" {
-			client := binance.NewClient(user.APIKey, user.SecretKey)
-
-			// 获取所有开放订单
-			openOrders, err := client.NewListOpenOrdersService().Do(context.Background())
+			// 解密API密钥
+			apiKey, err := user.GetDecryptedAPIKey()
 			if err != nil {
-				log.Printf("获取开放订单失败: %v", err)
+				log.Printf("解密用户 %d API Key失败: %v", user.ID, err)
+				// 继续返回数据库中的订单
+			} else if apiKey == "" {
+				log.Printf("用户 %d 解密后的API Key为空", user.ID)
+			} else if len(apiKey) != 64 {
+				log.Printf("用户 %d API Key格式错误，长度=%d，期望=64", user.ID, len(apiKey))
 			} else {
-				// 创建开放订单映射
-				openOrderMap := make(map[int64]bool)
-				for _, order := range openOrders {
-					openOrderMap[order.OrderID] = true
+				// API Key格式正确，继续解密Secret Key
+				secretKey, err := user.GetDecryptedSecretKey()
+				if err != nil {
+					log.Printf("解密用户 %d Secret Key失败: %v", user.ID, err)
+				} else if secretKey == "" {
+					log.Printf("用户 %d 解密后的Secret Key为空", user.ID)
+				} else if len(secretKey) != 64 {
+					log.Printf("用户 %d Secret Key格式错误，长度=%d，期望=64", user.ID, len(secretKey))
+				} else {
+					// 两个密钥都正确，尝试获取开放订单
+					client := binance.NewClient(apiKey, secretKey)
 
-					// 检查订单是否已在数据库中
-					var dbOrder models.Order
-					result := cfg.DB.Where("order_id = ? AND user_id = ?", order.OrderID, user.ID).First(&dbOrder)
-
-					price, _ := strconv.ParseFloat(order.Price, 64)
-					quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
-
-					if result.Error != nil {
-						// 订单不存在，创建新订单
-						newOrder := models.Order{
-							UserID:      user.ID,
-							Symbol:      order.Symbol,
-							Side:        string(order.Side),
-							Price:       price,
-							Quantity:    quantity,
-							OrderID:     order.OrderID,
-							Status:      "pending",
-							CancelAfter: time.Now().Add(2 * time.Hour),
-						}
-						cfg.DB.Create(&newOrder)
+					// 获取所有开放订单
+					openOrders, err := client.NewListOpenOrdersService().Do(context.Background())
+					if err != nil {
+						log.Printf("获取开放订单失败: %v", err)
+						// 即使API调用失败，也继续返回数据库中的订单
 					} else {
-						// 更新现有订单状态
-						if dbOrder.Status != "pending" {
-							cfg.DB.Model(&dbOrder).Update("status", "pending")
+						// 创建开放订单映射
+						openOrderMap := make(map[int64]bool)
+						for _, order := range openOrders {
+							openOrderMap[order.OrderID] = true
+
+							// 检查订单是否已在数据库中
+							var dbOrder models.Order
+							result := cfg.DB.Where("order_id = ? AND user_id = ?", order.OrderID, user.ID).First(&dbOrder)
+
+							price, _ := strconv.ParseFloat(order.Price, 64)
+							quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+
+							if result.Error != nil {
+								// 订单不存在，创建新订单
+								newOrder := models.Order{
+									UserID:      user.ID,
+									Symbol:      order.Symbol,
+									Side:        string(order.Side),
+									Price:       price,
+									Quantity:    quantity,
+									OrderID:     order.OrderID,
+									Status:      "pending",
+									CancelAfter: time.Now().Add(2 * time.Hour),
+								}
+								cfg.DB.Create(&newOrder)
+							} else {
+								// 更新现有订单状态
+								if dbOrder.Status != "pending" {
+									cfg.DB.Model(&dbOrder).Update("status", "pending")
+								}
+							}
+						}
+
+						// 更新数据库中的订单状态
+						for i := range dbOrders {
+							if dbOrders[i].Status == "pending" && !openOrderMap[dbOrders[i].OrderID] {
+								// 订单不在开放订单列表中，可能已完成或取消
+								// 这里暂时不更新状态，让后台任务处理
+							}
 						}
 					}
-				}
 
-				// 更新数据库中的订单状态
-				for i := range dbOrders {
-					if dbOrders[i].Status == "pending" && !openOrderMap[dbOrders[i].OrderID] {
-						// 订单不在开放订单列表中，可能已完成或取消
-						// 这里暂时不更新状态，让后台任务处理
-					}
+					// 重新查询数据库
+					cfg.DB.Where("user_id = ?", user.ID).Order("created_at desc").Find(&dbOrders)
 				}
 			}
-
-			// 重新查询数据库
-			cfg.DB.Where("user_id = ?", user.ID).Order("created_at desc").Find(&dbOrders)
 		}
 
 		// 格式化订单数据

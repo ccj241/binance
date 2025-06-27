@@ -1230,9 +1230,9 @@ func findBestProduct(cfg *config.Config, strategy models.DualInvestmentStrategy,
 		// UP方向（低买）：选择执行价格低于基准价格的产品
 		// DOWN方向（高卖）：选择执行价格高于基准价格的产品
 		if strategy.DirectionPreference == "UP" {
-			query = query.Where("strike_price < ?", strategy.BasePrice)
+			query = query.Where("strike_price <= ?", strategy.BasePrice)
 		} else if strategy.DirectionPreference == "DOWN" {
-			query = query.Where("strike_price > ?", strategy.BasePrice)
+			query = query.Where("strike_price >= ?", strategy.BasePrice)
 		}
 	}
 
