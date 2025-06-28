@@ -435,26 +435,55 @@ export default {
         return;
       }
 
+      // 验证API密钥格式（币安API密钥通常是64个字符）
+      if (this.newAPIKey.length !== 64) {
+        this.showToast('API Key 长度应为 64 个字符', 'error');
+        return;
+      }
+
+      if (this.newSecretKey.length !== 64) {
+        this.showToast('Secret Key 长度应为 64 个字符', 'error');
+        return;
+      }
+
       try {
+        console.log('保存API密钥请求:', {
+          apiKeyLength: this.newAPIKey.length,
+          secretKeyLength: this.newSecretKey.length
+        });
+
         const response = await axios.post(
             '/api-key',
             {
               apiKey: this.newAPIKey,
-              apiSecret: this.newSecretKey,  // 修改这里：从 apiSecret 改为 secretKey
+              apiSecret: this.newSecretKey,
             },
             {
               headers: this.getAuthHeaders(),
             }
         );
 
+        console.log('保存API密钥响应:', response.data);
+
         this.showToast(response.data.message || 'API 密钥保存成功');
         this.resetApiForm();
-        await this.fetchAPIKey();
+
+        // 等待一下再获取，确保数据库操作完成
+        setTimeout(async () => {
+          await this.fetchAPIKey();
+
+          // 验证是否真的保存成功
+          if (!this.apiKey || !this.secretKey) {
+            this.showToast('API密钥保存可能失败，请检查', 'error');
+          }
+        }, 500);
+
       } catch (err) {
         console.error('saveAPIKey error:', err);
-        this.showToast(err.response?.data?.error || '保存 API 密钥失败', 'error');
+        const errorMsg = err.response?.data?.details || err.response?.data?.error || '保存 API 密钥失败';
+        this.showToast(errorMsg, 'error');
       }
-    },
+    }
 
     async deleteAPIKey() {
       if (!window.confirm('确定要删除 API 密钥吗？删除后将无法进行交易操作。')) {

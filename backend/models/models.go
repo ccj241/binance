@@ -22,24 +22,49 @@ type User struct {
 }
 
 // BeforeSave 保存前加密API密钥
+// BeforeSave 保存前加密API密钥
 func (u *User) BeforeSave(tx *gorm.DB) error {
-	// 如果APIKey不为空且看起来不是加密的（base64编码通常更长）
-	if u.APIKey != "" && len(u.APIKey) < 100 {
-		encrypted, err := utils.Encrypt(u.APIKey)
+	log.Printf("BeforeSave触发 - 用户 %d: APIKey长度=%d, SecretKey长度=%d",
+		u.ID, len(u.APIKey), len(u.SecretKey))
+
+	// 如果APIKey不为空且看起来不是加密的
+	if u.APIKey != "" {
+		// 尝试解密来判断是否已加密
+		_, err := utils.Decrypt(u.APIKey)
 		if err != nil {
-			return err
+			// 解密失败，说明还未加密，需要加密
+			encrypted, err := utils.Encrypt(u.APIKey)
+			if err != nil {
+				log.Printf("加密APIKey失败: %v", err)
+				return err
+			}
+			log.Printf("APIKey加密成功，原长度=%d, 加密后长度=%d", len(u.APIKey), len(encrypted))
+			u.APIKey = encrypted
+		} else {
+			log.Printf("APIKey已经是加密状态，跳过加密")
 		}
-		u.APIKey = encrypted
 	}
 
 	// 如果SecretKey不为空且看起来不是加密的
-	if u.SecretKey != "" && len(u.SecretKey) < 100 {
-		encrypted, err := utils.Encrypt(u.SecretKey)
+	if u.SecretKey != "" {
+		// 尝试解密来判断是否已加密
+		_, err := utils.Decrypt(u.SecretKey)
 		if err != nil {
-			return err
+			// 解密失败，说明还未加密，需要加密
+			encrypted, err := utils.Encrypt(u.SecretKey)
+			if err != nil {
+				log.Printf("加密SecretKey失败: %v", err)
+				return err
+			}
+			log.Printf("SecretKey加密成功，原长度=%d, 加密后长度=%d", len(u.SecretKey), len(encrypted))
+			u.SecretKey = encrypted
+		} else {
+			log.Printf("SecretKey已经是加密状态，跳过加密")
 		}
-		u.SecretKey = encrypted
 	}
+
+	log.Printf("BeforeSave完成 - 用户 %d: 最终APIKey长度=%d, SecretKey长度=%d",
+		u.ID, len(u.APIKey), len(u.SecretKey))
 
 	return nil
 }

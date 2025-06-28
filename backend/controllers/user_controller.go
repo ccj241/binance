@@ -58,17 +58,40 @@ func (ctrl *UserController) SetAPIKey(c *gin.Context) {
 		return
 	}
 
-	log.Printf("为用户 %d 保存 API 密钥: APIKey=%s", userID, maskAPIKey(input.APIKey))
+	log.Printf("为用户 %d 保存 API 密钥: APIKey长度=%d, SecretKey长度=%d",
+		userID, len(input.APIKey), len(input.APISecret))
 
 	// 直接赋值，BeforeSave钩子会自动加密
 	user.APIKey = input.APIKey
 	user.SecretKey = input.APISecret
 
+	// 保存前打印原始值长度
+	log.Printf("保存前 - 用户 %d: APIKey=%s..., SecretKey=%s...",
+		userID, maskAPIKey(input.APIKey), maskAPIKey(input.APISecret))
+
 	if err := ctrl.Config.DB.Save(&user).Error; err != nil {
 		log.Printf("保存 API 密钥失败，用户 %d: %v", userID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 API 密钥失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 API 密钥失败", "details": err.Error()})
 		return
 	}
+
+	// 重新查询验证是否保存成功
+	var savedUser models.User
+	if err := ctrl.Config.DB.First(&savedUser, userID).Error; err != nil {
+		log.Printf("重新查询用户失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "验证保存失败"})
+		return
+	}
+
+	// 验证是否真的保存了
+	if savedUser.APIKey == "" || savedUser.SecretKey == "" {
+		log.Printf("警告：用户 %d 的API密钥保存后为空", userID)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "API密钥保存异常"})
+		return
+	}
+
+	log.Printf("API密钥保存成功 - 用户 %d: 加密后APIKey长度=%d, SecretKey长度=%d",
+		userID, len(savedUser.APIKey), len(savedUser.SecretKey))
 
 	c.JSON(http.StatusOK, gin.H{"message": "API 密钥更新成功"})
 }
