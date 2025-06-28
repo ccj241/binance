@@ -12,9 +12,25 @@ import (
 
 // SetupRoutes 配置路由
 func SetupRoutes(router *gin.Engine, cfg *config.Config) {
+	// 先添加一个处理所有 OPTIONS 请求的中间件
+	router.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
+	/*
+func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 配置CORS中间件
 	corsConfig := cors.Config{
-		AllowOrigins:     []string{"http://http://47.82.108.203:23338", "*"},
+		AllowOrigins:     []string{"http://47.82.108.203:23338", "*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -138,3 +154,4 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		})
 	})
 }
+*/

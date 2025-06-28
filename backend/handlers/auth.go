@@ -118,16 +118,6 @@ func RegisterHandler(cfg *config.Config) http.HandlerFunc {
 // LoginHandler 用户登录处理器
 func LoginHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 设置CORS头
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
 		if r.Method != http.MethodPost {
 			writeErrorResponse(w, http.StatusMethodNotAllowed, "方法不允许")
 			return
