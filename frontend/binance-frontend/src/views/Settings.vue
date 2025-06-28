@@ -483,7 +483,7 @@ export default {
         const errorMsg = err.response?.data?.details || err.response?.data?.error || '保存 API 密钥失败';
         this.showToast(errorMsg, 'error');
       }
-    }
+    },  // 注意这里需要逗号
 
     async deleteAPIKey() {
       if (!window.confirm('确定要删除 API 密钥吗？删除后将无法进行交易操作。')) {
