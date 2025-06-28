@@ -131,7 +131,7 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 404 处理
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{
-			"error":   "NOT_FOUND",
+			"error":   "NOT_FOUNDdddddd",
 			"message": "请求的资源不存在",
 			"path":    c.Request.URL.Path,
 		})
