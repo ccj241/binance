@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// SetupRoutes 配置路由
+// SetupRoutes 配置路由////
 func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 完全开放的 CORS 设置
 	router.Use(func(c *gin.Context) {
