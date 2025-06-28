@@ -5,6 +5,7 @@ import (
 	"github.com/adshao/go-binance/v2"
 	"github.com/ccj241/binance/utils"
 	"gorm.io/gorm"
+	"log"
 	"time"
 )
 

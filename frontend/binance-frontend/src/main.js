@@ -4,8 +4,8 @@ import App from './App.vue';
 import router from './router';
 import axios from 'axios';
 // 设置axios默认配置
-//axios.defaults.baseURL = 'http://localhost:8081';
-axios.defaults.baseURL = '';
+
+axios.defaults.baseURL = 'http://47.82.108.203:23337';
 axios.defaults.timeout = 10000;
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 // 添加请求拦截器

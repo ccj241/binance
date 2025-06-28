@@ -122,7 +122,6 @@ const router = createRouter({
 });
 
 // 导航守卫
-// 导航守卫
 router.beforeEach((to, from, next) => {
     // 设置页面标题
     document.title = to.meta.title ? `${to.meta.title} - 交易系统` : '交易系统';
