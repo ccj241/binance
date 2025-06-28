@@ -5,7 +5,7 @@
       <div class="login-header">
         <div class="logo">
           <span class="logo-icon">📈</span>
-          <h1 class="logo-text">交易系统</h1>
+          <h1 class="logo-text">xx交易系统xx</h1>
         </div>
         <p class="welcome-text">欢迎回来，请登录您的账户</p>
       </div>
