@@ -2,10 +2,13 @@ package routes
 
 import (
 	"github.com/ccj241/binance/config"
+	"github.com/ccj241/binance/controllers"
+	"github.com/ccj241/binance/handlers"
+	"github.com/ccj241/binance/middleware"
 	"github.com/gin-gonic/gin"
+	"time"
 )
 
-// SetupRoutes 配置路由
 // SetupRoutes 配置路由
 func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 完全开放的 CORS 设置
@@ -21,20 +24,6 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 
 		c.Next()
 	})
-}
-
-/*
-func SetupRoutes(router *gin.Engine, cfg *config.Config) {
-	// 配置CORS中间件
-	corsConfig := cors.Config{
-		AllowOrigins:     []string{"http://47.82.108.203:23338", "*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}
-	router.Use(cors.New(corsConfig))
 
 	// 添加请求日志中间件
 	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{
@@ -63,7 +52,6 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 受保护路由，需要认证
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware(cfg))
-	// 注意：只对特定路由使用验证中间件，不要全局使用
 	{
 		// API密钥管理 - 使用验证中间件
 		apiGroup := protected.Group("/api-key")
@@ -86,7 +74,7 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		}
 
 		protected.POST("/cancel_order/:orderId", handlers.GinCancelOrderHandler(cfg))
-		protected.POST("/batch_cancel_orders", handlers.GinBatchCancelOrdersHandler(cfg)) // 批量取消订单
+		protected.POST("/batch_cancel_orders", handlers.GinBatchCancelOrdersHandler(cfg))
 
 		// 策略管理 - 使用验证中间件
 		strategyGroup := protected.Group("/strategy")
@@ -98,13 +86,13 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		protected.POST("/toggle_strategy", handlers.GinToggleStrategyHandler(cfg))
 		protected.POST("/delete_strategy", handlers.GinDeleteStrategyHandler(cfg))
 		protected.DELETE("/delete_strategy", handlers.GinDeleteStrategyHandler(cfg))
-		protected.GET("/strategy/:id/stats", handlers.GinStrategyStatsHandler(cfg))   // 策略统计
-		protected.GET("/strategy/:id/orders", handlers.GinStrategyOrdersHandler(cfg)) // 策略订单
+		protected.GET("/strategy/:id/stats", handlers.GinStrategyStatsHandler(cfg))
+		protected.GET("/strategy/:id/orders", handlers.GinStrategyOrdersHandler(cfg))
 
 		// 交易对和价格
 		protected.GET("/symbols", handlers.GinListSymbolsHandler(cfg))
 		protected.POST("/symbols", handlers.GinAddSymbolHandler(cfg))
-		protected.POST("/symbols/delete", handlers.GinDeleteSymbolHandler(cfg)) // 修改为POST请求，路径改为 /symbols/delete
+		protected.POST("/symbols/delete", handlers.GinDeleteSymbolHandler(cfg))
 		protected.GET("/prices", handlers.GinPricesHandler(cfg))
 
 		// 账户信息
@@ -114,17 +102,15 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		// 提币历史
 		protected.GET("/withdrawalhistory", handlers.GinWithdrawalHistoryHandler(cfg))
 
-		// 提币管理 - 分别配置验证中间件
+		// 提币管理
 		withdrawalGroup := protected.Group("/withdrawals")
 		{
-			// 创建和更新提币规则需要验证
 			withdrawalGroup.POST("", middleware.ValidationMiddleware(), handlers.GinCreateWithdrawalRuleHandler(cfg))
 			withdrawalGroup.PUT("/:id", middleware.ValidationMiddleware(), handlers.GinUpdateWithdrawalRuleHandler(cfg))
-
-			// 获取和删除不需要验证
 			withdrawalGroup.GET("", handlers.GinListWithdrawalRulesHandler(cfg))
 			withdrawalGroup.DELETE("/:id", handlers.GinDeleteWithdrawalRuleHandler(cfg))
 		}
+
 		// 双币投资路由
 		SetupDualInvestmentRoutes(protected, cfg)
 	}
@@ -151,4 +137,3 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 		})
 	})
 }
-*/
