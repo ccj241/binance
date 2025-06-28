@@ -2,22 +2,17 @@ package routes
 
 import (
 	"github.com/ccj241/binance/config"
-	"github.com/ccj241/binance/controllers"
-	"github.com/ccj241/binance/handlers"
-	"github.com/ccj241/binance/middleware"
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"time"
 )
 
 // SetupRoutes 配置路由
+// SetupRoutes 配置路由
 func SetupRoutes(router *gin.Engine, cfg *config.Config) {
-	// 先添加一个处理所有 OPTIONS 请求的中间件
+	// 完全开放的 CORS 设置
 	router.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Headers", "*")
+		c.Header("Access-Control-Allow-Methods", "*")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -26,7 +21,9 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 
 		c.Next()
 	})
-	/*
+}
+
+/*
 func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 	// 配置CORS中间件
 	corsConfig := cors.Config{
