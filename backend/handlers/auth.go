@@ -218,5 +218,8 @@ func writeErrorResponse(w http.ResponseWriter, statusCode int, message string) {
 func writeSuccessResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(data)
+	// 直接编码数据，不要包装
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("编码响应失败: %v", err)
+	}
 }

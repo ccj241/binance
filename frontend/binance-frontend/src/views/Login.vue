@@ -143,23 +143,53 @@ export default {
         });
 
         // 添加详细的调试日志
-        console.log('登录响应:', response);
+        console.log('完整响应对象:', response);
+        console.log('响应状态:', response.status);
+        console.log('响应头:', response.headers);
         console.log('响应数据:', response.data);
-        console.log('Token 值:', response.data.token);
-        console.log('Token 类型:', typeof response.data.token);
+        console.log('响应数据类型:', typeof response.data);
+
+        // 检查响应数据结构
+        const responseData = response.data;
+
+        // 尝试不同的数据结构
+        let token = null;
+        let role = null;
+
+        // 情况1: 直接返回 {token: "xxx", role: "xxx"}
+        if (responseData.token) {
+          token = responseData.token;
+          role = responseData.role;
+        }
+        // 情况2: 包装在 data 字段中 {data: {token: "xxx", role: "xxx"}}
+        else if (responseData.data && responseData.data.token) {
+          token = responseData.data.token;
+          role = responseData.data.role;
+        }
+        // 情况3: 字符串响应（需要解析）
+        else if (typeof responseData === 'string') {
+          try {
+            const parsed = JSON.parse(responseData);
+            token = parsed.token;
+            role = parsed.role;
+          } catch (e) {
+            console.error('解析字符串响应失败:', e);
+          }
+        }
+
+        console.log('提取的 Token:', token);
+        console.log('提取的 Role:', role);
 
         // 严格验证 token 存在且有效
-        if (!response.data.token ||
-            response.data.token === 'undefined' ||
-            response.data.token === 'null' ||
-            response.data.token === '') {
-          console.error('服务器返回的 token 无效:', response.data);
+        if (!token || token === 'undefined' || token === 'null' || token === '') {
+          console.error('无法从响应中提取有效的 token');
+          console.error('完整响应数据:', JSON.stringify(responseData, null, 2));
           this.error = '登录失败：服务器未返回有效的认证信息';
           return;
         }
 
         // 验证 token 格式（JWT 应该有3个部分）
-        const tokenParts = response.data.token.split('.');
+        const tokenParts = token.split('.');
         if (tokenParts.length !== 3) {
           console.error('Token 格式错误，应该包含3个部分，实际:', tokenParts.length);
           this.error = '登录失败：服务器返回的认证信息格式错误';
@@ -167,7 +197,7 @@ export default {
         }
 
         // 保存token
-        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('token', token);
         console.log('Token 已保存到 localStorage');
 
         // 记住用户名
@@ -178,10 +208,12 @@ export default {
         }
 
         // 根据角色跳转
-        if (response.data.role === 'admin') {
+        if (role === 'admin') {
           this.$router.push('/admin');
         } else {
-          this.$router.push('/');
+          // 从查询参数获取重定向地址
+          const redirect = this.$route.query.redirect || '/';
+          this.$router.push(redirect);
         }
       } catch (err) {
         console.error('登录错误:', err);
@@ -189,11 +221,11 @@ export default {
         console.log('错误响应数据:', err.response?.data);
 
         if (err.response?.status === 403) {
-          this.error = err.response.data.message || '账号状态异常，请联系管理员';
+          this.error = err.response.data.error || err.response.data.message || '账号状态异常，请联系管理员';
         } else if (err.response?.status === 401) {
           this.error = '用户名或密码错误';
         } else {
-          this.error = err.response?.data?.message || '登录失败，请稍后重试';
+          this.error = err.response?.data?.error || err.response?.data?.message || '登录失败，请稍后重试';
         }
       } finally {
         this.isLoading = false;
