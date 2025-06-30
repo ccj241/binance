@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/ccj241/binance/config"
+	"github.com/ccj241/binance/migrations"
 	"github.com/ccj241/binance/models"
 	"github.com/ccj241/binance/routes"
 	"github.com/ccj241/binance/tasks"
@@ -20,6 +21,11 @@ func main() {
 	// 迁移双币投资相关表
 	if err := models.MigrateDualInvestmentTables(cfg.DB); err != nil {
 		log.Fatalf("双币投资表迁移失败: %v", err)
+	}
+	// 添加性能优化索引
+	if err := migrations.AddPerformanceIndexes(cfg.DB); err != nil {
+		log.Printf("添加性能索引失败: %v", err)
+		// 不要因为索引失败而退出，可能索引已存在
 	}
 
 	// 设置路由
