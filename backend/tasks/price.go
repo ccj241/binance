@@ -15,6 +15,7 @@ import (
 	"github.com/adshao/go-binance/v2"
 	"github.com/ccj241/binance/config"
 	"github.com/ccj241/binance/models"
+	"gorm.io/gorm"
 )
 
 var PriceMonitor sync.Map
