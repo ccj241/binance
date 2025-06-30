@@ -160,8 +160,9 @@ func (m *WebSocketManager) start() {
 }
 
 // connect 建立WebSocket连接
+// connect 建立WebSocket连接
 func (m *WebSocketManager) connect() {
-	log.Printf("建立 %s WebSocket 连接", m.symbol)
+	// 移除连接日志，只在错误时记录
 
 	// 使用交易流而不是深度流
 	wsTradeHandler := func(event *binance.WsTradeEvent) {
@@ -203,9 +204,10 @@ func (m *WebSocketManager) connect() {
 
 	m.doneC = doneC
 	<-doneC
-	log.Printf("%s WebSocket 连接已关闭", m.symbol)
+	// 移除连接关闭日志
 }
 
+// updatePriceInDB 更新数据库中的价格（限流）
 // updatePriceInDB 更新数据库中的价格（限流）
 func (m *WebSocketManager) updatePriceInDB(price float64) {
 	dbUpdateManager.mu.Lock()
@@ -226,6 +228,7 @@ func (m *WebSocketManager) updatePriceInDB(price float64) {
 		}
 
 		if err := m.cfg.DB.Where("symbol = ?", m.symbol).Assign(priceModel).FirstOrCreate(&priceModel).Error; err != nil {
+			// 只在错误时记录
 			log.Printf("保存 %s 价格失败: %v", m.symbol, err)
 		}
 	}()
@@ -293,15 +296,16 @@ func (m *WebSocketManager) executeStrategy(client *binance.Client, strategy mode
 	shouldExecute := false
 	if strategy.Side == "SELL" && currentPrice >= strategy.Price {
 		shouldExecute = true
-		log.Printf("卖出策略 %d 触发: 当前价格 %.8f >= 触发价格 %.8f", strategy.ID, currentPrice, strategy.Price)
 	} else if strategy.Side == "BUY" && currentPrice <= strategy.Price {
 		shouldExecute = true
-		log.Printf("买入策略 %d 触发: 当前价格 %.8f <= 触发价格 %.8f", strategy.ID, currentPrice, strategy.Price)
 	}
 
 	if !shouldExecute {
 		return
 	}
+
+	// 只记录策略触发
+	log.Printf("策略 %d 触发: %s %s @ %.8f", strategy.ID, strategy.Side, strategy.Symbol, currentPrice)
 
 	// 双重检查策略状态（使用事务）
 	tx := m.cfg.DB.Begin()
@@ -321,7 +325,6 @@ func (m *WebSocketManager) executeStrategy(client *binance.Client, strategy mode
 
 	if currentStrategy.PendingBatch || !currentStrategy.Enabled {
 		tx.Rollback()
-		log.Printf("策略 %d 已在执行中或已禁用，跳过", strategy.ID)
 		return
 	}
 
@@ -445,8 +448,6 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 	var depthLevels []float64
 	var placedOrders []models.Order
 
-	log.Printf("执行 %s 策略: ID=%d, 类型=%s, 当前价格=%.8f", side, strategy.ID, strategy.StrategyType, currentPrice)
-
 	// 获取交易所信息
 	exchangeInfo, err := client.NewExchangeInfoService().Symbol(strategy.Symbol).Do(context.Background())
 	if err != nil {
@@ -463,8 +464,6 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 
 	// 解析精度信息
 	pricePrecision, quantityPrecision, minNotional := parseSymbolInfo(symbolInfo)
-	log.Printf("市场 %s: 价格精度=%d, 数量精度=%d, 最小名义价值=%.2f",
-		strategy.Symbol, pricePrecision, quantityPrecision, minNotional)
 
 	// 解析数量和深度配置
 	if side == "SELL" {
@@ -505,6 +504,8 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 
 	// 执行下单
 	successCount := 0
+	failCount := 0
+
 	for i, priceLevel := range priceLevels {
 		if i >= len(quantities) {
 			break
@@ -517,15 +518,11 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 		if price*quantity < minNotional {
 			quantity = math.Ceil(minNotional/price*math.Pow(10, float64(quantityPrecision))) /
 				math.Pow(10, float64(quantityPrecision))
-			log.Printf("调整数量以满足最小名义价值: %.8f", quantity)
 		}
 
 		// 格式化价格和数量
 		priceStr := fmt.Sprintf("%.*f", pricePrecision, price)
 		quantityStr := fmt.Sprintf("%.*f", quantityPrecision, quantity)
-
-		log.Printf("下单: 策略ID=%d, %s %s, 价格=%s, 数量=%s, 层级=%d, 取消时间=%d分钟",
-			strategy.ID, side, strategy.Symbol, priceStr, quantityStr, i+1, cancelAfterMinutes)
 
 		order, err := client.NewCreateOrderService().
 			Symbol(strategy.Symbol).
@@ -537,7 +534,7 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 			Do(context.Background())
 
 		if err != nil {
-			log.Printf("第 %d 层订单失败: %v", i+1, err)
+			failCount++
 			// 如果是第一个订单就失败，回滚所有
 			if successCount == 0 {
 				return fmt.Errorf("首个订单下单失败: %v", err)
@@ -556,7 +553,7 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 			Quantity:    quantity,
 			OrderID:     order.OrderID,
 			Status:      "pending",
-			CancelAfter: time.Now().Add(cancelAfterDuration), // 使用自定义取消时间
+			CancelAfter: time.Now().Add(cancelAfterDuration),
 		}
 
 		if err := cfg.DB.Create(&dbOrder).Error; err != nil {
@@ -574,8 +571,13 @@ func placeOrders(client *binance.Client, strategy models.Strategy, userID uint, 
 		return fmt.Errorf("所有订单都失败了")
 	}
 
-	log.Printf("策略 %d 成功下单 %d/%d 笔，订单将在 %d 分钟后自动取消",
-		strategy.ID, successCount, len(priceLevels), cancelAfterMinutes)
+	// 只记录最终结果
+	if failCount > 0 {
+		log.Printf("策略 %d: 成功 %d 笔，失败 %d 笔", strategy.ID, successCount, failCount)
+	} else {
+		log.Printf("策略 %d: 成功下单 %d 笔", strategy.ID, successCount)
+	}
+
 	return nil
 }
 

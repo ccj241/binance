@@ -101,7 +101,6 @@ type BinanceAPIError struct {
 }
 
 // dciRequest 用于处理双币投资API请求的辅助函数
-// dciRequest 用于处理双币投资API请求的辅助函数
 func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]interface{}) ([]byte, error) {
 	baseURL := "https://api.binance.com"
 
@@ -114,12 +113,6 @@ func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]in
 	// 生成签名
 	signature := sign(query, secretKey)
 	query += "&signature=" + signature
-
-	// 调试日志：打印完整的请求信息
-	log.Printf("双币投资API请求详情:")
-	log.Printf("  - Endpoint: %s %s", method, endpoint)
-	log.Printf("  - Parameters: %+v", params)
-	log.Printf("  - Query String: %s", query)
 
 	// 构建完整URL
 	fullURL := baseURL + endpoint
@@ -145,12 +138,6 @@ func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]in
 	// 设置请求头
 	req.Header.Set("X-MBX-APIKEY", apiKey)
 
-	// 调试日志：打印请求URL（POST请求）
-	if method == "POST" {
-		log.Printf("  - Full URL: %s", fullURL)
-		log.Printf("  - Request Body: %s", query)
-	}
-
 	// 发送请求
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -164,10 +151,6 @@ func dciRequest(apiKey, secretKey, method, endpoint string, params map[string]in
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %v", err)
 	}
-
-	// 调试日志：打印响应
-	log.Printf("  - Response Status: %d", resp.StatusCode)
-	//log.Printf("  - Response Body: %s", string(body))
 
 	// 检查HTTP状态码
 	if resp.StatusCode != http.StatusOK {
@@ -231,13 +214,11 @@ func syncDualInvestmentProducts(cfg *config.Config) {
 }
 
 // doSyncProducts 执行产品同步 - 真实API版本
-// doSyncProducts 执行产品同步 - 真实API版本
 func doSyncProducts(cfg *config.Config) {
-	log.Println("开始同步双币投资产品...")
-
 	// 获取一个有效的用户API密钥用于同步
 	var user models.User
 	if err := cfg.DB.Where("api_key != ? AND secret_key != ?", "", "").First(&user).Error; err != nil {
+		// 只在错误时记录
 		log.Printf("没有找到有效的API密钥用于同步产品")
 		return
 	}
@@ -256,8 +237,7 @@ func doSyncProducts(cfg *config.Config) {
 
 	client := binance.NewClient(apiKey, secretKey)
 
-	// 重要修改：从数据库获取所有用户已添加的交易对
-	// 从 Symbol 表和 CustomSymbol 表中获取
+	// 从数据库获取所有用户已添加的交易对
 	symbolMap := make(map[string]bool)
 
 	// 获取 Symbol 表中的交易对
@@ -288,18 +268,17 @@ func doSyncProducts(cfg *config.Config) {
 	}
 
 	if len(uniqueSymbols) == 0 {
-		log.Printf("没有找到已添加的交易对")
 		return
 	}
 
-	log.Printf("准备同步 %d 个交易对的双币投资产品: %v", len(uniqueSymbols), uniqueSymbols)
-
 	totalSynced := 0
+	errorCount := 0
+
 	for _, symbol := range uniqueSymbols {
 		// 获取当前价格
 		prices, err := client.NewListPricesService().Symbol(symbol).Do(context.Background())
 		if err != nil || len(prices) == 0 {
-			log.Printf("获取 %s 价格失败: %v", symbol, err)
+			errorCount++
 			continue
 		}
 		currentPrice, _ := strconv.ParseFloat(prices[0].Price, 64)
@@ -307,7 +286,7 @@ func doSyncProducts(cfg *config.Config) {
 		// 调用双币投资产品列表API
 		products, err := getDCIProductList(apiKey, secretKey, symbol)
 		if err != nil {
-			log.Printf("获取 %s 双币投资产品失败: %v", symbol, err)
+			errorCount++
 			continue
 		}
 
@@ -363,29 +342,22 @@ func doSyncProducts(cfg *config.Config) {
 			priceOffset := abs((strikePrice - currentPrice) / currentPrice * 100)
 			depthLevel := int(priceOffset/0.5) + 1
 
-			// 构造保存用的ProductID，可能需要包含orderId信息
+			// 构造保存用的ProductID
 			productIdToSave := p.Id
 			if p.OrderId > 0 {
-				// 如果有orderId，可以考虑将其包含在ProductID中，用分隔符
 				productIdToSave = fmt.Sprintf("%s|%d", p.Id, p.OrderId)
-			}
-
-			// 调试日志
-			if symbol == "SOLUSDT" && savedCount < 3 {
-				log.Printf("SOLUSDT产品示例 - ID: %s, OrderID: %d, APY: %.2f%%, StrikePrice: %.2f",
-					p.Id, p.OrderId, apy*100, strikePrice)
 			}
 
 			product := models.DualInvestmentProduct{
 				Symbol:         p.Symbol,
 				Direction:      p.Direction,
 				StrikePrice:    strikePrice,
-				APY:            apy * 100, // API返回的是小数，转换为百分比
+				APY:            apy * 100,
 				Duration:       p.Duration,
 				MinAmount:      minAmount,
 				MaxAmount:      maxAmount,
 				SettlementTime: settlementTime,
-				ProductID:      productIdToSave, // 保存包含orderId的信息
+				ProductID:      productIdToSave,
 				Status:         status,
 				BaseAsset:      p.BaseAsset,
 				QuoteAsset:     p.QuoteAsset,
@@ -397,14 +369,11 @@ func doSyncProducts(cfg *config.Config) {
 			if err := cfg.DB.Where("product_id = ?", product.ProductID).
 				Assign(product).
 				FirstOrCreate(&product).Error; err != nil {
+				// 只在错误时记录
 				log.Printf("保存产品失败: %v", err)
 			} else {
 				savedCount++
 			}
-		}
-
-		if savedCount > 0 {
-			log.Printf("同步 %s 产品 %d 个", symbol, savedCount)
 		}
 		totalSynced += savedCount
 	}
@@ -416,15 +385,12 @@ func doSyncProducts(cfg *config.Config) {
 		log.Printf("更新过期产品失败: %v", err)
 	}
 
-	// 清理不在交易对列表中的产品（可选）
-	if len(uniqueSymbols) > 0 {
-		if err := cfg.DB.Where("symbol NOT IN ? AND deleted_at IS NULL", uniqueSymbols).
-			Delete(&models.DualInvestmentProduct{}).Error; err != nil {
-			log.Printf("清理无效产品失败: %v", err)
-		}
+	// 只记录最终结果
+	if errorCount > 0 {
+		log.Printf("双币投资产品同步完成: 成功 %d 个，失败 %d 个", totalSynced, errorCount)
+	} else if totalSynced > 0 {
+		log.Printf("双币投资产品同步完成: 共 %d 个", totalSynced)
 	}
-
-	log.Printf("双币投资产品同步完成，共同步 %d 个产品", totalSynced)
 }
 
 // 辅助函数
@@ -536,16 +502,7 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 		return false
 	}
 
-	log.Printf("=== 双币投资下单调试信息 ===")
-	log.Printf("产品信息:")
-	log.Printf("  - ProductID: %s", product.ProductID)
-	log.Printf("  - Symbol: %s", product.Symbol)
-	log.Printf("  - Direction: %s", product.Direction)
-	log.Printf("  - StrikePrice: %.2f", product.StrikePrice)
-	log.Printf("  - InvestAmount: %.8f", investAmount)
-
 	// 首先需要获取产品的orderId
-	// 重新查询产品列表以获取orderId
 	products, err := getDCIProductList(apiKey, secretKey, product.Symbol)
 	if err != nil {
 		log.Printf("获取产品列表失败: %v", err)
@@ -554,10 +511,8 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 
 	// 查找匹配的产品以获取orderId
 	var targetProduct *DCIProductListItem
-
-	// 处理可能包含 orderId 的 ProductID
 	productIDParts := strings.Split(product.ProductID, "|")
-	searchProductID := productIDParts[0] // 获取纯产品ID部分
+	searchProductID := productIDParts[0]
 
 	for _, p := range products {
 		if p.Id == searchProductID {
@@ -567,47 +522,39 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 	}
 
 	if targetProduct == nil {
-		log.Printf("未找到匹配的产品，ProductID: %s, 搜索ID: %s", product.ProductID, searchProductID)
+		log.Printf("未找到匹配的产品，ProductID: %s", product.ProductID)
 		return false
 	}
 
-	log.Printf("找到产品详情: ID=%s, OrderID=%d", targetProduct.Id, targetProduct.OrderId)
-
 	// 根据官方文档构造参数
 	params := map[string]interface{}{
-		"id":               targetProduct.Id,                         // 产品ID
-		"orderId":          fmt.Sprintf("%d", targetProduct.OrderId), // 订单ID需要转为字符串
-		"depositAmount":    fmt.Sprintf("%.8f", investAmount),        // 申购金额
-		"autoCompoundPlan": "NONE",                                   // 关闭自动复投
+		"id":               targetProduct.Id,
+		"orderId":          fmt.Sprintf("%d", targetProduct.OrderId),
+		"depositAmount":    fmt.Sprintf("%.8f", investAmount),
+		"autoCompoundPlan": "NONE",
 		"recvWindow":       5000,
 	}
 
-	log.Printf("下单参数: %+v", params)
-
 	res, err := dciRequest(apiKey, secretKey, "POST", "/sapi/v1/dci/product/subscribe", params)
 	if err != nil {
-		log.Printf("调用双币投资下单API失败: %v", err)
-
 		// 如果orderId为0，尝试只使用id
 		if targetProduct.OrderId == 0 {
-			log.Printf("OrderID为0，尝试使用产品ID作为OrderID")
 			params["orderId"] = targetProduct.Id
 			res, err = dciRequest(apiKey, secretKey, "POST", "/sapi/v1/dci/product/subscribe", params)
 			if err != nil {
-				log.Printf("重试失败: %v", err)
+				log.Printf("双币投资下单失败: %v", err)
 				return false
 			}
 		} else {
+			log.Printf("双币投资下单失败: %v", err)
 			return false
 		}
 	}
 
-	log.Printf("下单成功，解析响应...")
-
 	// 解析响应
 	var subscribeResp map[string]interface{}
 	if err := json.Unmarshal(res, &subscribeResp); err != nil {
-		log.Printf("解析下单响应失败: %v, 原始响应: %s", err, string(res))
+		log.Printf("解析下单响应失败: %v", err)
 		return false
 	}
 
@@ -624,7 +571,6 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 	if investCoin, ok := subscribeResp["investCoin"].(string); ok {
 		investAsset = investCoin
 	} else {
-		// 如果响应中没有，则根据方向判断
 		if product.Direction == "UP" {
 			investAsset = product.BaseAsset
 		} else {
@@ -672,8 +618,9 @@ func createDualInvestmentOrder(cfg *config.Config, user models.User, strategy mo
 		return false
 	}
 
-	log.Printf("双币投资订单创建成功: 用户=%d, 策略=%d, %s %s, 金额=%.2f %s, 年化=%.2f%%, PositionID=%s",
-		user.ID, strategy.ID, product.Symbol, product.Direction, investAmount, investAsset, product.APY, positionId)
+	// 只记录成功的关键信息
+	log.Printf("双币投资订单创建: %s %s %.2f %s @ %.2f%%",
+		product.Symbol, product.Direction, investAmount, investAsset, product.APY)
 	return true
 }
 

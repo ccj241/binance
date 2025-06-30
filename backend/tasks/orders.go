@@ -35,7 +35,7 @@ func checkPendingOrders(cfg *config.Config) {
 		return
 	}
 
-	log.Printf("检查 %d 个待处理订单", len(orders))
+	// 移除订单数量日志
 
 	// 按用户分组订单
 	userOrders := make(map[uint][]models.Order)
@@ -50,6 +50,58 @@ func checkPendingOrders(cfg *config.Config) {
 }
 
 // processUserOrders 处理单个用户的订单
+func processUserOrders(cfg *config.Config, userID uint, orders []models.Order) {
+	// 获取用户信息
+	var user models.User
+	if err := cfg.DB.First(&user, userID).Error; err != nil {
+		log.Printf("订单用户未找到: userID=%d, error=%v", userID, err)
+		return
+	}
+
+	// 检查加密的API密钥是否存在
+	if user.APIKey == "" || user.SecretKey == "" {
+		// 移除日志，静默返回
+		return
+	}
+
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		log.Printf("解密用户 %d API Key失败: %v", userID, err)
+		return
+	}
+
+	// 验证解密后的API Key格式
+	if apiKey == "" || len(apiKey) != 64 {
+		// 移除验证日志，只在真正出错时记录
+		return
+	}
+
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		log.Printf("解密用户 %d Secret Key失败: %v", userID, err)
+		return
+	}
+
+	// 验证解密后的Secret Key格式
+	if secretKey == "" || len(secretKey) != 64 {
+		// 移除验证日志
+		return
+	}
+
+	client := binance.NewClient(apiKey, secretKey)
+
+	// 按交易对分组订单，减少API调用
+	symbolOrders := make(map[string][]models.Order)
+	for _, order := range orders {
+		symbolOrders[order.Symbol] = append(symbolOrders[order.Symbol], order)
+	}
+
+	// 处理每个交易对的订单
+	for symbol, symbolOrderList := range symbolOrders {
+		processSymbolOrders(cfg, client, symbol, symbolOrderList)
+	}
+} // processUserOrders 处理单个用户的订单
 func processUserOrders(cfg *config.Config, userID uint, orders []models.Order) {
 	// 获取用户信息
 	var user models.User

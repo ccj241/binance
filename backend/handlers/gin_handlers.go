@@ -77,7 +77,6 @@ func GinPricesHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-// GinBalanceHandler Gin版本的余额处理器 - 修复版本
 // GinBalanceHandler Gin版本的余额处理器 - 修复版本（使用解密的API密钥）
 func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -87,8 +86,6 @@ func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "用户未找到"})
 			return
 		}
-
-		log.Printf("获取用户 %d (%s) 的余额", user.ID, user.Username)
 
 		// 解密API密钥
 		apiKey, err := user.GetDecryptedAPIKey()
@@ -106,7 +103,6 @@ func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if apiKey == "" || secretKey == "" {
-			log.Printf("用户 %d 未设置 API 密钥", user.ID)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "API 密钥未设置"})
 			return
 		}
@@ -121,6 +117,7 @@ func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 		// 获取账户信息
 		account, err := client.NewGetAccountService().Do(ctx)
 		if err != nil {
+			// 只记录错误，移除成功日志
 			log.Printf("获取用户 %d 的账户信息失败: %v", user.ID, err)
 
 			// 检查具体的错误类型
@@ -148,13 +145,11 @@ func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 		for _, b := range account.Balances {
 			free, err := strconv.ParseFloat(b.Free, 64)
 			if err != nil {
-				log.Printf("解析 free 余额失败: asset=%s, value=%s, error=%v", b.Asset, b.Free, err)
 				continue
 			}
 
 			locked, err := strconv.ParseFloat(b.Locked, 64)
 			if err != nil {
-				log.Printf("解析 locked 余额失败: asset=%s, value=%s, error=%v", b.Asset, b.Locked, err)
 				continue
 			}
 
@@ -168,7 +163,7 @@ func GinBalanceHandler(cfg *config.Config) gin.HandlerFunc {
 			}
 		}
 
-		log.Printf("成功获取用户 %d 的余额，共 %d 个资产有余额", user.ID, len(balances))
+		// 移除成功日志
 		c.JSON(http.StatusOK, gin.H{"balances": balances})
 	}
 }

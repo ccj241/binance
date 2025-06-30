@@ -3,12 +3,27 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import router from './router';
 import axios from 'axios';
-// 设置axios默认配置
 
-axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL;
+// 动态设置 API 基础 URL
+const getApiBaseUrl = () => {
+    // 开发环境：使用 Vite 代理，baseURL 为空
+    if (import.meta.env.MODE === 'development') {
+        return '';
+    }
+
+    // 生产环境：使用完整的后端地址
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    const apiPort = '23337'; // 后端端口
+
+    return `${protocol}//${hostname}:${apiPort}`;
+};
+
+// 设置axios默认配置
+axios.defaults.baseURL = getApiBaseUrl();
 axios.defaults.timeout = 10000;
 axios.defaults.headers.common['Content-Type'] = 'application/json';
-// 添加请求拦截器
+
 // 添加请求拦截器
 axios.interceptors.request.use(
     config => {
@@ -32,8 +47,9 @@ axios.interceptors.request.use(
         }
 
         // 开发环境下打印请求信息
-        if (process.env.NODE_ENV === 'development') {
-            console.log(`📤 ${config.method?.toUpperCase()} ${config.url}`);
+        if (import.meta.env.MODE === 'development') {
+            console.log(`📤 ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+            console.log('Request config:', config);
         }
 
         return config;
@@ -43,12 +59,13 @@ axios.interceptors.request.use(
         return Promise.reject(error);
     }
 );
+
 // 添加响应拦截器
 axios.interceptors.response.use(
     response => {
-// 开发环境下打印响应信息
-        if (process.env.NODE_ENV === 'development') {
-            console.log('📥 ${response.config.url} - ${response.status}');
+        // 开发环境下打印响应信息
+        if (import.meta.env.MODE === 'development') {
+            console.log(`📥 ${response.config.url} - ${response.status}`);
         }
         return response;
     },
@@ -90,6 +107,11 @@ axios.interceptors.response.use(
             }
         } else if (error.request) {
             console.error('🌐 网络错误，请检查网络连接');
+            console.error('请求详情:', {
+                url: error.config?.url,
+                baseURL: error.config?.baseURL,
+                fullURL: `${error.config?.baseURL}${error.config?.url}`
+            });
         } else {
             console.error('⚠️ 请求配置错误:', error.message);
         }
@@ -97,19 +119,24 @@ axios.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+
 // 创建Vue应用实例
 const app = createApp(App);
+
 // 全局错误处理
 app.config.errorHandler = (err, instance, info) => {
     console.error('Vue Error:', err, info);
 };
+
 // 全局属性配置
 app.config.globalProperties.$axios = axios;
+
 // 注册全局方法
 app.config.globalProperties.$formatNumber = (num) => {
     if (!num) return '0';
     return new Intl.NumberFormat('zh-CN').format(num);
 };
+
 app.config.globalProperties.$formatCurrency = (amount, currency = 'USD') => {
     return new Intl.NumberFormat('zh-CN', {
         style: 'currency',
@@ -118,12 +145,14 @@ app.config.globalProperties.$formatCurrency = (amount, currency = 'USD') => {
         maximumFractionDigits: 2
     }).format(amount || 0);
 };
+
 app.config.globalProperties.$formatDate = (dateString) => {
     if (!dateString) return '-';
     const date = new Date(dateString);
     const now = new Date();
     const diff = now - date;
-// 时间差转换
+
+    // 时间差转换
     const seconds = Math.floor(diff / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
@@ -134,7 +163,7 @@ app.config.globalProperties.$formatDate = (dateString) => {
     if (hours < 24) return `${hours}小时前`;
     if (days < 7) return `${days}天前`;
 
-// 超过7天显示具体日期
+    // 超过7天显示具体日期
     return date.toLocaleDateString('zh-CN', {
         year: 'numeric',
         month: '2-digit',
@@ -143,13 +172,18 @@ app.config.globalProperties.$formatDate = (dateString) => {
         minute: '2-digit'
     });
 };
+
 // 使用路由
 app.use(router);
+
 // 挂载应用
 app.mount('#app');
-// 开发环境提示
-if (process.env.NODE_ENV === 'development') {
+
+// 环境提示
+if (import.meta.env.MODE === 'development') {
     console.log('🚀 应用已启动 - 开发模式');
+    console.log('API Base URL:', axios.defaults.baseURL || '使用 Vite 代理');
 } else {
     console.log('🚀 应用已启动 - 生产模式');
+    console.log('API Base URL:', axios.defaults.baseURL);
 }
