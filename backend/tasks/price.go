@@ -208,7 +208,6 @@ func (m *WebSocketManager) connect() {
 }
 
 // updatePriceInDB 更新数据库中的价格（限流）
-// updatePriceInDB 更新数据库中的价格（限流）
 func (m *WebSocketManager) updatePriceInDB(price float64) {
 	dbUpdateManager.mu.Lock()
 	defer dbUpdateManager.mu.Unlock()
@@ -234,24 +233,44 @@ func (m *WebSocketManager) updatePriceInDB(price float64) {
 	}()
 }
 
+// 添加用户缓存
+var userCache sync.Map // userID -> *models.User
+
 // checkStrategies 检查并执行策略（使用新的并发控制）
 func (m *WebSocketManager) checkStrategies(userID uint, currentPrice float64) {
-	// 获取用户信息
-	var user models.User
-	if err := m.cfg.DB.First(&user, userID).Error; err != nil {
-		log.Printf("用户未找到: ID=%d", userID)
-		return
+	// 尝试从缓存获取用户信息
+	var user *models.User
+	if cached, ok := userCache.Load(userID); ok {
+		user = cached.(*models.User)
+		// 检查缓存是否过期（5分钟）
+		if user != nil && time.Since(user.UpdatedAt) > 5*time.Minute {
+			userCache.Delete(userID)
+			user = nil
+		}
+	}
+
+	// 如果缓存中没有，从数据库获取
+	if user == nil {
+		var dbUser models.User
+		if err := m.cfg.DB.First(&dbUser, userID).Error; err != nil {
+			// 只在错误时记录
+			if err != gorm.ErrRecordNotFound {
+				log.Printf("用户未找到: ID=%d, error=%v", userID, err)
+			}
+			return
+		}
+		user = &dbUser
+		// 存入缓存
+		userCache.Store(userID, user)
 	}
 
 	// 解密API密钥
 	apiKey, err := user.GetDecryptedAPIKey()
 	if err != nil {
-		log.Printf("解密用户 %d API Key失败: %v", userID, err)
 		return
 	}
 	secretKey, err := user.GetDecryptedSecretKey()
 	if err != nil {
-		log.Printf("解密用户 %d Secret Key失败: %v", userID, err)
 		return
 	}
 
@@ -259,13 +278,19 @@ func (m *WebSocketManager) checkStrategies(userID uint, currentPrice float64) {
 		return
 	}
 
-	// 查询用户的活跃策略
+	// 查询用户的活跃策略 - 使用更精确的查询
 	var strategies []models.Strategy
-	if err := m.cfg.DB.Where(
-		"user_id = ? AND symbol = ? AND status = ? AND enabled = ? AND deleted_at IS NULL AND pending_batch = ?",
-		userID, m.symbol, "active", true, false,
-	).Find(&strategies).Error; err != nil {
-		log.Printf("获取用户 %d 的 %s 策略失败: %v", userID, m.symbol, err)
+	if err := m.cfg.DB.
+		Select("id", "symbol", "side", "price", "enabled", "pending_batch", "strategy_type", "total_quantity",
+			"buy_quantities", "sell_quantities", "buy_depth_levels", "sell_depth_levels",
+			"buy_basis_points", "sell_basis_points", "cancel_after_minutes").
+		Where("user_id = ? AND symbol = ? AND status = ? AND enabled = ? AND pending_batch = ?",
+			userID, m.symbol, "active", true, false).
+		Where("deleted_at IS NULL").
+		Find(&strategies).Error; err != nil {
+		if err != gorm.ErrRecordNotFound {
+			log.Printf("获取用户 %d 的 %s 策略失败: %v", userID, m.symbol, err)
+		}
 		return
 	}
 
@@ -364,11 +389,28 @@ func StartPriceMonitoring(cfg *config.Config) {
 		return
 	}
 
-	// 查询所有需要监控的交易对
+	// 使用批量查询，减少数据库访问
 	var symbols []models.CustomSymbol
-	if err := cfg.DB.Select("DISTINCT symbol, user_id").Where("deleted_at IS NULL").Find(&symbols).Error; err != nil {
+	if err := cfg.DB.
+		Select("DISTINCT symbol, user_id").
+		Where("deleted_at IS NULL").
+		Find(&symbols).Error; err != nil {
 		log.Printf("获取自定义交易对失败: %v", err)
 		return
+	}
+
+	// 预加载用户信息到缓存
+	userIDs := make([]uint, 0)
+	for _, s := range symbols {
+		userIDs = append(userIDs, s.UserID)
+	}
+
+	// 批量查询用户
+	var users []models.User
+	if err := cfg.DB.Where("id IN ?", userIDs).Find(&users).Error; err == nil {
+		for _, user := range users {
+			userCache.Store(user.ID, &user)
+		}
 	}
 
 	// 按交易对分组
@@ -393,8 +435,6 @@ func StartPriceMonitoring(cfg *config.Config) {
 
 		wsConnections.Store(symbol, wsManager)
 		go wsManager.start()
-
-		log.Printf("启动 %s 价格监控，共 %d 个用户", symbol, len(users))
 	}
 
 	// 启动清理任务
