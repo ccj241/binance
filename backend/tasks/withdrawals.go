@@ -111,7 +111,7 @@ func processWithdrawalRule(cfg *config.Config, client *binance.Client, user mode
 
 	// 检查是否达到阈值
 	if balance < rule.Threshold {
-		log.Printf("用户 %d 的 %s 余额 %.8f 未达到阈值 %.8f，跳过规则 %d",
+		log.Printf("用户 %d 的 %s 余额 %.4f 未达到阈值 %.4f，跳过规则 %d",
 			user.ID, rule.Asset, balance, rule.Threshold, rule.ID)
 		return
 	}
@@ -132,13 +132,13 @@ func processWithdrawalRule(cfg *config.Config, client *binance.Client, user mode
 	if rule.Amount == 0 {
 		// 如果规则金额为0，提取最大可用金额
 		withdrawAmount = balance
-		log.Printf("规则 %d 设置为提取最大金额，将提取 %.8f %s", rule.ID, withdrawAmount, rule.Asset)
+		log.Printf("规则 %d 设置为提取最大金额，将提取 %.4f %s", rule.ID, withdrawAmount, rule.Asset)
 	} else {
 		// 否则提取指定金额，但不超过可用余额
 		withdrawAmount = rule.Amount
 		if withdrawAmount > balance {
 			withdrawAmount = balance
-			log.Printf("规则 %d 指定金额 %.8f 超过可用余额，调整为 %.8f %s",
+			log.Printf("规则 %d 指定金额 %.4f 超过可用余额，调整为 %.4f %s",
 				rule.ID, rule.Amount, withdrawAmount, rule.Asset)
 		}
 	}
@@ -153,7 +153,7 @@ func processWithdrawalRule(cfg *config.Config, client *binance.Client, user mode
 
 	// 检查是否满足最小提币金额
 	if withdrawAmount < withdrawInfo.MinWithdrawAmount {
-		log.Printf("提币金额 %.8f %s 小于最小提币金额 %.8f，跳过",
+		log.Printf("提币金额 %.4f %s 小于最小提币金额 %.4f，跳过",
 			withdrawAmount, rule.Asset, withdrawInfo.MinWithdrawAmount)
 		return
 	}
@@ -166,14 +166,14 @@ func processWithdrawalRule(cfg *config.Config, client *binance.Client, user mode
 	}
 
 	// 执行提币
-	log.Printf("准备提币: 用户=%d, 资产=%s, 金额=%.8f, 地址=%s",
+	log.Printf("准备提币: 用户=%d, 资产=%s, 金额=%.4f, 地址=%s",
 		user.ID, rule.Asset, withdrawAmount, rule.Address)
 
 	// 创建提币请求
 	withdrawReq := client.NewCreateWithdrawService().
 		Coin(rule.Asset).
 		Address(rule.Address).
-		Amount(fmt.Sprintf("%.8f", withdrawAmount))
+		Amount(fmt.Sprintf("%.4f", withdrawAmount))
 	// 注意：暂时不添加网络参数，等数据库模型更新后再启用
 	// .Network(rule.Network)
 
