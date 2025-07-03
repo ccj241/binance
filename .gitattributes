@@ -1,0 +1,18 @@
+# 将前端文件标记为主要语言
+*.vue linguist-language=Vue
+*.js linguist-language=JavaScript
+*.css linguist-language=CSS
+
+# 将Go文件标记为主要语言
+*.go linguist-language=Go
+
+# 忽略某些文件不参与语言统计
+vendor/* linguist-vendored
+node_modules/* linguist-vendored
+public/dist/* linguist-generated
+*.min.js linguist-generated
+*.min.css linguist-generated
+
+# 如果你想让Go显示为主要语言，可以这样设置
+*.vue linguist-detectable=false
+*.js linguist-detectable=false
