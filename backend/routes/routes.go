@@ -113,6 +113,9 @@ func SetupRoutes(router *gin.Engine, cfg *config.Config) {
 
 		// 双币投资路由
 		SetupDualInvestmentRoutes(protected, cfg)
+
+		// 永续期货路由
+		SetupFuturesRoutes(protected, cfg)
 	}
 
 	// 管理员路由

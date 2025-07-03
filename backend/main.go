@@ -30,6 +30,10 @@ func main() {
 		log.Fatalf("双币投资表迁移失败: %v", err)
 	}
 
+	// 迁移永续期货相关表
+	if err := models.MigrateFuturesTables(cfg.DB); err != nil {
+		log.Fatalf("永续期货表迁移失败: %v", err)
+	}
 	// 添加性能优化索引
 	if err := migrations.AddPerformanceIndexes(cfg.DB); err != nil {
 		log.Printf("添加性能索引时出现错误: %v", err)
@@ -59,6 +63,7 @@ func main() {
 	go tasks.CheckOrders(cfg)
 	go tasks.CheckWithdrawals(cfg)
 	go tasks.StartDualInvestmentTasks(cfg)
+	go tasks.StartFuturesMonitoring(cfg) // 添加这行
 
 	// 启动服务器
 	log.Printf("服务器启动在端口 23337")

@@ -58,6 +58,21 @@ func AddPerformanceIndexes(db *gorm.DB) error {
 			indexName: "idx_withdrawals_user_enabled",
 			columns:   "(user_id, enabled, deleted_at)",
 		},
+		{
+			table:     "futures_strategies",
+			indexName: "idx_futures_strategies_user_status",
+			columns:   "(user_id, enabled, status, deleted_at)",
+		},
+		{
+			table:     "futures_orders",
+			indexName: "idx_futures_orders_user_status",
+			columns:   "(user_id, status, strategy_id)",
+		},
+		{
+			table:     "futures_positions",
+			indexName: "idx_futures_positions_user_status",
+			columns:   "(user_id, status, strategy_id)",
+		},
 	}
 
 	// 逐个创建索引

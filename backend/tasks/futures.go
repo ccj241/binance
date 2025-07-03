@@ -1,0 +1,745 @@
+package tasks
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/adshao/go-binance/v2"
+	"github.com/adshao/go-binance/v2/futures"
+	"github.com/ccj241/binance/config"
+	"github.com/ccj241/binance/models"
+	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
+)
+
+// FuturesMonitor 期货价格监控器（暂未使用，预留接口）
+// var FuturesMonitor sync.Map
+
+// FuturesWebSocketManager 期货WebSocket管理器
+type FuturesWebSocketManager struct {
+	symbol       string
+	strategies   sync.Map // strategyID -> *models.FuturesStrategy
+	cfg          *config.Config
+	wsConn       *websocket.Conn
+	stopChan     chan struct{}
+	mu           sync.RWMutex
+	reconnecting bool
+	lastPrice    float64
+}
+
+// StartFuturesMonitoring 启动期货监控
+func StartFuturesMonitoring(cfg *config.Config) {
+	// 启动价格监控
+	go monitorFuturesPrices(cfg)
+
+	// 启动持仓监控
+	go monitorFuturesPositions(cfg)
+
+	// 启动订单状态检查
+	go checkFuturesOrders(cfg)
+}
+
+// monitorFuturesPrices 监控期货价格
+func monitorFuturesPrices(cfg *config.Config) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	wsManagers := make(map[string]*FuturesWebSocketManager)
+
+	for range ticker.C {
+		// 获取所有等待中的策略
+		var strategies []models.FuturesStrategy
+		if err := cfg.DB.Where("enabled = ? AND status = ? AND deleted_at IS NULL",
+			true, "waiting").Find(&strategies).Error; err != nil {
+			continue
+		}
+
+		// 按交易对分组
+		symbolStrategies := make(map[string][]models.FuturesStrategy)
+		for _, strategy := range strategies {
+			symbolStrategies[strategy.Symbol] = append(symbolStrategies[strategy.Symbol], strategy)
+		}
+
+		// 为每个交易对创建或更新WebSocket连接
+		for symbol, strats := range symbolStrategies {
+			if manager, exists := wsManagers[symbol]; exists {
+				// 更新策略列表
+				for _, s := range strats {
+					manager.strategies.Store(s.ID, &s)
+				}
+			} else {
+				// 创建新的WebSocket连接
+				manager := &FuturesWebSocketManager{
+					symbol:   symbol,
+					cfg:      cfg,
+					stopChan: make(chan struct{}),
+				}
+				for _, s := range strats {
+					manager.strategies.Store(s.ID, &s)
+				}
+				wsManagers[symbol] = manager
+				go manager.start()
+			}
+		}
+
+		// 清理不再需要的连接
+		for symbol, manager := range wsManagers {
+			if _, exists := symbolStrategies[symbol]; !exists {
+				close(manager.stopChan)
+				delete(wsManagers, symbol)
+			}
+		}
+	}
+}
+
+// start 启动WebSocket连接
+func (m *FuturesWebSocketManager) start() {
+	wsURL := fmt.Sprintf("wss://fstream.binance.com/ws/%s@markPrice@1s", m.symbol)
+
+	for {
+		select {
+		case <-m.stopChan:
+			return
+		default:
+			m.connect(wsURL)
+			if m.wsConn != nil {
+				if err := m.wsConn.Close(); err != nil {
+					log.Printf("关闭WebSocket连接失败: %v", err)
+				}
+			}
+			time.Sleep(5 * time.Second) // 重连间隔
+		}
+	}
+}
+
+// connect 建立WebSocket连接
+func (m *FuturesWebSocketManager) connect(wsURL string) {
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		log.Printf("期货WebSocket连接失败 %s: %v", m.symbol, err)
+		return
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("关闭WebSocket连接失败: %v", err)
+		}
+	}()
+
+	m.wsConn = conn
+
+	for {
+		select {
+		case <-m.stopChan:
+			return
+		default:
+			var msg map[string]interface{}
+			if err := conn.ReadJSON(&msg); err != nil {
+				log.Printf("期货WebSocket读取错误 %s: %v", m.symbol, err)
+				return
+			}
+
+			// 解析标记价格
+			if markPriceStr, ok := msg["p"].(string); ok {
+				if markPrice, err := strconv.ParseFloat(markPriceStr, 64); err == nil {
+					m.mu.Lock()
+					m.lastPrice = markPrice
+					m.mu.Unlock()
+
+					// 检查策略触发
+					m.checkStrategies(markPrice)
+				}
+			}
+		}
+	}
+}
+
+// checkStrategies 检查策略是否触发
+func (m *FuturesWebSocketManager) checkStrategies(currentPrice float64) {
+	m.strategies.Range(func(key, value interface{}) bool {
+		strategy := value.(*models.FuturesStrategy)
+
+		// 检查是否触发
+		shouldTrigger := false
+		if strategy.Side == "LONG" && currentPrice <= strategy.BasePrice {
+			shouldTrigger = true
+		} else if strategy.Side == "SHORT" && currentPrice >= strategy.BasePrice {
+			shouldTrigger = true
+		}
+
+		if shouldTrigger {
+			// 使用事务确保并发安全
+			err := m.cfg.DB.Transaction(func(tx *gorm.DB) error {
+				// 重新查询策略状态
+				var currentStrategy models.FuturesStrategy
+				if err := tx.Set("gorm:query_option", "FOR UPDATE").
+					First(&currentStrategy, strategy.ID).Error; err != nil {
+					return err
+				}
+
+				// 双重检查状态
+				if currentStrategy.Status != "waiting" || !currentStrategy.Enabled {
+					return fmt.Errorf("策略状态已变更")
+				}
+
+				// 更新状态为已触发
+				currentStrategy.Status = "triggered"
+				now := time.Now()
+				currentStrategy.TriggeredAt = &now
+
+				if err := tx.Save(&currentStrategy).Error; err != nil {
+					return err
+				}
+
+				log.Printf("期货策略 %d 触发: %s %s @ %.8f",
+					strategy.ID, strategy.Side, strategy.Symbol, currentPrice)
+
+				// 异步执行开仓
+				go m.executeStrategy(&currentStrategy)
+
+				return nil
+			})
+
+			if err != nil && err.Error() != "策略状态已变更" {
+				log.Printf("更新策略状态失败: %v", err)
+			}
+
+			// 从监控中移除已触发的策略
+			m.strategies.Delete(strategy.ID)
+		}
+
+		return true
+	})
+}
+
+// executeStrategy 执行策略开仓
+func (m *FuturesWebSocketManager) executeStrategy(strategy *models.FuturesStrategy) {
+	// 获取用户信息
+	var user models.User
+	if err := m.cfg.DB.First(&user, strategy.UserID).Error; err != nil {
+		log.Printf("获取用户信息失败: %v", err)
+		return
+	}
+
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		log.Printf("解密API Key失败: %v", err)
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		log.Printf("解密Secret Key失败: %v", err)
+		return
+	}
+
+	// 创建期货客户端
+	client := binance.NewFuturesClient(apiKey, secretKey)
+
+	// 设置杠杆
+	if err := setLeverage(client, strategy.Symbol, strategy.Leverage); err != nil {
+		log.Printf("设置杠杆失败: %v", err)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
+		return
+	}
+
+	// 设置保证金模式
+	if err := setMarginType(client, strategy.Symbol, strategy.MarginType); err != nil {
+		log.Printf("设置保证金模式失败: %v", err)
+		// 某些情况下设置保证金模式可能失败（如已有持仓），继续执行
+	}
+
+	// 创建开仓订单
+	side := futures.SideTypeBuy
+	if strategy.Side == "SHORT" {
+		side = futures.SideTypeSell
+	}
+
+	// 使用期货客户端创建订单
+	orderService := client.NewCreateOrderService().
+		Symbol(strategy.Symbol).
+		Side(side).
+		PositionSide(futures.PositionSideType(strategy.Side)).
+		Type(futures.OrderTypeLimit).
+		TimeInForce(futures.TimeInForceTypeGTC).
+		Quantity(fmt.Sprintf("%.8f", strategy.Quantity)).
+		Price(fmt.Sprintf("%.8f", strategy.EntryPrice))
+
+	order, err := orderService.Do(context.Background())
+	if err != nil {
+		log.Printf("创建开仓订单失败: %v", err)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
+		return
+	}
+
+	// 保存订单记录
+	dbOrder := models.FuturesOrder{
+		UserID:       strategy.UserID,
+		StrategyID:   strategy.ID,
+		Symbol:       strategy.Symbol,
+		Side:         string(side),
+		PositionSide: strategy.Side,
+		Type:         "LIMIT",
+		Price:        strategy.EntryPrice,
+		Quantity:     strategy.Quantity,
+		OrderID:      order.OrderID,
+		Status:       string(order.Status),
+		OrderPurpose: "entry",
+	}
+
+	if err := m.cfg.DB.Create(&dbOrder).Error; err != nil {
+		log.Printf("保存订单记录失败: %v", err)
+	}
+
+	log.Printf("期货策略 %d 开仓订单创建成功: OrderID=%d", strategy.ID, order.OrderID)
+
+	// 启动订单监控
+	go monitorEntryOrder(m.cfg, strategy, order.OrderID)
+}
+
+// monitorEntryOrder 监控开仓订单
+func monitorEntryOrder(cfg *config.Config, strategy *models.FuturesStrategy, orderID int64) {
+	// 获取用户信息
+	var user models.User
+	if err := cfg.DB.First(&user, strategy.UserID).Error; err != nil {
+		return
+	}
+
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		return
+	}
+
+	client := binance.NewFuturesClient(apiKey, secretKey)
+
+	// 定期检查订单状态
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(10 * time.Minute) // 10分钟超时
+
+	for {
+		select {
+		case <-ticker.C:
+			order, err := client.NewGetOrderService().
+				Symbol(strategy.Symbol).
+				OrderID(orderID).
+				Do(context.Background())
+
+			if err != nil {
+				log.Printf("查询订单状态失败: %v", err)
+				continue
+			}
+
+			// 更新订单状态
+			cfg.DB.Model(&models.FuturesOrder{}).
+				Where("order_id = ?", orderID).
+				Updates(map[string]interface{}{
+					"status":       string(order.Status),
+					"executed_qty": order.ExecutedQuantity,
+					"avg_price":    order.AvgPrice,
+				})
+
+			// 检查订单是否成交
+			if order.Status == futures.OrderStatusTypeFilled {
+				log.Printf("开仓订单成交: OrderID=%d", orderID)
+
+				// 创建持仓记录
+				avgPrice, _ := strconv.ParseFloat(order.AvgPrice, 64)
+				execQty, _ := strconv.ParseFloat(order.ExecutedQuantity, 64)
+
+				position := models.FuturesPosition{
+					UserID:       strategy.UserID,
+					StrategyID:   strategy.ID,
+					Symbol:       strategy.Symbol,
+					PositionSide: strategy.Side,
+					EntryPrice:   avgPrice,
+					Quantity:     execQty,
+					Leverage:     strategy.Leverage,
+					MarginType:   strategy.MarginType,
+					Status:       "open",
+					OpenedAt:     time.Now(),
+				}
+
+				cfg.DB.Create(&position)
+
+				// 更新策略状态
+				strategy.Status = "position_opened"
+				strategy.CurrentPositionId = orderID
+				cfg.DB.Save(strategy)
+
+				// 创建止盈订单
+				createTakeProfitOrder(cfg, client, strategy, execQty)
+
+				// 如果设置了止损，创建止损订单
+				if strategy.StopLossRate > 0 {
+					createStopLossOrder(cfg, client, strategy, execQty)
+				}
+
+				return
+			} else if order.Status == futures.OrderStatusTypeCanceled ||
+				order.Status == futures.OrderStatusTypeExpired ||
+				order.Status == futures.OrderStatusTypeRejected {
+				log.Printf("开仓订单失败: OrderID=%d, Status=%s", orderID, order.Status)
+				updateStrategyStatus(cfg.DB, strategy, "cancelled", string(order.Status))
+				return
+			}
+
+		case <-timeout:
+			// 超时取消订单
+			log.Printf("开仓订单超时，取消订单: OrderID=%d", orderID)
+			_, cancelErr := client.NewCancelOrderService().
+				Symbol(strategy.Symbol).
+				OrderID(orderID).
+				Do(context.Background())
+			if cancelErr != nil {
+				log.Printf("取消订单失败: %v", cancelErr)
+			}
+
+			updateStrategyStatus(cfg.DB, strategy, "cancelled", "timeout")
+			return
+		}
+	}
+}
+
+// createTakeProfitOrder 创建止盈订单
+func createTakeProfitOrder(cfg *config.Config, client *futures.Client,
+	strategy *models.FuturesStrategy, quantity float64) {
+
+	// 确定止盈方向
+	side := futures.SideTypeSell
+	if strategy.Side == "SHORT" {
+		side = futures.SideTypeBuy
+	}
+
+	order, err := client.NewCreateOrderService().
+		Symbol(strategy.Symbol).
+		Side(side).
+		PositionSide(futures.PositionSideType(strategy.Side)).
+		Type(futures.OrderTypeLimit).
+		TimeInForce(futures.TimeInForceTypeGTC).
+		Quantity(fmt.Sprintf("%.8f", quantity)).
+		Price(fmt.Sprintf("%.8f", strategy.TakeProfitPrice)).
+		Do(context.Background())
+
+	if err != nil {
+		log.Printf("创建止盈订单失败: %v", err)
+		return
+	}
+
+	// 保存订单记录
+	dbOrder := models.FuturesOrder{
+		UserID:       strategy.UserID,
+		StrategyID:   strategy.ID,
+		Symbol:       strategy.Symbol,
+		Side:         string(side),
+		PositionSide: strategy.Side,
+		Type:         "LIMIT",
+		Price:        strategy.TakeProfitPrice,
+		Quantity:     quantity,
+		OrderID:      order.OrderID,
+		Status:       string(order.Status),
+		OrderPurpose: "take_profit",
+	}
+
+	if err := cfg.DB.Create(&dbOrder).Error; err != nil {
+		log.Printf("保存止盈订单失败: %v", err)
+	}
+
+	log.Printf("止盈订单创建成功: OrderID=%d, Price=%.8f", order.OrderID, strategy.TakeProfitPrice)
+}
+
+// createStopLossOrder 创建止损订单
+func createStopLossOrder(cfg *config.Config, client *futures.Client,
+	strategy *models.FuturesStrategy, quantity float64) {
+
+	// 确定止损方向
+	side := futures.SideTypeSell
+	if strategy.Side == "SHORT" {
+		side = futures.SideTypeBuy
+	}
+
+	// 使用止损市价单
+	order, err := client.NewCreateOrderService().
+		Symbol(strategy.Symbol).
+		Side(side).
+		PositionSide(futures.PositionSideType(strategy.Side)).
+		Type(futures.OrderTypeStopMarket).
+		StopPrice(fmt.Sprintf("%.8f", strategy.StopLossPrice)).
+		Quantity(fmt.Sprintf("%.8f", quantity)).
+		Do(context.Background())
+
+	if err != nil {
+		log.Printf("创建止损订单失败: %v", err)
+		return
+	}
+
+	// 保存订单记录
+	dbOrder := models.FuturesOrder{
+		UserID:       strategy.UserID,
+		StrategyID:   strategy.ID,
+		Symbol:       strategy.Symbol,
+		Side:         string(side),
+		PositionSide: strategy.Side,
+		Type:         "STOP_MARKET",
+		Price:        strategy.StopLossPrice,
+		Quantity:     quantity,
+		OrderID:      order.OrderID,
+		Status:       string(order.Status),
+		OrderPurpose: "stop_loss",
+	}
+
+	if err := cfg.DB.Create(&dbOrder).Error; err != nil {
+		log.Printf("保存止损订单失败: %v", err)
+	}
+
+	log.Printf("止损订单创建成功: OrderID=%d, StopPrice=%.8f", order.OrderID, strategy.StopLossPrice)
+}
+
+// monitorFuturesPositions 监控期货持仓
+func monitorFuturesPositions(cfg *config.Config) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// 获取所有开仓中的持仓
+		var positions []models.FuturesPosition
+		if err := cfg.DB.Where("status = ?", "open").Find(&positions).Error; err != nil {
+			continue
+		}
+
+		// 按用户分组
+		userPositions := make(map[uint][]models.FuturesPosition)
+		for _, pos := range positions {
+			userPositions[pos.UserID] = append(userPositions[pos.UserID], pos)
+		}
+
+		// 更新每个用户的持仓
+		for userID, userPos := range userPositions {
+			go updateUserPositions(cfg, userID, userPos)
+		}
+	}
+}
+
+// updateUserPositions 更新用户持仓
+func updateUserPositions(cfg *config.Config, userID uint, positions []models.FuturesPosition) {
+	// 获取用户信息
+	var user models.User
+	if err := cfg.DB.First(&user, userID).Error; err != nil {
+		return
+	}
+
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		return
+	}
+
+	client := binance.NewFuturesClient(apiKey, secretKey)
+
+	// 获取账户信息
+	account, err := client.NewGetAccountService().Do(context.Background())
+	if err != nil {
+		return
+	}
+
+	// 创建持仓映射
+	positionMap := make(map[string]*futures.AccountPosition)
+	for _, pos := range account.Positions {
+		key := pos.Symbol + "_" + string(pos.PositionSide)
+		positionMap[key] = pos // pos 已经是指针类型
+	}
+
+	// 更新本地持仓
+	for _, pos := range positions {
+		key := pos.Symbol + "_" + pos.PositionSide
+		if accPos, exists := positionMap[key]; exists {
+			// 更新持仓信息
+			unrealizedPnl, _ := strconv.ParseFloat(accPos.UnrealizedProfit, 64)
+
+			updates := map[string]interface{}{
+				"unrealized_pnl": unrealizedPnl,
+				"updated_at":     time.Now(),
+			}
+
+			cfg.DB.Model(&pos).Updates(updates)
+
+			// 检查是否已平仓
+			posAmt, _ := strconv.ParseFloat(accPos.PositionAmt, 64)
+			if posAmt == 0 {
+				// 持仓已平，更新状态
+				pos.Status = "closed"
+				now := time.Now()
+				pos.ClosedAt = &now
+				cfg.DB.Save(&pos)
+
+				// 更新策略状态
+				var strategy models.FuturesStrategy
+				if err := cfg.DB.First(&strategy, pos.StrategyID).Error; err == nil {
+					strategy.Status = "completed"
+					strategy.CompletedAt = &now
+					cfg.DB.Save(&strategy)
+				}
+			}
+		}
+	}
+}
+
+// checkFuturesOrders 检查期货订单状态
+func checkFuturesOrders(cfg *config.Config) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// 获取所有未完成的订单
+		var orders []models.FuturesOrder
+		if err := cfg.DB.Where("status IN ?", []string{"NEW", "PARTIALLY_FILLED"}).
+			Find(&orders).Error; err != nil {
+			continue
+		}
+
+		// 按用户分组
+		userOrders := make(map[uint][]models.FuturesOrder)
+		for _, order := range orders {
+			userOrders[order.UserID] = append(userOrders[order.UserID], order)
+		}
+
+		// 处理每个用户的订单
+		for userID, userOrderList := range userOrders {
+			go checkFuturesUserOrders(cfg, userID, userOrderList)
+		}
+	}
+}
+
+// checkFuturesUserOrders 检查用户订单（重命名以避免冲突）
+func checkFuturesUserOrders(cfg *config.Config, userID uint, orders []models.FuturesOrder) {
+	// 获取用户信息
+	var user models.User
+	if err := cfg.DB.First(&user, userID).Error; err != nil {
+		return
+	}
+
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		return
+	}
+
+	client := binance.NewFuturesClient(apiKey, secretKey)
+
+	// 批量查询订单
+	for _, order := range orders {
+		futuresOrder, err := client.NewGetOrderService().
+			Symbol(order.Symbol).
+			OrderID(order.OrderID).
+			Do(context.Background())
+
+		if err != nil {
+			continue
+		}
+
+		// 更新订单状态
+		execQty, _ := strconv.ParseFloat(futuresOrder.ExecutedQuantity, 64)
+		avgPrice, _ := strconv.ParseFloat(futuresOrder.AvgPrice, 64)
+
+		updates := map[string]interface{}{
+			"status":       string(futuresOrder.Status),
+			"executed_qty": execQty,
+			"avg_price":    avgPrice,
+			"updated_at":   time.Now(),
+		}
+
+		cfg.DB.Model(&order).Updates(updates)
+
+		// 如果是止盈或止损订单成交，更新相关记录
+		if futuresOrder.Status == futures.OrderStatusTypeFilled &&
+			(order.OrderPurpose == "take_profit" || order.OrderPurpose == "stop_loss") {
+
+			// 计算盈亏
+			var position models.FuturesPosition
+			if err := cfg.DB.Where("strategy_id = ? AND status = ?",
+				order.StrategyID, "open").First(&position).Error; err == nil {
+
+				// 计算已实现盈亏
+				var realizedPnl float64
+				if order.PositionSide == "LONG" {
+					realizedPnl = (avgPrice - position.EntryPrice) * execQty
+				} else {
+					realizedPnl = (position.EntryPrice - avgPrice) * execQty
+				}
+
+				// 更新持仓状态
+				position.RealizedPnl = realizedPnl
+				position.Status = "closed"
+				now := time.Now()
+				position.ClosedAt = &now
+				cfg.DB.Save(&position)
+
+				// 更新策略状态
+				var strategy models.FuturesStrategy
+				if err := cfg.DB.First(&strategy, order.StrategyID).Error; err == nil {
+					strategy.Status = "completed"
+					strategy.CompletedAt = &now
+					cfg.DB.Save(&strategy)
+
+					log.Printf("策略 %d 完成，盈亏: %.8f", strategy.ID, realizedPnl)
+				}
+			}
+		}
+	}
+}
+
+// Helper functions
+
+// setLeverage 设置杠杆
+func setLeverage(client *futures.Client, symbol string, leverage int) error {
+	_, err := client.NewChangeLeverageService().
+		Symbol(symbol).
+		Leverage(leverage).
+		Do(context.Background())
+	return err
+}
+
+// setMarginType 设置保证金模式
+func setMarginType(client *futures.Client, symbol string, marginType string) error {
+	err := client.NewChangeMarginTypeService().
+		Symbol(symbol).
+		MarginType(futures.MarginType(marginType)).
+		Do(context.Background())
+	return err
+}
+
+// updateStrategyStatus 更新策略状态
+func updateStrategyStatus(db *gorm.DB, strategy *models.FuturesStrategy, status string, reason string) {
+	updates := map[string]interface{}{
+		"status":     status,
+		"updated_at": time.Now(),
+	}
+
+	if status == "completed" || status == "cancelled" {
+		now := time.Now()
+		updates["completed_at"] = &now
+	}
+
+	db.Model(strategy).Updates(updates)
+
+	if reason != "" {
+		log.Printf("策略 %d 状态更新为 %s: %s", strategy.ID, status, reason)
+	}
+}
