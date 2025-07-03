@@ -192,12 +192,25 @@
               <div class="form-grid">
                 <div class="form-group">
                   <label>币种</label>
-                  <input
-                      v-model="newWithdrawal.asset"
-                      type="text"
-                      placeholder="例如: BTC, ETH, USDT"
-                      required
-                  />
+                  <select v-model="newWithdrawal.asset" @change="onAssetChange" required>
+                    <option value="">请选择币种</option>
+                    <option v-for="asset in supportedAssets" :key="asset" :value="asset">
+                      {{ asset }}
+                    </option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label>网络</label>
+                  <select v-model="newWithdrawal.network" @change="onNetworkChange" required :disabled="!newWithdrawal.asset">
+                    <option value="">{{ newWithdrawal.asset ? '请选择网络' : '请先选择币种' }}</option>
+                    <option v-for="network in availableNetworks" :key="network.value" :value="network.value">
+                      {{ network.label }} {{ network.fee ? `(手续费: ${network.fee})` : '' }}
+                    </option>
+                  </select>
+                  <small v-if="selectedNetworkInfo" class="form-hint network-info">
+                    最小提币金额: {{ selectedNetworkInfo.minAmount }}，网络手续费: {{ selectedNetworkInfo.fee }}
+                  </small>
                 </div>
 
                 <div class="form-group">
@@ -209,6 +222,9 @@
                       placeholder="余额超过此数量时触发"
                       required
                   />
+                  <small v-if="selectedNetworkInfo" class="form-hint">
+                    建议设置大于最小提币金额 {{ selectedNetworkInfo.minAmount }}
+                  </small>
                 </div>
 
                 <div class="form-group">
@@ -224,7 +240,7 @@
                   <small class="form-hint">设置为0将自动提取所有可用余额</small>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group form-group-wide">
                   <label>提币地址</label>
                   <input
                       v-model="newWithdrawal.address"
@@ -232,23 +248,36 @@
                       placeholder="目标钱包地址"
                       required
                   />
+                  <small v-if="newWithdrawal.network" class="form-hint">
+                    请确保地址与所选网络 ({{ getNetworkDisplayName(newWithdrawal.network) }}) 兼容
+                  </small>
                 </div>
               </div>
 
               <!-- 规则说明 -->
-              <div class="rule-description">
+              <div v-if="newWithdrawal.asset && newWithdrawal.network" class="rule-description">
                 <div class="description-card">
                   <div class="description-icon">💡</div>
                   <div class="description-content">
-                    <h4>自动提币规则说明</h4>
-                    <p>当您的 <strong>{{ newWithdrawal.asset || '[币种]' }}</strong> 余额超过 <strong>{{ newWithdrawal.threshold || '[阈值]' }}</strong> 时，系统将自动提取 <strong>{{ newWithdrawal.amount > 0 ? formatNumber(newWithdrawal.amount) : '最大可用金额' }}</strong> 到指定地址。</p>
-                    <small>⚠️ 提示：请确保提币地址正确，提币操作无法撤回。</small>
+                    <h4>自动提币规则预览</h4>
+                    <p>
+                      当您的 <strong>{{ newWithdrawal.asset }}</strong> 余额超过
+                      <strong>{{ newWithdrawal.threshold || '[阈值]' }}</strong> 时，
+                      系统将通过 <strong>{{ getNetworkDisplayName(newWithdrawal.network) }}</strong> 网络自动提取
+                      <strong>{{ newWithdrawal.amount > 0 ? formatNumber(newWithdrawal.amount) : '最大可用金额' }}</strong> 到指定地址。
+                    </p>
+                    <div v-if="selectedNetworkInfo" class="fee-info">
+                      <small>⚠️ 网络手续费: {{ selectedNetworkInfo.fee }}，实际到账金额会扣除手续费</small>
+                    </div>
+                    <div class="warning-info">
+                      <small>⚠️ 提示：请确保提币地址正确，提币操作无法撤回</small>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div class="form-actions">
-                <button type="submit" class="action-btn primary">
+                <button type="submit" class="action-btn primary" :disabled="!isFormValid">
                   创建规则
                 </button>
                 <button type="button" @click="resetWithdrawalForm" class="action-btn secondary">
@@ -275,9 +304,12 @@
                     <div class="asset-icon">🪙</div>
                     <div class="asset-info">
                       <h4>{{ rule.asset }}</h4>
-                      <span :class="['status-chip', rule.enabled ? 'enabled' : 'disabled']">
-                        {{ rule.enabled ? '启用' : '禁用' }}
-                      </span>
+                      <div class="asset-meta">
+                        <span class="network-chip">{{ getNetworkDisplayName(rule.network) }}</span>
+                        <span :class="['status-chip', rule.enabled ? 'enabled' : 'disabled']">
+                          {{ rule.enabled ? '启用' : '禁用' }}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <div class="rule-id">ID: {{ rule.id }}</div>
@@ -291,6 +323,10 @@
                   <div class="detail-item">
                     <span class="detail-label">提币金额</span>
                     <span class="detail-value">{{ rule.amount > 0 ? formatNumber(rule.amount) : '最大可用' }}</span>
+                  </div>
+                  <div class="detail-item">
+                    <span class="detail-label">网络</span>
+                    <span class="detail-value network">{{ getNetworkDisplayName(rule.network) }}</span>
                   </div>
                   <div class="detail-item">
                     <span class="detail-label">提币地址</span>
@@ -333,18 +369,99 @@ export default {
       showWithdrawalSection: true,
       newWithdrawal: {
         asset: '',
+        network: '',
         threshold: 0,
         amount: 0,
         address: '',
       },
       withdrawalRules: [],
       toastMessage: '',
-      toastType: 'success'
+      toastType: 'success',
+
+      // 网络相关数据
+      supportedAssets: [
+        'BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'ADA', 'DOT', 'SOL', 'MATIC', 'AVAX',
+        'TRX', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB', 'UNI', 'LINK', 'ATOM', 'FTM',
+        'NEAR', 'ALGO', 'VET', 'ICP', 'THETA', 'FIL', 'XTZ', 'EOS', 'AAVE', 'MKR',
+        'COMP', 'YFI', 'SNX', 'CRV', 'SUSHI', '1INCH', 'BAT', 'ZRX', 'ENJ', 'MANA',
+        'SAND', 'AXS', 'GALA', 'CHZ'
+      ],
+
+      // 币种网络映射
+      assetNetworks: {
+        'BTC': [
+          { value: 'BTC', label: 'BTC (原生网络)', fee: '0.0005 BTC', minAmount: '0.001 BTC' },
+          { value: 'BEP20', label: 'BEP20 (BSC)', fee: '0.0000035 BTC', minAmount: '0.0001 BTC' }
+        ],
+        'ETH': [
+          { value: 'ERC20', label: 'ERC20 (以太坊)', fee: '0.005 ETH', minAmount: '0.01 ETH' },
+          { value: 'BEP20', label: 'BEP20 (BSC)', fee: '0.0002 ETH', minAmount: '0.001 ETH' },
+          { value: 'ARBITRUM', label: 'Arbitrum One', fee: '0.0001 ETH', minAmount: '0.001 ETH' },
+          { value: 'POLYGON', label: 'Polygon', fee: '0.0001 ETH', minAmount: '0.001 ETH' }
+        ],
+        'USDT': [
+          { value: 'ERC20', label: 'ERC20 (以太坊)', fee: '25 USDT', minAmount: '10 USDT' },
+          { value: 'TRC20', label: 'TRC20 (TRON)', fee: '1 USDT', minAmount: '1 USDT' },
+          { value: 'BEP20', label: 'BEP20 (BSC)', fee: '0.8 USDT', minAmount: '1 USDT' },
+          { value: 'POLYGON', label: 'Polygon', fee: '0.8 USDT', minAmount: '1 USDT' },
+          { value: 'ARBITRUM', label: 'Arbitrum One', fee: '0.8 USDT', minAmount: '1 USDT' },
+          { value: 'OPTIMISM', label: 'Optimism', fee: '0.8 USDT', minAmount: '1 USDT' }
+        ],
+        'USDC': [
+          { value: 'ERC20', label: 'ERC20 (以太坊)', fee: '25 USDC', minAmount: '10 USDC' },
+          { value: 'TRC20', label: 'TRC20 (TRON)', fee: '1 USDC', minAmount: '1 USDC' },
+          { value: 'BEP20', label: 'BEP20 (BSC)', fee: '0.8 USDC', minAmount: '1 USDC' },
+          { value: 'POLYGON', label: 'Polygon', fee: '0.8 USDC', minAmount: '1 USDC' },
+          { value: 'ARBITRUM', label: 'Arbitrum One', fee: '0.1 USDC', minAmount: '1 USDC' }
+        ],
+        'BNB': [
+          { value: 'BEP20', label: 'BEP20 (BSC)', fee: '0.005 BNB', minAmount: '0.01 BNB' },
+          { value: 'BEP2', label: 'BEP2 (币安链)', fee: '0.00075 BNB', minAmount: '0.01 BNB' }
+        ],
+        'ADA': [
+          { value: 'ADA', label: 'Cardano', fee: '1 ADA', minAmount: '1 ADA' }
+        ],
+        'DOT': [
+          { value: 'DOT', label: 'Polkadot', fee: '0.1 DOT', minAmount: '1 DOT' }
+        ],
+        'SOL': [
+          { value: 'SOL', label: 'Solana', fee: '0.01 SOL', minAmount: '0.01 SOL' }
+        ],
+        'MATIC': [
+          { value: 'POLYGON', label: 'Polygon', fee: '0.01 MATIC', minAmount: '0.1 MATIC' },
+          { value: 'ERC20', label: 'ERC20 (以太坊)', fee: '15 MATIC', minAmount: '10 MATIC' }
+        ],
+        'AVAX': [
+          { value: 'AVAXC', label: 'Avalanche C-Chain', fee: '0.005 AVAX', minAmount: '0.01 AVAX' }
+        ],
+        'TRX': [
+          { value: 'TRC20', label: 'TRON', fee: '1 TRX', minAmount: '1 TRX' }
+        ]
+      }
     };
   },
   computed: {
     enabledRulesCount() {
       return this.withdrawalRules.filter(rule => rule.enabled).length;
+    },
+
+    availableNetworks() {
+      if (!this.newWithdrawal.asset) return [];
+      return this.assetNetworks[this.newWithdrawal.asset] || [];
+    },
+
+    selectedNetworkInfo() {
+      if (!this.newWithdrawal.asset || !this.newWithdrawal.network) return null;
+      const networks = this.assetNetworks[this.newWithdrawal.asset] || [];
+      return networks.find(network => network.value === this.newWithdrawal.network);
+    },
+
+    isFormValid() {
+      return this.newWithdrawal.asset &&
+          this.newWithdrawal.network &&
+          this.newWithdrawal.threshold > 0 &&
+          this.newWithdrawal.amount >= 0 &&
+          this.newWithdrawal.address.trim();
     }
   },
   async mounted() {
@@ -401,6 +518,29 @@ export default {
       return address.substring(0, 8) + '...' + address.substring(address.length - 8);
     },
 
+    getNetworkDisplayName(networkValue) {
+      // 查找所有币种的网络配置，找到对应的显示名称
+      for (const assetNetworks of Object.values(this.assetNetworks)) {
+        const network = assetNetworks.find(n => n.value === networkValue);
+        if (network) {
+          return network.label;
+        }
+      }
+      return networkValue;
+    },
+
+    onAssetChange() {
+      // 重置网络选择
+      this.newWithdrawal.network = '';
+    },
+
+    onNetworkChange() {
+      // 当网络改变时，可以添加额外的验证或提示
+      if (this.selectedNetworkInfo) {
+        console.log('选择的网络信息:', this.selectedNetworkInfo);
+      }
+    },
+
     resetApiForm() {
       this.newAPIKey = '';
       this.newSecretKey = '';
@@ -410,6 +550,7 @@ export default {
     resetWithdrawalForm() {
       this.newWithdrawal = {
         asset: '',
+        network: '',
         threshold: 0,
         amount: 0,
         address: '',
@@ -483,7 +624,7 @@ export default {
         const errorMsg = err.response?.data?.details || err.response?.data?.error || '保存 API 密钥失败';
         this.showToast(errorMsg, 'error');
       }
-    },  // 注意这里需要逗号
+    },
 
     async deleteAPIKey() {
       if (!window.confirm('确定要删除 API 密钥吗？删除后将无法进行交易操作。')) {
@@ -506,11 +647,28 @@ export default {
     },
 
     async createWithdrawalRule() {
-      const { asset, threshold, amount, address } = this.newWithdrawal;
+      const { asset, network, threshold, amount, address } = this.newWithdrawal;
 
-      if (!asset.trim() || threshold <= 0 || amount < 0 || !address.trim()) {
+      if (!asset.trim() || !network.trim() || threshold <= 0 || amount < 0 || !address.trim()) {
         this.showToast('请填写所有必需字段，阈值必须大于0，金额不能为负数', 'error');
         return;
+      }
+
+      // 验证网络兼容性
+      const availableNetworks = this.assetNetworks[asset] || [];
+      const isValidNetwork = availableNetworks.some(n => n.value === network);
+      if (!isValidNetwork) {
+        this.showToast(`币种 ${asset} 不支持 ${network} 网络`, 'error');
+        return;
+      }
+
+      // 验证最小提币金额
+      if (this.selectedNetworkInfo && amount > 0) {
+        const minAmount = parseFloat(this.selectedNetworkInfo.minAmount.split(' ')[0]);
+        if (amount < minAmount) {
+          this.showToast(`提币金额不能小于最小提币金额 ${this.selectedNetworkInfo.minAmount}`, 'error');
+          return;
+        }
       }
 
       try {
@@ -518,6 +676,7 @@ export default {
             '/withdrawals',
             {
               asset: asset.toUpperCase(),
+              network: network,
               threshold: Number(threshold),
               amount: Number(amount),
               address: address,
@@ -930,13 +1089,18 @@ export default {
   gap: 0.5rem;
 }
 
+.form-group.form-group-wide {
+  grid-column: 1 / -1;
+}
+
 .form-group label {
   font-weight: 500;
   color: #475569;
   font-size: 0.875rem;
 }
 
-.form-group input {
+.form-group input,
+.form-group select {
   padding: 0.625rem 0.875rem;
   background: #ffffff;
   border: 1px solid #e2e8f0;
@@ -946,7 +1110,8 @@ export default {
   transition: all 0.2s;
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group select:focus {
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
@@ -954,6 +1119,12 @@ export default {
 
 .form-group input::placeholder {
   color: #94a3b8;
+}
+
+.form-group select:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .password-input {
@@ -990,6 +1161,11 @@ export default {
   margin-top: 0.25rem;
 }
 
+.form-hint.network-info {
+  color: #059669;
+  font-weight: 500;
+}
+
 /* 规则说明 */
 .rule-description {
   margin: 1.5rem 0;
@@ -1023,7 +1199,16 @@ export default {
   line-height: 1.5;
 }
 
-.description-content small {
+.fee-info {
+  margin: 0.5rem 0;
+}
+
+.fee-info small {
+  color: #059669;
+  font-size: 0.75rem;
+}
+
+.warning-info small {
   color: #92400e;
   font-size: 0.75rem;
 }
@@ -1045,12 +1230,17 @@ export default {
   flex: 1;
 }
 
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .action-btn.primary {
   background: #2563eb;
   color: white;
 }
 
-.action-btn.primary:hover {
+.action-btn.primary:hover:not(:disabled) {
   background: #1d4ed8;
 }
 
@@ -1140,15 +1330,33 @@ export default {
 }
 
 .asset-info h4 {
-  margin: 0 0 0.25rem 0;
+  margin: 0 0 0.5rem 0;
   color: #0f172a;
   font-size: 1.125rem;
   font-weight: 600;
 }
 
+.asset-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .rule-id {
   color: #94a3b8;
   font-size: 0.75rem;
+}
+
+/* 网络标签 */
+.network-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 /* 状态标签 */
@@ -1201,6 +1409,11 @@ export default {
   color: #2563eb;
 }
 
+.detail-value.network {
+  color: #3730a3;
+  font-weight: 600;
+}
+
 /* 规则操作 */
 .rule-actions {
   display: flex;
@@ -1241,6 +1454,12 @@ export default {
     left: 1rem;
     right: 1rem;
     bottom: 1rem;
+  }
+
+  .asset-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
   }
 }
 </style>

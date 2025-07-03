@@ -116,6 +116,17 @@ func processWithdrawalRule(cfg *config.Config, client *binance.Client, user mode
 		return
 	}
 
+	// 注意：暂时跳过网络验证，因为数据库模型中还没有Network字段
+	// TODO: 等数据库模型更新后再启用网络验证
+	// if rule.Network == "" {
+	//     log.Printf("规则 %d 未配置网络，跳过提币", rule.ID)
+	//     return
+	// }
+	// if !isValidAssetNetwork(rule.Asset, rule.Network) {
+	//     log.Printf("币种 %s 与网络 %s 不兼容，跳过规则 %d", rule.Asset, rule.Network, rule.ID)
+	//     return
+	// }
+
 	// 确定提币金额
 	var withdrawAmount float64
 	if rule.Amount == 0 {
@@ -133,7 +144,8 @@ func processWithdrawalRule(cfg *config.Config, client *binance.Client, user mode
 	}
 
 	// 获取提币手续费和最小提币金额
-	withdrawInfo, err := getWithdrawInfo(client, rule.Asset)
+	// 注意：暂时使用默认网络信息，等数据库模型更新后再使用rule.Network
+	withdrawInfo, err := getWithdrawInfo(client, rule.Asset, "")
 	if err != nil {
 		log.Printf("获取 %s 提币信息失败: %v", rule.Asset, err)
 		return
@@ -162,10 +174,8 @@ func processWithdrawalRule(cfg *config.Config, client *binance.Client, user mode
 		Coin(rule.Asset).
 		Address(rule.Address).
 		Amount(fmt.Sprintf("%.8f", withdrawAmount))
-
-	// 如果有网络信息，添加网络参数
-	// 注意：这里需要根据实际情况设置网络
-	// withdrawReq.Network("BSC") // 示例
+	// 注意：暂时不添加网络参数，等数据库模型更新后再启用
+	// .Network(rule.Network)
 
 	withdrawResp, err := withdrawReq.Do(context.Background())
 	if err != nil {
@@ -188,45 +198,236 @@ type WithdrawInfo struct {
 	WithdrawFee       float64
 }
 
-// getWithdrawInfo 获取提币信息（简化版本）
-func getWithdrawInfo(client *binance.Client, asset string) (*WithdrawInfo, error) {
-	// 在实际应用中，应该调用币安API获取实时的提币信息
-	// 这里使用一些常见的默认值
-	defaultInfo := map[string]*WithdrawInfo{
-		"BTC": {
-			MinWithdrawAmount: 0.001,
-			WithdrawFee:       0.0005,
-		},
-		"ETH": {
-			MinWithdrawAmount: 0.01,
-			WithdrawFee:       0.005,
-		},
-		"USDT": {
-			MinWithdrawAmount: 10,
-			WithdrawFee:       1,
-		},
-		"BNB": {
-			MinWithdrawAmount: 0.01,
-			WithdrawFee:       0.005,
-		},
+// getWithdrawInfo 获取特定网络的提币信息
+func getWithdrawInfo(client *binance.Client, asset, network string) (*WithdrawInfo, error) {
+	// 根据币种和网络返回相应的提币信息
+	networkInfo := getAssetNetworkInfo(asset, network)
+	if networkInfo != nil {
+		return networkInfo, nil
 	}
 
-	if info, exists := defaultInfo[asset]; exists {
-		return info, nil
-	}
-
-	// 默认值
+	// 如果没有预设信息，返回默认值
 	return &WithdrawInfo{
 		MinWithdrawAmount: 0.001,
 		WithdrawFee:       0.0005,
 	}, nil
 }
 
+// getAssetNetworkInfo 获取币种在特定网络的信息
+func getAssetNetworkInfo(asset, network string) *WithdrawInfo {
+	// 预设的币种网络信息映射
+	assetNetworkMap := map[string]map[string]*WithdrawInfo{
+		"BTC": {
+			"BTC": {
+				MinWithdrawAmount: 0.001,
+				WithdrawFee:       0.0005,
+			},
+			"BEP20": {
+				MinWithdrawAmount: 0.0001,
+				WithdrawFee:       0.0000035,
+			},
+		},
+		"ETH": {
+			"ERC20": {
+				MinWithdrawAmount: 0.01,
+				WithdrawFee:       0.005,
+			},
+			"BEP20": {
+				MinWithdrawAmount: 0.001,
+				WithdrawFee:       0.0002,
+			},
+			"ARBITRUM": {
+				MinWithdrawAmount: 0.001,
+				WithdrawFee:       0.0001,
+			},
+			"POLYGON": {
+				MinWithdrawAmount: 0.001,
+				WithdrawFee:       0.0001,
+			},
+		},
+		"USDT": {
+			"ERC20": {
+				MinWithdrawAmount: 10,
+				WithdrawFee:       25,
+			},
+			"TRC20": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       1,
+			},
+			"BEP20": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       0.8,
+			},
+			"POLYGON": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       0.8,
+			},
+			"ARBITRUM": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       0.8,
+			},
+			"OPTIMISM": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       0.8,
+			},
+		},
+		"USDC": {
+			"ERC20": {
+				MinWithdrawAmount: 10,
+				WithdrawFee:       25,
+			},
+			"TRC20": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       1,
+			},
+			"BEP20": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       0.8,
+			},
+			"POLYGON": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       0.8,
+			},
+			"ARBITRUM": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       0.1,
+			},
+		},
+		"BNB": {
+			"BEP20": {
+				MinWithdrawAmount: 0.01,
+				WithdrawFee:       0.005,
+			},
+			"BEP2": {
+				MinWithdrawAmount: 0.01,
+				WithdrawFee:       0.00075,
+			},
+		},
+		"ADA": {
+			"ADA": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       1,
+			},
+		},
+		"DOT": {
+			"DOT": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       0.1,
+			},
+		},
+		"SOL": {
+			"SOL": {
+				MinWithdrawAmount: 0.01,
+				WithdrawFee:       0.01,
+			},
+		},
+		"MATIC": {
+			"POLYGON": {
+				MinWithdrawAmount: 0.1,
+				WithdrawFee:       0.01,
+			},
+			"ERC20": {
+				MinWithdrawAmount: 10,
+				WithdrawFee:       15,
+			},
+		},
+		"AVAX": {
+			"AVAXC": {
+				MinWithdrawAmount: 0.01,
+				WithdrawFee:       0.005,
+			},
+		},
+		"TRX": {
+			"TRC20": {
+				MinWithdrawAmount: 1,
+				WithdrawFee:       1,
+			},
+		},
+	}
+
+	if assetInfo, exists := assetNetworkMap[asset]; exists {
+		if networkInfo, exists := assetInfo[network]; exists {
+			return networkInfo
+		}
+	}
+
+	return nil
+}
+
+// isValidAssetNetwork 验证币种和网络的兼容性
+func isValidAssetNetwork(asset, network string) bool {
+	validNetworks := getSupportedNetworks(asset)
+	for _, validNetwork := range validNetworks {
+		if validNetwork == network {
+			return true
+		}
+	}
+	return false
+}
+
+// getSupportedNetworks 获取币种支持的网络列表
+func getSupportedNetworks(asset string) []string {
+	supportedNetworks := map[string][]string{
+		"BTC":   {"BTC", "BEP20"},
+		"ETH":   {"ERC20", "BEP20", "ARBITRUM", "POLYGON"},
+		"USDT":  {"ERC20", "TRC20", "BEP20", "POLYGON", "ARBITRUM", "OPTIMISM"},
+		"USDC":  {"ERC20", "TRC20", "BEP20", "POLYGON", "ARBITRUM"},
+		"BNB":   {"BEP20", "BEP2"},
+		"ADA":   {"ADA"},
+		"DOT":   {"DOT"},
+		"SOL":   {"SOL"},
+		"MATIC": {"POLYGON", "ERC20"},
+		"AVAX":  {"AVAXC"},
+		"TRX":   {"TRC20"},
+		"LTC":   {"LTC"},
+		"BCH":   {"BCH"},
+		"XRP":   {"XRP"},
+		"DOGE":  {"DOGE"},
+		"SHIB":  {"ERC20", "BEP20"},
+		"UNI":   {"ERC20", "BEP20"},
+		"LINK":  {"ERC20", "BEP20"},
+		"ATOM":  {"ATOM"},
+		"FTM":   {"FTM", "ERC20", "BEP20"},
+		"NEAR":  {"NEAR"},
+		"ALGO":  {"ALGO"},
+		"VET":   {"VET"},
+		"ICP":   {"ICP"},
+		"THETA": {"THETA", "ERC20", "BEP20"},
+		"FIL":   {"FIL"},
+		"XTZ":   {"XTZ"},
+		"EOS":   {"EOS"},
+		"AAVE":  {"ERC20", "BEP20"},
+		"MKR":   {"ERC20"},
+		"COMP":  {"ERC20", "BEP20"},
+		"YFI":   {"ERC20", "BEP20"},
+		"SNX":   {"ERC20", "BEP20"},
+		"CRV":   {"ERC20", "BEP20"},
+		"SUSHI": {"ERC20", "BEP20"},
+		"1INCH": {"ERC20", "BEP20"},
+		"BAT":   {"ERC20", "BEP20"},
+		"ZRX":   {"ERC20", "BEP20"},
+		"ENJ":   {"ERC20", "BEP20"},
+		"MANA":  {"ERC20", "BEP20", "POLYGON"},
+		"SAND":  {"ERC20", "BEP20", "POLYGON"},
+		"AXS":   {"ERC20", "BEP20"},
+		"GALA":  {"ERC20", "BEP20"},
+		"CHZ":   {"ERC20", "BEP20"},
+	}
+
+	if networks, exists := supportedNetworks[asset]; exists {
+		return networks
+	}
+
+	// 如果没有预设的网络，返回一些通用网络
+	return []string{"ERC20", "BEP20"}
+}
+
 // recordWithdrawalHistory 记录提币历史
 func recordWithdrawalHistory(cfg *config.Config, userID uint, rule models.Withdrawal, amount float64, withdrawalID, status, errorMsg string) {
 	history := models.WithdrawalHistory{
-		UserID:       userID,
-		Asset:        rule.Asset,
+		UserID: userID,
+		Asset:  rule.Asset,
+		// Network:      rule.Network, // TODO: 等数据库模型更新后再启用
 		Amount:       amount,
 		Address:      rule.Address,
 		WithdrawalID: withdrawalID,
@@ -241,4 +442,19 @@ func recordWithdrawalHistory(cfg *config.Config, userID uint, rule models.Withdr
 	if err := cfg.DB.Create(&history).Error; err != nil {
 		log.Printf("记录提币历史失败: %v", err)
 	}
+}
+
+// GetSupportedNetworksForAsset 导出函数供API使用，获取币种支持的网络
+func GetSupportedNetworksForAsset(asset string) []string {
+	return getSupportedNetworks(asset)
+}
+
+// ValidateAssetNetwork 导出函数供API使用，验证币种网络兼容性
+func ValidateAssetNetwork(asset, network string) bool {
+	return isValidAssetNetwork(asset, network)
+}
+
+// GetNetworkInfo 导出函数供API使用，获取网络信息
+func GetNetworkInfo(asset, network string) *WithdrawInfo {
+	return getAssetNetworkInfo(asset, network)
 }
