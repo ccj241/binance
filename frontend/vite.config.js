@@ -96,6 +96,10 @@ export default defineConfig({
         target: 'http://binance-backend:23337',
         changeOrigin: true,
       },
+      '/futures': {
+        target: 'http://binance-backend:23337',
+        changeOrigin: true,
+      },
     },
   },
   build: {
