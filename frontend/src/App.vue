@@ -31,6 +31,11 @@
             <span class="nav-text">双币投资</span>
           </router-link>
 
+          <router-link to="/futures" class="nav-link">
+            <span class="nav-icon">📈</span>
+            <span class="nav-text">永续期货</span>
+          </router-link>
+
           <router-link v-if="isAdmin" to="/admin" class="nav-link">
             <span class="nav-icon">👤</span>
             <span class="nav-text">管理</span>

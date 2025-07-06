@@ -10,6 +10,7 @@ const Register = () => import('./views/Register.vue');
 const Admin = () => import('./views/Admin.vue');
 const AutoWithdrawal = () => import('./views/AutoWithdrawal.vue');
 const DualInvestment = () => import('./views/DualInvestment.vue');
+const Futures = () => import('./views/Futures.vue');
 
 // 路由配置
 const routes = [
@@ -57,6 +58,15 @@ const routes = [
         meta: {
             requiresAuth: true,
             title: '双币投资'
+        }
+    },
+    {
+        path: '/futures',
+        name: 'Futures',
+        component: Futures,
+        meta: {
+            requiresAuth: true,
+            title: '永续期货'
         }
     },
     {

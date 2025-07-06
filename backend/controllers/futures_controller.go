@@ -43,7 +43,7 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 
 	// 设置默认保证金类型
 	if req.MarginType == "" {
-		req.MarginType = "ISOLATED"
+		req.MarginType = "CROSSED" // 默认改为全仓
 	}
 
 	// 创建策略
