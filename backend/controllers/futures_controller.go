@@ -24,16 +24,16 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
 	var req struct {
-		StrategyName   string  `json:"strategyName" binding:"required"`
-		Symbol         string  `json:"symbol" binding:"required"`
-		Side           string  `json:"side" binding:"required,oneof=LONG SHORT"`
-		BasePrice      float64 `json:"basePrice" binding:"required,gt=0"`
-		EntryPrice     float64 `json:"entryPrice" binding:"required,gt=0"`
-		Leverage       int     `json:"leverage" binding:"required,min=1,max=125"`
-		Quantity       float64 `json:"quantity" binding:"required,gt=0"`
-		TakeProfitRate float64 `json:"takeProfitRate" binding:"required,gt=0"`
-		StopLossRate   float64 `json:"stopLossRate" binding:"min=0"` // 可选
-		MarginType     string  `json:"marginType" binding:"omitempty,oneof=ISOLATED CROSSED"`
+		StrategyName    string  `json:"strategyName" binding:"required"`
+		Symbol          string  `json:"symbol" binding:"required"`
+		Side            string  `json:"side" binding:"required,oneof=LONG SHORT"`
+		BasePrice       float64 `json:"basePrice" binding:"required,gt=0"`
+		EntryPriceFloat float64 `json:"entryPriceFloat" binding:"required,min=0"` // 开仓价格浮动千分比
+		Leverage        int     `json:"leverage" binding:"required,min=1,max=125"`
+		Quantity        float64 `json:"quantity" binding:"required,gt=0"` // 这里接收的是合约数量（前端已转换）
+		TakeProfitRate  float64 `json:"takeProfitRate" binding:"required,gt=0"`
+		StopLossRate    float64 `json:"stopLossRate" binding:"min=0"` // 可选
+		MarginType      string  `json:"marginType" binding:"omitempty,oneof=ISOLATED CROSSED"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -48,24 +48,23 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 
 	// 创建策略
 	strategy := models.FuturesStrategy{
-		UserID:         userID.(uint),
-		StrategyName:   req.StrategyName,
-		Symbol:         req.Symbol,
-		Side:           req.Side,
-		BasePrice:      req.BasePrice,
-		EntryPrice:     req.EntryPrice,
-		Leverage:       req.Leverage,
-		Quantity:       req.Quantity,
-		TakeProfitRate: req.TakeProfitRate,
-		StopLossRate:   req.StopLossRate,
-		MarginType:     req.MarginType,
-		Enabled:        true,
-		Status:         "waiting",
+		UserID:          userID.(uint),
+		StrategyName:    req.StrategyName,
+		Symbol:          req.Symbol,
+		Side:            req.Side,
+		BasePrice:       req.BasePrice,
+		EntryPrice:      0, // 开仓价格将在触发时计算
+		EntryPriceFloat: req.EntryPriceFloat,
+		Leverage:        req.Leverage,
+		Quantity:        req.Quantity,
+		TakeProfitRate:  req.TakeProfitRate,
+		StopLossRate:    req.StopLossRate,
+		MarginType:      req.MarginType,
+		Enabled:         true,
+		Status:          "waiting",
 	}
 
-	// 计算止盈止损价格
-	strategy.CalculateTakeProfitPrice()
-	strategy.CalculateStopLossPrice()
+	// 暂时不计算止盈止损价格，将在触发时根据实际开仓价格计算
 
 	if err := ctrl.Config.DB.Create(&strategy).Error; err != nil {
 		log.Printf("创建永续期货策略失败: %v", err)
@@ -123,12 +122,12 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 
 	// 允许更新的字段
 	allowedFields := map[string]bool{
-		"enabled":        true,
-		"basePrice":      true,
-		"entryPrice":     true,
-		"quantity":       true,
-		"takeProfitRate": true,
-		"stopLossRate":   true,
+		"enabled":         true,
+		"basePrice":       true,
+		"entryPriceFloat": true,
+		"quantity":        true,
+		"takeProfitRate":  true,
+		"stopLossRate":    true,
 	}
 
 	updates := make(map[string]interface{})
@@ -138,45 +137,11 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 		}
 	}
 
-	// 如果更新了价格相关字段，重新计算止盈止损价格
-	needRecalculate := false
-	if _, ok := updates["entryPrice"]; ok {
-		needRecalculate = true
-	}
-	if _, ok := updates["takeProfitRate"]; ok {
-		needRecalculate = true
-	}
-	if _, ok := updates["stopLossRate"]; ok {
-		needRecalculate = true
-	}
-
-	if needRecalculate {
-		// 先更新字段
-		if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
-			return
-		}
-
-		// 重新加载策略
-		ctrl.Config.DB.First(&strategy, strategyID)
-
-		// 重新计算价格
-		strategy.CalculateTakeProfitPrice()
-		strategy.CalculateStopLossPrice()
-
-		// 保存计算后的价格
-		ctrl.Config.DB.Model(&strategy).Updates(map[string]interface{}{
-			"take_profit_price": strategy.TakeProfitPrice,
-			"stop_loss_price":   strategy.StopLossPrice,
-			"updated_at":        time.Now(),
-		})
-	} else {
-		// 直接更新
-		updates["updated_at"] = time.Now()
-		if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
-			return
-		}
+	// 直接更新，止盈止损价格将在触发时计算
+	updates["updated_at"] = time.Now()
+	if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
+		return
 	}
 
 	// 重新查询更新后的策略
@@ -381,7 +346,7 @@ func (ctrl *FuturesController) closePosition(user models.User, strategy *models.
 	var position *futures.PositionRisk
 	for _, pos := range positions {
 		if string(pos.PositionSide) == strategy.Side {
-			position = pos // pos 已经是指针类型
+			position = pos
 			break
 		}
 	}
@@ -469,7 +434,7 @@ func (ctrl *FuturesController) updatePositionsRealtime(userID uint, positions []
 	positionMap := make(map[string]*futures.PositionRisk)
 	for _, pos := range riskPositions {
 		key := pos.Symbol + "_" + string(pos.PositionSide)
-		positionMap[key] = pos // pos 已经是指针类型
+		positionMap[key] = pos
 	}
 
 	// 更新本地持仓数据

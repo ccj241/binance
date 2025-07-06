@@ -112,8 +112,8 @@
                 <span class="detail-value highlight">{{ formatPrice(strategy.basePrice) }}</span>
               </div>
               <div class="detail-item">
-                <span class="detail-label">开仓价格</span>
-                <span class="detail-value">{{ formatPrice(strategy.entryPrice) }}</span>
+                <span class="detail-label">开仓价格浮动</span>
+                <span class="detail-value">{{ strategy.entryPriceFloat }}‰</span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">数量</span>
@@ -293,7 +293,6 @@
                     step="0.00000001"
                     placeholder="价格达到此值时触发"
                     class="form-control"
-                    @input="calculateEntryPrice"
                     required
                 />
               </div>
@@ -302,7 +301,7 @@
                 <label class="form-label">
                   开仓价格浮动 (‰)
                   <span class="form-hint">
-                    {{ strategyForm.side === 'LONG' ? '向下浮动' : '向上浮动' }}
+                    {{ strategyForm.side === 'LONG' ? '低于买1价' : '高于卖1价' }}的浮动千分比
                   </span>
                 </label>
                 <input
@@ -312,11 +311,14 @@
                     min="0"
                     placeholder="千分之几"
                     class="form-control"
-                    @input="calculateEntryPrice"
                     required
                 />
-                <div class="calculated-price" v-if="strategyForm.entryPrice > 0">
-                  计算后价格: {{ formatPrice(strategyForm.entryPrice) }}
+                <div class="calculated-price-hint" v-if="strategyForm.entryPriceFloat > 0">
+                  {{ strategyForm.side === 'LONG' ? '买1价 × ' : '卖1价 × ' }}
+                  {{ strategyForm.side === 'LONG'
+                    ? (1 - strategyForm.entryPriceFloat / 1000).toFixed(4)
+                    : (1 + strategyForm.entryPriceFloat / 1000).toFixed(4)
+                  }}
                 </div>
               </div>
 
@@ -381,7 +383,7 @@
             </div>
 
             <!-- 策略预览 -->
-            <div v-if="strategyForm.entryPrice > 0 && strategyForm.quantity > 0" class="strategy-preview">
+            <div v-if="strategyForm.basePrice > 0 && strategyForm.quantity > 0" class="strategy-preview">
               <h4 class="preview-title">策略预览</h4>
               <div class="preview-grid">
                 <div class="preview-item">
@@ -391,9 +393,9 @@
                   </span>
                 </div>
                 <div class="preview-item">
-                  <span class="preview-label">合约数量</span>
+                  <span class="preview-label">预计合约数量</span>
                   <span class="preview-value">
-                    {{ calculateContractQuantity() }} {{ getContractUnit() }}
+                    ~{{ calculateEstimatedContractQuantity() }} {{ getContractUnit() }}
                   </span>
                 </div>
                 <div class="preview-item">
@@ -426,10 +428,17 @@
                     {{ formatCurrency(calculateCloseFee()) }} (0.04%)
                   </span>
                 </div>
-                <div class="preview-item full-width">
+                <div class="preview-item">
                   <span class="preview-label">总手续费</span>
                   <span class="preview-value">
                     {{ formatCurrency(calculateTotalFee()) }}
+                  </span>
+                </div>
+                <div class="preview-item full-width">
+                  <span class="preview-label">预计净收益</span>
+                  <span class="preview-value" :class="calculateNetProfit() >= 0 ? 'success' : 'danger'">
+                    {{ calculateNetProfit() >= 0 ? '+' : '' }}{{ formatCurrency(calculateNetProfit()) }}
+                    ({{ calculateNetProfitRate() }}%)
                   </span>
                 </div>
               </div>
@@ -560,8 +569,8 @@ export default {
         symbol: '',
         side: '',
         basePrice: 0,
-        entryPrice: 0,
-        entryPriceFloat: 0, // 新增：开仓价格浮动千分比
+        entryPrice: 0, // 这个字段后端不再使用，仅用于编辑时显示
+        entryPriceFloat: 0, // 开仓价格浮动千分比
         leverage: 1,
         quantity: 0,
         takeProfitRate: 0,
@@ -651,15 +660,19 @@ export default {
     async submitStrategy() {
       if (this.isSubmitting) return;
 
-      // 计算实际的合约数量
-      const contractQuantity = this.calculateContractQuantity();
+      // 计算实际的合约数量（这只是预估，实际数量会在触发时根据实时价格计算）
+      const estimatedContractQuantity = this.calculateEstimatedContractQuantity();
 
       const submitData = {
         ...this.strategyForm,
-        quantity: parseFloat(contractQuantity), // 转换为合约数量
+        quantity: parseFloat(estimatedContractQuantity), // 转换为预估合约数量
         takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
-        stopLossRate: this.strategyForm.stopLossRate / 10 // 千分比转换为百分比
+        stopLossRate: this.strategyForm.stopLossRate / 10, // 千分比转换为百分比
+        entryPrice: 0 // 开仓价格设为0，将在触发时根据实时买卖价计算
       };
+
+      // 删除不需要的字段
+      delete submitData.entryPrice;
 
       this.isSubmitting = true;
       try {
@@ -728,7 +741,7 @@ export default {
         side: strategy.side,
         basePrice: strategy.basePrice,
         entryPrice: strategy.entryPrice,
-        entryPriceFloat: 0, // 编辑时需要重新计算
+        entryPriceFloat: strategy.entryPriceFloat || 0,
         leverage: strategy.leverage,
         quantity: strategy.quantity,
         takeProfitRate: strategy.takeProfitRate * 10, // 百分比转换为千分比
@@ -766,29 +779,17 @@ export default {
       };
     },
 
-    // 根据触发价格和浮动千分比计算开仓价格
-    calculateEntryPrice() {
-      const { basePrice, entryPriceFloat, side } = this.strategyForm;
-      if (!basePrice || !entryPriceFloat) {
-        this.strategyForm.entryPrice = basePrice || 0;
-        return;
-      }
-
-      const floatRate = entryPriceFloat / 1000; // 千分比转小数
-      if (side === 'LONG') {
-        // 做多：向下浮动
-        this.strategyForm.entryPrice = basePrice * (1 - floatRate);
-      } else if (side === 'SHORT') {
-        // 做空：向上浮动
-        this.strategyForm.entryPrice = basePrice * (1 + floatRate);
-      }
+    // 计算预估合约数量（基于触发价格的估算）
+    calculateEstimatedContractQuantity() {
+      const { quantity, basePrice } = this.strategyForm;
+      if (!quantity || !basePrice) return '0';
+      return (quantity / basePrice).toFixed(8).replace(/\.?0+$/, '');
     },
 
-    // 计算合约数量
+    // 计算实际合约数量（将在触发时使用实际的买卖价）
     calculateContractQuantity() {
-      const { quantity, entryPrice } = this.strategyForm;
-      if (!quantity || !entryPrice) return '0';
-      return (quantity / entryPrice).toFixed(8).replace(/\.?0+$/, '');
+      // 这个方法保留用于显示，但实际计算将在触发时进行
+      return this.calculateEstimatedContractQuantity();
     },
 
     // 获取合约单位
@@ -826,30 +827,60 @@ export default {
       return this.calculateOpenFee() + this.calculateCloseFee();
     },
 
+    // 计算净收益
+    calculateNetProfit() {
+      const { quantity, takeProfitRate, side } = this.strategyForm;
+      if (!quantity || !takeProfitRate) return 0;
+
+      const profitRate = takeProfitRate / 1000;
+      let grossProfit;
+
+      if (side === 'LONG') {
+        grossProfit = quantity * profitRate;
+      } else {
+        grossProfit = quantity * profitRate;
+      }
+
+      // 扣除手续费
+      return grossProfit - this.calculateTotalFee();
+    },
+
+    // 计算净收益率
+    calculateNetProfitRate() {
+      const { quantity } = this.strategyForm;
+      if (!quantity) return '0.00';
+
+      const netProfit = this.calculateNetProfit();
+      const rate = (netProfit / quantity) * 100;
+      return rate.toFixed(2);
+    },
+
     calculateTakeProfitPrice() {
-      const { entryPrice, takeProfitRate, side } = this.strategyForm;
-      if (!entryPrice || !takeProfitRate) return '-';
+      const { basePrice, takeProfitRate, side } = this.strategyForm;
+      if (!basePrice || !takeProfitRate) return '-';
 
       const feeRate = 0.0004 * 2; // 开仓+平仓手续费
       const profitRate = takeProfitRate / 1000; // 千分比转小数
 
+      // 基于触发价格估算（实际将根据开仓价格计算）
       if (side === 'LONG') {
-        return this.formatPrice(entryPrice * (1 + profitRate + feeRate));
+        return this.formatPrice(basePrice * (1 + profitRate + feeRate));
       } else {
-        return this.formatPrice(entryPrice * (1 - profitRate - feeRate));
+        return this.formatPrice(basePrice * (1 - profitRate - feeRate));
       }
     },
 
     calculateStopLossPrice() {
-      const { entryPrice, stopLossRate, side } = this.strategyForm;
-      if (!entryPrice || !stopLossRate) return '-';
+      const { basePrice, stopLossRate, side } = this.strategyForm;
+      if (!basePrice || !stopLossRate) return '-';
 
       const lossRate = stopLossRate / 1000; // 千分比转小数
 
+      // 基于触发价格估算（实际将根据开仓价格计算）
       if (side === 'LONG') {
-        return this.formatPrice(entryPrice * (1 - lossRate));
+        return this.formatPrice(basePrice * (1 - lossRate));
       } else {
-        return this.formatPrice(entryPrice * (1 + lossRate));
+        return this.formatPrice(basePrice * (1 + lossRate));
       }
     },
 
@@ -941,7 +972,25 @@ export default {
 </script>
 
 <style scoped>
-/* 复用原有样式，添加新样式 */
+/* 原有样式保持不变，新增以下样式 */
+
+/* 计算后价格提示 */
+.calculated-price-hint {
+  font-size: 0.75rem;
+  color: var(--color-primary);
+  margin-top: 0.25rem;
+  font-weight: 500;
+}
+
+/* 预览项目全宽 */
+.preview-item.full-width {
+  grid-column: 1 / -1;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  margin-top: 0.5rem;
+}
+
+/* 其他样式保持原样... */
 .futures-container {
   max-width: 1400px;
   margin: 0 auto;
@@ -1418,10 +1467,6 @@ input:disabled + .slider {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-}
-
-.preview-item.full-width {
-  grid-column: 1 / -1;
 }
 
 .preview-label {
