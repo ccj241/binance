@@ -524,7 +524,6 @@ export default {
     },
 
     updateStatistics() {
-      // 计算24小时交易量
       const now = Date.now();
       const dayAgo = now - 24 * 60 * 60 * 1000;
 
@@ -534,35 +533,46 @@ export default {
       for (const trade of this.trades) {
         const tradeTime = trade.time || new Date(trade.createdAt).getTime();
         if (tradeTime >= dayAgo) {
-          volume += trade.price * trade.qty;
+          // 确保价格和数量是数字
+          const price = parseFloat(trade.price) || 0;
+          const qty = parseFloat(trade.qty) || 0;
+          volume += price * qty;
           count++;
         }
       }
 
       this.volume24h = volume;
       this.tradesCount24h = count;
+
+      // 更新其他统计数据
+      this.activeTradesCount = this.trades.filter(t => t.status === 'NEW' || t.status === 'PARTIALLY_FILLED').length;
+      this.pendingOrdersCount = this.trades.filter(t => t.status === 'PENDING').length;
     },
 
     getTradeDirection(trade) {
-      // 如果有side字段，直接使用
-      if (trade.side) return trade.side;
+      // 优先使用 side 字段
+      if (trade.side) {
+        return trade.side.toUpperCase();
+      }
 
-      // 否则根据其他字段推断（这里需要根据实际API返回的数据结构调整）
-      // 暂时返回随机值
-      return Math.random() > 0.5 ? 'BUY' : 'SELL';
+      // 如果有 isBuyer 字段（币安API常用）
+      if (trade.hasOwnProperty('isBuyer')) {
+        return trade.isBuyer ? 'BUY' : 'SELL';
+      }
+
+      // 如果有 type 字段
+      if (trade.type) {
+        return trade.type.toUpperCase();
+      }
+
+      // 默认返回 BUY（而不是随机值）
+      console.warn('交易记录缺少方向字段:', trade);
+      return 'BUY';
     },
 
     getPriceChangeClass(symbol) {
-      // 如果有历史价格，计算实际变化
-      const history = this.priceHistory[symbol];
-      if (history && history.length > 1) {
-        const current = history[history.length - 1];
-        const previous = history[history.length - 2];
-        return current >= previous ? 'positive' : 'negative';
-      }
-
-      // 否则返回随机值（演示用）
-      return Math.random() > 0.5 ? 'positive' : 'negative';
+      const percent = this.getPriceChangePercent(symbol);
+      return percent >= 0 ? 'positive' : 'negative';
     },
 
     getPriceChangeIcon(symbol) {
@@ -571,16 +581,16 @@ export default {
     },
 
     getPriceChangePercent(symbol) {
-      // 如果有历史价格，计算实际百分比
       const history = this.priceHistory[symbol];
       if (history && history.length > 1) {
         const current = history[history.length - 1];
         const previous = history[0]; // 使用第一个价格作为基准
-        return ((current - previous) / previous * 100).toFixed(2);
+        const change = ((current - previous) / previous * 100);
+        return isNaN(change) ? 0 : change;
       }
 
-      // 否则返回随机值（演示用）
-      return (Math.random() * 10 - 5).toFixed(2);
+      // 没有历史数据时返回 0
+      return 0;
     },
 
     async fetchPrices() {
@@ -643,10 +653,30 @@ export default {
         const response = await axios.get('/trades', {
           headers: this.getAuthHeaders(),
         });
-        this.trades = response.data.trades || [];
-        this.currentPage = 1;
 
-        // 更新统计数据
+        // 确保数据格式正确
+        const trades = response.data.trades || [];
+
+        // 处理交易数据，确保必要字段存在
+        this.trades = trades.map(trade => ({
+          ...trade,
+          // 确保有ID
+          id: trade.id || trade.orderId || trade.orderID || Math.random().toString(36),
+          // 确保有时间戳
+          time: trade.time || (trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now()),
+          // 确保有交易对
+          symbol: trade.symbol || 'UNKNOWN',
+          // 确保有价格和数量
+          price: parseFloat(trade.price) || 0,
+          qty: parseFloat(trade.qty || trade.quantity || trade.executedQty) || 0,
+          // 标准化方向字段
+          side: trade.side || (trade.isBuyer ? 'BUY' : 'SELL') || 'BUY'
+        }));
+
+        // 按时间倒序排序（最新的在前）
+        this.trades.sort((a, b) => b.time - a.time);
+
+        this.currentPage = 1;
         this.updateStatistics();
 
       } catch (error) {
