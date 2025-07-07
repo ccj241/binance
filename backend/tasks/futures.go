@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -320,13 +321,31 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 	// 获取价格和数量精度
 	var pricePrecision int
 	var quantityPrecision int
+	var tickSize float64
+	var stepSize float64
 
 	// 直接使用 Symbol 结构体中的精度信息
 	pricePrecision = symbolInfo.PricePrecision
 	quantityPrecision = symbolInfo.QuantityPrecision
 
-	log.Printf("交易对 %s 精度信息 - 价格精度: %d, 数量精度: %d",
-		strategy.Symbol, pricePrecision, quantityPrecision)
+	// 从过滤器中获取 tick size 和 step size
+	for _, filter := range symbolInfo.Filters {
+		if filterType, ok := filter["filterType"].(string); ok {
+			switch filterType {
+			case "PRICE_FILTER":
+				if tickSizeStr, ok := filter["tickSize"].(string); ok {
+					tickSize, _ = strconv.ParseFloat(tickSizeStr, 64)
+				}
+			case "LOT_SIZE":
+				if stepSizeStr, ok := filter["stepSize"].(string); ok {
+					stepSize, _ = strconv.ParseFloat(stepSizeStr, 64)
+				}
+			}
+		}
+	}
+
+	log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f",
+		strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize)
 
 	// 获取深度数据以计算开仓价格
 	depth, err := client.NewDepthService().
@@ -367,8 +386,18 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		return
 	}
 
+	// 将价格调整为 tick size 的整数倍
+	if tickSize > 0 {
+		entryPrice = math.Round(entryPrice/tickSize) * tickSize
+	}
+
 	// 计算合约数量（从USDT金额转换）
 	contractQuantity := strategy.Quantity / entryPrice
+
+	// 将数量调整为 step size 的整数倍
+	if stepSize > 0 {
+		contractQuantity = math.Floor(contractQuantity/stepSize) * stepSize
+	}
 
 	// 格式化数量和价格，确保不超过允许的精度
 	quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
@@ -476,13 +505,31 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 	// 获取价格和数量精度
 	var pricePrecision int
 	var quantityPrecision int
+	var tickSize float64
+	var stepSize float64
 
 	// 直接使用 Symbol 结构体中的精度信息
 	pricePrecision = symbolInfo.PricePrecision
 	quantityPrecision = symbolInfo.QuantityPrecision
 
-	log.Printf("交易对 %s 精度信息 - 价格精度: %d, 数量精度: %d",
-		strategy.Symbol, pricePrecision, quantityPrecision)
+	// 从过滤器中获取 tick size 和 step size
+	for _, filter := range symbolInfo.Filters {
+		if filterType, ok := filter["filterType"].(string); ok {
+			switch filterType {
+			case "PRICE_FILTER":
+				if tickSizeStr, ok := filter["tickSize"].(string); ok {
+					tickSize, _ = strconv.ParseFloat(tickSizeStr, 64)
+				}
+			case "LOT_SIZE":
+				if stepSizeStr, ok := filter["stepSize"].(string); ok {
+					stepSize, _ = strconv.ParseFloat(stepSizeStr, 64)
+				}
+			}
+		}
+	}
+
+	log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f",
+		strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize)
 
 	// 获取当前市场深度
 	depth, err := client.NewDepthService().
@@ -556,11 +603,21 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			}
 		}
 
+		// 将价格调整为 tick size 的整数倍
+		if tickSize > 0 {
+			layerPrice = math.Round(layerPrice/tickSize) * tickSize
+		}
+
 		// 计算每层的USDT数量
 		layerUSDTQuantity := totalQuantity * quantities[i]
 
 		// 转换为合约数量
 		layerContractQuantity := layerUSDTQuantity / layerPrice
+
+		// 将数量调整为 step size 的整数倍
+		if stepSize > 0 {
+			layerContractQuantity = math.Floor(layerContractQuantity/stepSize) * stepSize
+		}
 
 		// 格式化数量和价格
 		formattedQuantity := fmt.Sprintf(quantityFormat, layerContractQuantity)
