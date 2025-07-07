@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -318,18 +317,16 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		return
 	}
 
-	// 获取数量精度
+	// 获取价格和数量精度
+	var pricePrecision int
 	var quantityPrecision int
-	for _, filter := range symbolInfo.Filters {
-		if filter["filterType"] == "LOT_SIZE" {
-			if stepSizeStr, ok := filter["stepSize"].(string); ok {
-				stepSize, _ := strconv.ParseFloat(stepSizeStr, 64)
-				// 计算精度（例如 0.001 = 3位小数）
-				quantityPrecision = int(-math.Log10(stepSize))
-				break
-			}
-		}
-	}
+
+	// 直接使用 Symbol 结构体中的精度信息
+	pricePrecision = symbolInfo.PricePrecision
+	quantityPrecision = symbolInfo.QuantityPrecision
+
+	log.Printf("交易对 %s 精度信息 - 价格精度: %d, 数量精度: %d",
+		strategy.Symbol, pricePrecision, quantityPrecision)
 
 	// 获取深度数据以计算开仓价格
 	depth, err := client.NewDepthService().
@@ -373,12 +370,15 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 	// 计算合约数量（从USDT金额转换）
 	contractQuantity := strategy.Quantity / entryPrice
 
-	// 格式化数量，确保不超过允许的精度
+	// 格式化数量和价格，确保不超过允许的精度
 	quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
-	formattedQuantity := fmt.Sprintf(quantityFormat, contractQuantity)
+	priceFormat := fmt.Sprintf("%%.%df", pricePrecision)
 
-	log.Printf("开仓参数 - 交易对: %s, 数量: %s (精度: %d), 价格: %.8f",
-		strategy.Symbol, formattedQuantity, quantityPrecision, entryPrice)
+	formattedQuantity := fmt.Sprintf(quantityFormat, contractQuantity)
+	formattedPrice := fmt.Sprintf(priceFormat, entryPrice)
+
+	log.Printf("开仓参数 - 交易对: %s, 数量: %s (精度: %d), 价格: %s (精度: %d)",
+		strategy.Symbol, formattedQuantity, quantityPrecision, formattedPrice, pricePrecision)
 
 	// 更新策略的实际开仓价格
 	strategy.EntryPrice = entryPrice
@@ -400,7 +400,7 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		Type(futures.OrderTypeLimit).
 		TimeInForce(futures.TimeInForceTypeGTC).
 		Quantity(formattedQuantity).
-		Price(fmt.Sprintf("%.8f", entryPrice))
+		Price(formattedPrice)
 
 	order, err := orderService.Do(context.Background())
 	if err != nil {
@@ -473,17 +473,16 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		return
 	}
 
-	// 获取数量精度
+	// 获取价格和数量精度
+	var pricePrecision int
 	var quantityPrecision int
-	for _, filter := range symbolInfo.Filters {
-		if filter["filterType"] == "LOT_SIZE" {
-			if stepSizeStr, ok := filter["stepSize"].(string); ok {
-				stepSize, _ := strconv.ParseFloat(stepSizeStr, 64)
-				quantityPrecision = int(-math.Log10(stepSize))
-				break
-			}
-		}
-	}
+
+	// 直接使用 Symbol 结构体中的精度信息
+	pricePrecision = symbolInfo.PricePrecision
+	quantityPrecision = symbolInfo.QuantityPrecision
+
+	log.Printf("交易对 %s 精度信息 - 价格精度: %d, 数量精度: %d",
+		strategy.Symbol, pricePrecision, quantityPrecision)
 
 	// 获取当前市场深度
 	depth, err := client.NewDepthService().
@@ -537,8 +536,9 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 	var weightedPriceSum float64
 	totalQuantity := strategy.Quantity
 
-	// 格式化数量的格式字符串
+	// 格式化数量和价格的格式字符串
 	quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
+	priceFormat := fmt.Sprintf("%%.%df", pricePrecision)
 
 	for i := 0; i < len(quantities); i++ {
 		// 计算每层的价格
@@ -562,11 +562,12 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		// 转换为合约数量
 		layerContractQuantity := layerUSDTQuantity / layerPrice
 
-		// 格式化数量
+		// 格式化数量和价格
 		formattedQuantity := fmt.Sprintf(quantityFormat, layerContractQuantity)
+		formattedPrice := fmt.Sprintf(priceFormat, layerPrice)
 
-		log.Printf("冰山第%d层 - 价格: %.8f, 数量: %s (USDT: %.2f)",
-			i+1, layerPrice, formattedQuantity, layerUSDTQuantity)
+		log.Printf("冰山第%d层 - 价格: %s, 数量: %s (USDT: %.2f)",
+			i+1, formattedPrice, formattedQuantity, layerUSDTQuantity)
 
 		// 创建限价订单
 		orderService := client.NewCreateOrderService().
@@ -576,7 +577,7 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			Type(futures.OrderTypeLimit).
 			TimeInForce(futures.TimeInForceTypeGTC).
 			Quantity(formattedQuantity).
-			Price(fmt.Sprintf("%.8f", layerPrice))
+			Price(formattedPrice)
 
 		order, err := orderService.Do(context.Background())
 		if err != nil {
@@ -615,8 +616,8 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			log.Printf("保存订单记录失败: %v", err)
 		}
 
-		log.Printf("冰山策略第%d层订单创建成功: OrderID=%d, Price=%.8f, Quantity=%s",
-			i+1, order.OrderID, layerPrice, formattedQuantity)
+		log.Printf("冰山策略第%d层订单创建成功: OrderID=%d, Price=%s, Quantity=%s",
+			i+1, order.OrderID, formattedPrice, formattedQuantity)
 	}
 
 	if len(successfulOrders) == 0 {
