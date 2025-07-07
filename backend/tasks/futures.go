@@ -51,13 +51,18 @@ func monitorFuturesPrices(cfg *config.Config) {
 
 	wsManagers := make(map[string]*FuturesWebSocketManager)
 
+	log.Println("期货价格监控已启动")
+
 	for range ticker.C {
 		// 获取所有等待中的策略
 		var strategies []models.FuturesStrategy
 		if err := cfg.DB.Where("enabled = ? AND status = ? AND deleted_at IS NULL",
 			true, "waiting").Find(&strategies).Error; err != nil {
+			log.Printf("查询策略失败: %v", err)
 			continue
 		}
+
+		log.Printf("找到 %d 个等待中的策略", len(strategies))
 
 		// 按交易对分组
 		symbolStrategies := make(map[string][]models.FuturesStrategy)
@@ -99,7 +104,10 @@ func monitorFuturesPrices(cfg *config.Config) {
 
 // start 启动WebSocket连接
 func (m *FuturesWebSocketManager) start() {
-	wsURL := fmt.Sprintf("wss://fstream.binance.com/ws/%s@markPrice@1s", m.symbol)
+	// 将交易对转换为小写
+	wsURL := fmt.Sprintf("wss://fstream.binance.com/ws/%s@markPrice@1s", strings.ToLower(m.symbol))
+
+	log.Printf("准备连接 %s 的 WebSocket", m.symbol)
 
 	for {
 		select {
@@ -119,6 +127,8 @@ func (m *FuturesWebSocketManager) start() {
 
 // connect 建立WebSocket连接
 func (m *FuturesWebSocketManager) connect(wsURL string) {
+	log.Printf("正在连接 WebSocket: %s", wsURL)
+
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		log.Printf("期货WebSocket连接失败 %s: %v", m.symbol, err)
@@ -131,6 +141,7 @@ func (m *FuturesWebSocketManager) connect(wsURL string) {
 	}()
 
 	m.wsConn = conn
+	log.Printf("WebSocket 连接成功: %s", m.symbol)
 
 	for {
 		select {
@@ -146,13 +157,18 @@ func (m *FuturesWebSocketManager) connect(wsURL string) {
 			// 解析标记价格
 			if markPriceStr, ok := msg["p"].(string); ok {
 				if markPrice, err := strconv.ParseFloat(markPriceStr, 64); err == nil {
+					log.Printf("%s 收到价格更新: %.8f", m.symbol, markPrice)
 					m.mu.Lock()
 					m.lastPrice = markPrice
 					m.mu.Unlock()
 
 					// 检查策略触发
 					m.checkStrategies(markPrice)
+				} else {
+					log.Printf("解析价格失败: %v", err)
 				}
+			} else {
+				log.Printf("消息格式错误: %v", msg)
 			}
 		}
 	}
@@ -160,15 +176,25 @@ func (m *FuturesWebSocketManager) connect(wsURL string) {
 
 // checkStrategies 检查策略是否触发
 func (m *FuturesWebSocketManager) checkStrategies(currentPrice float64) {
+	// 添加调试日志
+	log.Printf("检查 %s 策略，当前价格: %.8f", m.symbol, currentPrice)
+
 	m.strategies.Range(func(key, value interface{}) bool {
 		strategy := value.(*models.FuturesStrategy)
+
+		// 添加策略详情日志
+		log.Printf("策略 %d: %s %s, 基准价格: %.8f, 当前价格: %.8f, 状态: %s, 启用: %v",
+			strategy.ID, strategy.Side, strategy.Symbol, strategy.BasePrice, currentPrice,
+			strategy.Status, strategy.Enabled)
 
 		// 检查是否触发
 		shouldTrigger := false
 		if strategy.Side == "LONG" && currentPrice <= strategy.BasePrice {
 			shouldTrigger = true
+			log.Printf("策略 %d 满足做多触发条件", strategy.ID)
 		} else if strategy.Side == "SHORT" && currentPrice >= strategy.BasePrice {
 			shouldTrigger = true
+			log.Printf("策略 %d 满足做空触发条件", strategy.ID)
 		}
 
 		if shouldTrigger {
