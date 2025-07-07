@@ -281,7 +281,7 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 	if strategy.Side == "LONG" {
 		// 做多时使用卖一价
 		if len(depth.Asks) > 0 {
-			askPrice, _ := strconv.ParseFloat(depth.Asks[0][0], 64)
+			askPrice, _ := strconv.ParseFloat(depth.Asks[0].Price, 64)
 			entryPrice = askPrice
 			if strategy.EntryPriceFloat > 0 {
 				entryPrice = askPrice * (1 - strategy.EntryPriceFloat/1000)
@@ -290,7 +290,7 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 	} else {
 		// 做空时使用买一价
 		if len(depth.Bids) > 0 {
-			bidPrice, _ := strconv.ParseFloat(depth.Bids[0][0], 64)
+			bidPrice, _ := strconv.ParseFloat(depth.Bids[0].Price, 64)
 			entryPrice = bidPrice
 			if strategy.EntryPriceFloat > 0 {
 				entryPrice = bidPrice * (1 + strategy.EntryPriceFloat/1000)
@@ -398,12 +398,12 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 	if strategy.Side == "LONG" {
 		// 做多时使用卖一价作为基准
 		if len(depth.Asks) > 0 {
-			basePrice, _ = strconv.ParseFloat(depth.Asks[0][0], 64)
+			basePrice, _ = strconv.ParseFloat(depth.Asks[0].Price, 64)
 		}
 	} else {
 		// 做空时使用买一价作为基准
 		if len(depth.Bids) > 0 {
-			basePrice, _ = strconv.ParseFloat(depth.Bids[0][0], 64)
+			basePrice, _ = strconv.ParseFloat(depth.Bids[0].Price, 64)
 		}
 	}
 
