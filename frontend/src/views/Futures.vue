@@ -137,7 +137,7 @@
                 <span class="detail-label">止盈价格</span>
                 <span class="detail-value success">
                   {{ formatPrice(strategy.takeProfitPrice) }}
-                  <span class="percentage">(+{{ strategy.takeProfitRate }}‰)</span>
+                  <span class="percentage">(+{{ strategy.takeProfitRate }}%)</span>
                 </span>
               </div>
               <div class="detail-item">
@@ -145,7 +145,7 @@
                 <span class="detail-value danger">
                   {{ strategy.stopLossPrice > 0 ? formatPrice(strategy.stopLossPrice) : '未设置' }}
                   <span v-if="strategy.stopLossRate > 0" class="percentage">
-                    (-{{ strategy.stopLossRate }}‰)
+                    (-{{ strategy.stopLossRate }}%)
                   </span>
                 </span>
               </div>
@@ -395,25 +395,25 @@
                     step="0.001"
                     placeholder="投入的本金数量"
                     class="form-control"
-                    :class="{ 'error': strategyForm.quantity > availableBalance }"
+                    :class="{ 'warning': strategyForm.quantity > availableBalance }"
                     required
                 />
-                <span class="form-hint" :class="{ 'hint-error': strategyForm.quantity > availableBalance }">
+                <span class="form-hint" :class="{ 'hint-warning': strategyForm.quantity > availableBalance }">
                   可用余额: {{ availableBalance.toFixed(2) }} USDT
-                  <span v-if="strategyForm.quantity > availableBalance" class="error-text">
-                    (余额不足)
+                  <span v-if="strategyForm.quantity > availableBalance" class="warning-text">
+                    (余额不足，请确保创建策略前充值)
                   </span>
                 </span>
               </div>
 
               <div class="form-group">
-                <label class="form-label">止盈千分比 (‰)</label>
+                <label class="form-label">止盈万分比 (‱)</label>
                 <input
                     v-model.number="strategyForm.takeProfitRate"
                     type="number"
-                    step="0.1"
-                    min="0.1"
-                    placeholder="扣除手续费后的净利润千分比"
+                    step="1"
+                    min="1"
+                    placeholder="扣除手续费后的净利润万分比"
                     class="form-control"
                     required
                     @input="generateStrategyName"
@@ -421,11 +421,11 @@
               </div>
 
               <div class="form-group">
-                <label class="form-label">止损千分比 (‰) <span class="optional">可选</span></label>
+                <label class="form-label">止损万分比 (‱) <span class="optional">可选</span></label>
                 <input
                     v-model.number="strategyForm.stopLossRate"
                     type="number"
-                    step="0.1"
+                    step="1"
                     min="0"
                     placeholder="0 表示不设置止损"
                     class="form-control"
@@ -440,267 +440,266 @@
                 </select>
               </div>
             </div>
+<!-- 冰山策略配置 -->
+<template v-if="strategyForm.strategyType === 'iceberg'">
+  <div class="iceberg-config-section">
+    <h4 class="config-title">冰山策略配置</h4>
 
-            <!-- 冰山策略配置 -->
-            <template v-if="strategyForm.strategyType === 'iceberg'">
-              <div class="iceberg-config-section">
-                <h4 class="config-title">冰山策略配置</h4>
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">
+          冰山层数
+          <span class="form-hint">将订单分为几层</span>
+        </label>
+        <select v-model.number="strategyForm.icebergLevels" class="form-control" @change="updateIcebergDefaults">
+          <option :value="2">2层</option>
+          <option :value="3">3层</option>
+          <option :value="4">4层</option>
+          <option :value="5">5层</option>
+          <option :value="6">6层</option>
+        </select>
+      </div>
+    </div>
 
-                <div class="form-grid">
-                  <div class="form-group">
-                    <label class="form-label">
-                      冰山层数
-                      <span class="form-hint">将订单分为几层</span>
-                    </label>
-                    <select v-model.number="strategyForm.icebergLevels" class="form-control" @change="updateIcebergDefaults">
-                      <option :value="2">2层</option>
-                      <option :value="3">3层</option>
-                      <option :value="4">4层</option>
-                      <option :value="5">5层</option>
-                      <option :value="6">6层</option>
-                    </select>
-                  </div>
-                </div>
+    <div class="form-group full-width">
+      <label class="form-label">
+        各层数量分配
+        <span class="form-hint">每层占总数量的比例，总和必须为1</span>
+      </label>
+      <div class="iceberg-layers">
+        <div v-for="(quantity, index) in strategyForm.icebergQuantities.slice(0, strategyForm.icebergLevels)" :key="'q' + index" class="iceberg-layer">
+          <span class="layer-label">第{{ index + 1 }}层</span>
+          <input
+              v-model.number="strategyForm.icebergQuantities[index]"
+              type="number"
+              step="0.01"
+              min="0.01"
+              max="1"
+              class="form-control"
+              placeholder="比例"
+              @input="validateIcebergSum"
+          />
+          <span class="layer-percent">{{ (strategyForm.icebergQuantities[index] * 100).toFixed(0) }}%</span>
+        </div>
+      </div>
+      <div v-if="icebergSumError" class="form-error">
+        数量总和必须为1，当前总和: {{ icebergSum.toFixed(2) }}
+      </div>
+    </div>
 
-                <div class="form-group full-width">
-                  <label class="form-label">
-                    各层数量分配
-                    <span class="form-hint">每层占总数量的比例，总和必须为1</span>
-                  </label>
-                  <div class="iceberg-layers">
-                    <div v-for="(quantity, index) in strategyForm.icebergQuantities.slice(0, strategyForm.icebergLevels)" :key="'q' + index" class="iceberg-layer">
-                      <span class="layer-label">第{{ index + 1 }}层</span>
-                      <input
-                          v-model.number="strategyForm.icebergQuantities[index]"
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          max="1"
-                          class="form-control"
-                          placeholder="比例"
-                          @input="validateIcebergSum"
-                      />
-                      <span class="layer-percent">{{ (strategyForm.icebergQuantities[index] * 100).toFixed(0) }}%</span>
-                    </div>
-                  </div>
-                  <div v-if="icebergSumError" class="form-error">
-                    数量总和必须为1，当前总和: {{ icebergSum.toFixed(2) }}
-                  </div>
-                </div>
-
-                <div class="form-group full-width">
-                  <label class="form-label">
-                    各层价格间隔 (‱)
-                    <span class="form-hint">
+    <div class="form-group full-width">
+      <label class="form-label">
+        各层价格间隔 (‱)
+        <span class="form-hint">
                       {{ strategyForm.side === 'LONG' ? '负值表示低于基准价格' : '正值表示高于基准价格' }}
                     </span>
-                  </label>
-                  <div class="iceberg-layers">
-                    <div v-for="(gap, index) in strategyForm.icebergPriceGaps.slice(0, strategyForm.icebergLevels)" :key="'g' + index" class="iceberg-layer">
-                      <span class="layer-label">第{{ index + 1 }}层</span>
-                      <input
-                          v-model.number="strategyForm.icebergPriceGaps[index]"
-                          type="number"
-                          step="1"
-                          class="form-control"
-                          placeholder="万分比"
-                      />
-                      <span class="layer-percent">
+      </label>
+      <div class="iceberg-layers">
+        <div v-for="(gap, index) in strategyForm.icebergPriceGaps.slice(0, strategyForm.icebergLevels)" :key="'g' + index" class="iceberg-layer">
+          <span class="layer-label">第{{ index + 1 }}层</span>
+          <input
+              v-model.number="strategyForm.icebergPriceGaps[index]"
+              type="number"
+              step="1"
+              class="form-control"
+              placeholder="万分比"
+          />
+          <span class="layer-percent">
                         {{ strategyForm.icebergPriceGaps[index] > 0 ? '+' : '' }}{{ strategyForm.icebergPriceGaps[index] }}‱
                       </span>
-                    </div>
-                  </div>
-                  <div class="form-hint" style="margin-top: 0.5rem;">
+        </div>
+      </div>
+      <div class="form-hint" style="margin-top: 0.5rem;">
                     <span v-if="strategyForm.side === 'LONG'">
                       做多时使用负值可以在价格下跌时分批建仓，获得更好的平均成本
                     </span>
-                    <span v-else-if="strategyForm.side === 'SHORT'">
+        <span v-else-if="strategyForm.side === 'SHORT'">
                       做空时使用正值可以在价格上涨时分批建仓，获得更好的平均成本
                     </span>
-                  </div>
-                </div>
-              </div>
-            </template>
+      </div>
+    </div>
+  </div>
+</template>
 
-            <!-- 策略预览 -->
-            <div v-if="strategyForm.basePrice > 0 && strategyForm.quantity > 0" class="strategy-preview">
-              <h4 class="preview-title">策略预览</h4>
-              <div class="preview-grid">
-                <div class="preview-item">
-                  <span class="preview-label">投入本金</span>
-                  <span class="preview-value">
+<!-- 策略预览 -->
+<div v-if="strategyForm.basePrice > 0 && strategyForm.quantity > 0" class="strategy-preview">
+<h4 class="preview-title">策略预览</h4>
+<div class="preview-grid">
+  <div class="preview-item">
+    <span class="preview-label">投入本金</span>
+    <span class="preview-value">
                     {{ formatCurrency(strategyForm.quantity) }} USDT
                   </span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-label">开仓价值</span>
-                  <span class="preview-value">
+  </div>
+  <div class="preview-item">
+    <span class="preview-label">开仓价值</span>
+    <span class="preview-value">
                     {{ formatCurrency(strategyForm.quantity * (strategyForm.leverage || 1)) }} USDT
                   </span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-label">预计合约数量</span>
-                  <span class="preview-value">
+  </div>
+  <div class="preview-item">
+    <span class="preview-label">预计合约数量</span>
+    <span class="preview-value">
                     ~{{ calculateEstimatedContractQuantity() }} {{ getContractUnit() }}
                   </span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-label">所需保证金</span>
-                  <span class="preview-value">
+  </div>
+  <div class="preview-item">
+    <span class="preview-label">所需保证金</span>
+    <span class="preview-value">
                     {{ formatCurrency(strategyForm.quantity) }} USDT
                   </span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-label">预计止盈价</span>
-                  <span class="preview-value success">
+  </div>
+  <div class="preview-item">
+    <span class="preview-label">预计止盈价</span>
+    <span class="preview-value success">
                     {{ calculateTakeProfitPrice() }}
                   </span>
-                </div>
-                <div v-if="strategyForm.stopLossRate > 0" class="preview-item">
-                  <span class="preview-label">预计止损价</span>
-                  <span class="preview-value danger">
+  </div>
+  <div v-if="strategyForm.stopLossRate > 0" class="preview-item">
+    <span class="preview-label">预计止损价</span>
+    <span class="preview-value danger">
                     {{ calculateStopLossPrice() }}
                   </span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-label">开仓手续费</span>
-                  <span class="preview-value">
+  </div>
+  <div class="preview-item">
+    <span class="preview-label">开仓手续费</span>
+    <span class="preview-value">
                     {{ formatCurrency(calculateOpenFee()) }} (0.04%)
                   </span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-label">平仓手续费</span>
-                  <span class="preview-value">
+  </div>
+  <div class="preview-item">
+    <span class="preview-label">平仓手续费</span>
+    <span class="preview-value">
                     {{ formatCurrency(calculateCloseFee()) }} (0.04%)
                   </span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-label">总手续费</span>
-                  <span class="preview-value">
+  </div>
+  <div class="preview-item">
+    <span class="preview-label">总手续费</span>
+    <span class="preview-value">
                     {{ formatCurrency(calculateTotalFee()) }}
                   </span>
-                </div>
-                <div class="preview-item full-width">
-                  <span class="preview-label">预计净收益</span>
-                  <span class="preview-value" :class="calculateNetProfit() >= 0 ? 'success' : 'danger'">
+  </div>
+  <div class="preview-item full-width">
+    <span class="preview-label">预计净收益</span>
+    <span class="preview-value" :class="calculateNetProfit() >= 0 ? 'success' : 'danger'">
                     {{ calculateNetProfit() >= 0 ? '+' : '' }}{{ formatCurrency(calculateNetProfit()) }}
                     ({{ calculateNetProfitRate() }}%)
                   </span>
-                </div>
-              </div>
+  </div>
+</div>
 
-              <!-- 冰山策略预览 -->
-              <div v-if="strategyForm.strategyType === 'iceberg'" class="iceberg-preview">
-                <h5>冰山分层预览</h5>
-                <div class="iceberg-preview-layers">
-                  <div v-for="(_, index) in strategyForm.icebergQuantities.slice(0, strategyForm.icebergLevels)"
-                       :key="'preview' + index"
-                       class="iceberg-preview-layer">
-                    <span class="preview-layer-label">第{{ index + 1 }}层</span>
-                    <span class="preview-layer-info">
+<!-- 冰山策略预览 -->
+<div v-if="strategyForm.strategyType === 'iceberg'" class="iceberg-preview">
+  <h5>冰山分层预览</h5>
+  <div class="iceberg-preview-layers">
+    <div v-for="(_, index) in strategyForm.icebergQuantities.slice(0, strategyForm.icebergLevels)"
+         :key="'preview' + index"
+         class="iceberg-preview-layer">
+      <span class="preview-layer-label">第{{ index + 1 }}层</span>
+      <span class="preview-layer-info">
                       数量: {{ (strategyForm.icebergQuantities[index] * strategyForm.quantity).toFixed(3) }} USDT
                       ({{ (strategyForm.icebergQuantities[index] * 100).toFixed(0) }}%)
                     </span>
-                    <span class="preview-layer-price">
+      <span class="preview-layer-price">
                       价格: {{ calculateIcebergLayerPrice(index) }}
                       <span class="price-diff">
                         ({{ strategyForm.icebergPriceGaps[index] > 0 ? '+' : '' }}{{ strategyForm.icebergPriceGaps[index] }}‱)
                       </span>
                     </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </form>
+    </div>
+  </div>
+</div>
+</div>
+</form>
 
-          <div class="modal-footer">
-            <button @click="closeCreateModal" class="btn btn-outline">
-              取消
-            </button>
-            <button
-                @click="submitStrategy"
-                :disabled="isSubmitting || strategyForm.quantity > availableBalance || (strategyForm.strategyType === 'iceberg' && icebergSumError)"
-                class="btn btn-primary"
-            >
-              <span v-if="!isSubmitting">{{ editingStrategy ? '更新' : '创建' }}</span>
-              <span v-else class="btn-loading">
+<div class="modal-footer">
+<button @click="closeCreateModal" class="btn btn-outline">
+  取消
+</button>
+<button
+    @click="submitStrategy"
+    :disabled="isSubmitting || (strategyForm.strategyType === 'iceberg' && icebergSumError)"
+    class="btn btn-primary"
+>
+  <span v-if="!isSubmitting">{{ editingStrategy ? '更新' : '创建' }}</span>
+  <span v-else class="btn-loading">
                 <span class="spinner"></span>
                 {{ editingStrategy ? '更新中...' : '创建中...' }}
               </span>
-            </button>
-          </div>
-        </div>
+</button>
+</div>
+</div>
+</div>
+</transition>
+
+<!-- 订单列表弹窗 -->
+<transition name="modal">
+<div v-if="showOrdersModal" class="modal-overlay" @click="closeOrdersModal">
+  <div class="modal-content modal-large" @click.stop>
+    <div class="modal-header">
+      <h3 class="modal-title">策略订单 - {{ selectedStrategy?.strategyName }}</h3>
+      <button @click="closeOrdersModal" class="modal-close">×</button>
+    </div>
+
+    <div class="modal-body">
+      <div v-if="strategyOrders.length === 0" class="empty-state">
+        <p>暂无订单</p>
       </div>
-    </transition>
-
-    <!-- 订单列表弹窗 -->
-    <transition name="modal">
-      <div v-if="showOrdersModal" class="modal-overlay" @click="closeOrdersModal">
-        <div class="modal-content modal-large" @click.stop>
-          <div class="modal-header">
-            <h3 class="modal-title">策略订单 - {{ selectedStrategy?.strategyName }}</h3>
-            <button @click="closeOrdersModal" class="modal-close">×</button>
-          </div>
-
-          <div class="modal-body">
-            <div v-if="strategyOrders.length === 0" class="empty-state">
-              <p>暂无订单</p>
-            </div>
-            <div v-else class="orders-table">
-              <table>
-                <thead>
-                <tr>
-                  <th>订单ID</th>
-                  <th>类型</th>
-                  <th>方向</th>
-                  <th>价格</th>
-                  <th>数量</th>
-                  <th>状态</th>
-                  <th>用途</th>
-                  <th>时间</th>
-                </tr>
-                </thead>
-                <tbody>
-                <tr v-for="order in strategyOrders" :key="order.id">
-                  <td>{{ order.orderId }}</td>
-                  <td>{{ order.type }}</td>
-                  <td>
+      <div v-else class="orders-table">
+        <table>
+          <thead>
+          <tr>
+            <th>订单ID</th>
+            <th>类型</th>
+            <th>方向</th>
+            <th>价格</th>
+            <th>数量</th>
+            <th>状态</th>
+            <th>用途</th>
+            <th>时间</th>
+          </tr>
+          </thead>
+          <tbody>
+          <tr v-for="order in strategyOrders" :key="order.id">
+            <td>{{ order.orderId }}</td>
+            <td>{{ order.type }}</td>
+            <td>
                       <span :class="['side-badge', order.side.toLowerCase()]">
                         {{ order.side }}
                       </span>
-                  </td>
-                  <td>{{ formatPrice(order.price) }}</td>
-                  <td>{{ formatQuantity(order.quantity) }}</td>
-                  <td>
+            </td>
+            <td>{{ formatPrice(order.price) }}</td>
+            <td>{{ formatQuantity(order.quantity) }}</td>
+            <td>
                       <span :class="['status-badge', order.status.toLowerCase()]">
                         {{ order.status }}
                       </span>
-                  </td>
-                  <td>{{ getOrderPurposeText(order.orderPurpose) }}</td>
-                  <td>{{ formatDate(order.createdAt) }}</td>
-                </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="modal-footer">
-            <button @click="closeOrdersModal" class="btn btn-primary">
-              关闭
-            </button>
-          </div>
-        </div>
+            </td>
+            <td>{{ getOrderPurposeText(order.orderPurpose) }}</td>
+            <td>{{ formatDate(order.createdAt) }}</td>
+          </tr>
+          </tbody>
+        </table>
       </div>
-    </transition>
+    </div>
 
-    <!-- Toast 消息 -->
-    <transition name="toast">
-      <div v-if="toastMessage" :class="['toast', toastType]">
-        <span class="toast-icon">{{ toastType === 'success' ? '✓' : '×' }}</span>
-        <span>{{ toastMessage }}</span>
-      </div>
-    </transition>
+    <div class="modal-footer">
+      <button @click="closeOrdersModal" class="btn btn-primary">
+        关闭
+      </button>
+    </div>
   </div>
+</div>
+</transition>
+
+<!-- Toast 消息 -->
+<transition name="toast">
+<div v-if="toastMessage" :class="['toast', toastType]">
+  <span class="toast-icon">{{ toastType === 'success' ? '✓' : toastType === 'warning' ? '⚠' : '×' }}</span>
+  <span>{{ toastMessage }}</span>
+</div>
+</transition>
+</div>
 </template>
 
 <script>
@@ -862,10 +861,9 @@ export default {
     async submitStrategy() {
       if (this.isSubmitting) return;
 
-      // 验证余额是否充足
+      // 余额不足时只提醒，不阻止创建
       if (this.strategyForm.quantity > this.availableBalance) {
-        this.showToast(`USDT余额不足，当前可用: ${this.availableBalance.toFixed(2)} USDT`, 'error');
-        return;
+        this.showToast(`警告：USDT余额不足，当前可用: ${this.availableBalance.toFixed(2)} USDT，请确保在策略触发前充值！`, 'warning');
       }
 
       // 验证冰山策略配置
@@ -889,8 +887,8 @@ export default {
             basePrice: this.strategyForm.basePrice,
             entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,
             quantity: this.strategyForm.quantity,
-            takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
-            stopLossRate: this.strategyForm.stopLossRate / 10,
+            takeProfitRate: this.strategyForm.takeProfitRate,
+            stopLossRate: this.strategyForm.stopLossRate,
           };
 
           // 如果是冰山策略，添加冰山配置
@@ -906,8 +904,8 @@ export default {
           // 创建策略
           const submitData = {
             ...this.strategyForm,
-            takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
-            stopLossRate: this.strategyForm.stopLossRate / 10,
+            takeProfitRate: this.strategyForm.takeProfitRate,
+            stopLossRate: this.strategyForm.stopLossRate,
             entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,
           };
 
@@ -940,438 +938,437 @@ export default {
         this.isSubmitting = false;
       }
     },
+async deleteStrategy(strategy) {
+if (!window.confirm(`确定要删除策略"${strategy.strategyName}"吗？`)) {
+return;
+}
 
-    async deleteStrategy(strategy) {
-      if (!window.confirm(`确定要删除策略"${strategy.strategyName}"吗？`)) {
-        return;
-      }
+try {
+await axios.delete(`/futures/strategies/${strategy.id}`);
+this.showToast('策略删除成功');
+await this.fetchStrategies();
+} catch (error) {
+console.error('删除策略失败:', error);
+this.showToast(error.response?.data?.error || '删除失败', 'error');
+}
+},
 
-      try {
-        await axios.delete(`/futures/strategies/${strategy.id}`);
-        this.showToast('策略删除成功');
-        await this.fetchStrategies();
-      } catch (error) {
-        console.error('删除策略失败:', error);
-        this.showToast(error.response?.data?.error || '删除失败', 'error');
-      }
-    },
+async viewOrders(strategy) {
+this.selectedStrategy = strategy;
+try {
+const response = await axios.get('/futures/orders', {
+params: { strategyId: strategy.id }
+});
+this.strategyOrders = response.data.orders || [];
+this.showOrdersModal = true;
+} catch (error) {
+console.error('获取订单失败:', error);
+this.showToast('获取订单失败', 'error');
+}
+},
 
-    async viewOrders(strategy) {
-      this.selectedStrategy = strategy;
-      try {
-        const response = await axios.get('/futures/orders', {
-          params: { strategyId: strategy.id }
-        });
-        this.strategyOrders = response.data.orders || [];
-        this.showOrdersModal = true;
-      } catch (error) {
-        console.error('获取订单失败:', error);
-        this.showToast('获取订单失败', 'error');
-      }
-    },
+viewPositions(strategy) {
+// 滚动到持仓部分
+const positionsSection = document.querySelector('.positions-section');
+if (positionsSection) {
+positionsSection.scrollIntoView({ behavior: 'smooth' });
+}
+},
 
-    viewPositions(strategy) {
-      // 滚动到持仓部分
-      const positionsSection = document.querySelector('.positions-section');
-      if (positionsSection) {
-        positionsSection.scrollIntoView({ behavior: 'smooth' });
-      }
-    },
+openCreateModal() {
+this.showCreateModal = true;
+this.fetchBalance(); // 获取最新余额
+},
 
-    openCreateModal() {
-      this.showCreateModal = true;
-      this.fetchBalance(); // 获取最新余额
-    },
+editStrategy(strategy) {
+this.editingStrategy = strategy;
 
-    editStrategy(strategy) {
-      this.editingStrategy = strategy;
+// 解析冰山策略配置
+let icebergQuantities = [0.35, 0.25, 0.2, 0.1, 0.1];
+let icebergPriceGaps = strategy.side === 'LONG' ? [0, -10, -30, -50, -70] : [0, 10, 30, 50, 70];
 
-      // 解析冰山策略配置
-      let icebergQuantities = [0.35, 0.25, 0.2, 0.1, 0.1];
-      let icebergPriceGaps = strategy.side === 'LONG' ? [0, -10, -30, -50, -70] : [0, 10, 30, 50, 70];
+if (strategy.icebergQuantities) {
+const quantities = strategy.icebergQuantities.split(',').map(q => parseFloat(q.trim()));
+if (quantities.length > 0) {
+icebergQuantities = quantities;
+}
+}
 
-      if (strategy.icebergQuantities) {
-        const quantities = strategy.icebergQuantities.split(',').map(q => parseFloat(q.trim()));
-        if (quantities.length > 0) {
-          icebergQuantities = quantities;
-        }
-      }
+if (strategy.icebergPriceGaps) {
+const gaps = strategy.icebergPriceGaps.split(',').map(g => parseFloat(g.trim()));
+if (gaps.length > 0) {
+icebergPriceGaps = gaps;
+}
+}
 
-      if (strategy.icebergPriceGaps) {
-        const gaps = strategy.icebergPriceGaps.split(',').map(g => parseFloat(g.trim()));
-        if (gaps.length > 0) {
-          icebergPriceGaps = gaps;
-        }
-      }
+this.strategyForm = {
+strategyName: strategy.strategyName,
+symbol: strategy.symbol,
+side: strategy.side,
+strategyType: strategy.strategyType || 'simple',
+basePrice: strategy.basePrice,
+entryPrice: strategy.entryPrice,
+entryPriceFloat: strategy.entryPriceFloat || 0,
+leverage: strategy.leverage,
+quantity: strategy.quantity,
+takeProfitRate: strategy.takeProfitRate,
+stopLossRate: strategy.stopLossRate || 0,
+marginType: strategy.marginType,
+icebergLevels: strategy.icebergLevels || 5,
+icebergQuantities: icebergQuantities,
+icebergPriceGaps: icebergPriceGaps,
+};
 
-      this.strategyForm = {
-        strategyName: strategy.strategyName,
-        symbol: strategy.symbol,
-        side: strategy.side,
-        strategyType: strategy.strategyType || 'simple',
-        basePrice: strategy.basePrice,
-        entryPrice: strategy.entryPrice,
-        entryPriceFloat: strategy.entryPriceFloat || 0,
-        leverage: strategy.leverage,
-        quantity: strategy.quantity,
-        takeProfitRate: strategy.takeProfitRate * 10, // 百分比转换为千分比
-        stopLossRate: (strategy.stopLossRate || 0) * 10,
-        marginType: strategy.marginType,
-        icebergLevels: strategy.icebergLevels || 5,
-        icebergQuantities: icebergQuantities,
-        icebergPriceGaps: icebergPriceGaps,
-      };
+this.showCreateModal = true;
+this.fetchBalance();
+},
 
-      this.showCreateModal = true;
-      this.fetchBalance();
-    },
+closeCreateModal() {
+this.showCreateModal = false;
+this.editingStrategy = null;
+this.resetForm();
+this.fetchBalance();
+},
 
-    closeCreateModal() {
-      this.showCreateModal = false;
-      this.editingStrategy = null;
-      this.resetForm();
-      this.fetchBalance();
-    },
+closeOrdersModal() {
+this.showOrdersModal = false;
+this.selectedStrategy = null;
+this.strategyOrders = [];
+},
 
-    closeOrdersModal() {
-      this.showOrdersModal = false;
-      this.selectedStrategy = null;
-      this.strategyOrders = [];
-    },
+resetForm() {
+this.strategyForm = {
+strategyName: '',
+symbol: '',
+side: '',
+strategyType: 'simple',
+basePrice: 0,
+entryPrice: 0,
+entryPriceFloat: 0,
+leverage: 1,
+quantity: 0,
+takeProfitRate: 0,
+stopLossRate: 0,
+marginType: 'CROSSED',
+icebergLevels: 5,
+icebergQuantities: [0.35, 0.25, 0.2, 0.1, 0.1],
+icebergPriceGaps: [0, -10, -30, -50, -70],
+};
+this.isAutoGeneratedName = false;
+this.icebergSumError = false;
+},
 
-    resetForm() {
-      this.strategyForm = {
-        strategyName: '',
-        symbol: '',
-        side: '',
-        strategyType: 'simple',
-        basePrice: 0,
-        entryPrice: 0,
-        entryPriceFloat: 0,
-        leverage: 1,
-        quantity: 0,
-        takeProfitRate: 0,
-        stopLossRate: 0,
-        marginType: 'CROSSED',
-        icebergLevels: 5,
-        icebergQuantities: [0.35, 0.25, 0.2, 0.1, 0.1],
-        icebergPriceGaps: [0, -10, -30, -50, -70],
-      };
-      this.isAutoGeneratedName = false;
-      this.icebergSumError = false;
-    },
+// 策略类型改变
+onStrategyTypeChange() {
+if (this.strategyForm.strategyType === 'iceberg') {
+// 切换到冰山策略时，确保有正确的默认值
+this.updateIcebergDefaults();
+}
+},
 
-    // 策略类型改变
-    onStrategyTypeChange() {
-      if (this.strategyForm.strategyType === 'iceberg') {
-        // 切换到冰山策略时，确保有正确的默认值
-        this.updateIcebergDefaults();
-      }
-    },
+// 方向改变时更新冰山策略默认值
+onSideChange() {
+this.generateStrategyName();
 
-    // 方向改变时更新冰山策略默认值
-    onSideChange() {
-      this.generateStrategyName();
+// 如果是冰山策略，更新价格间隔的默认值
+if (this.strategyForm.strategyType === 'iceberg') {
+this.updateIcebergDefaults();
+}
+},
 
-      // 如果是冰山策略，更新价格间隔的默认值
-      if (this.strategyForm.strategyType === 'iceberg') {
-        this.updateIcebergDefaults();
-      }
-    },
+// 更新冰山策略默认值
+updateIcebergDefaults() {
+const levels = this.strategyForm.icebergLevels;
+const side = this.strategyForm.side;
 
-    // 更新冰山策略默认值
-    updateIcebergDefaults() {
-      const levels = this.strategyForm.icebergLevels;
-      const side = this.strategyForm.side;
+// 根据层数和方向设置默认值（万分比）
+const defaultConfigs = {
+2: {
+quantities: [0.6, 0.4],
+gapsLong: [0, -30],
+gapsShort: [0, 30]
+},
+3: {
+quantities: [0.5, 0.3, 0.2],
+gapsLong: [0, -20, -50],
+gapsShort: [0, 20, 50]
+},
+4: {
+quantities: [0.4, 0.3, 0.2, 0.1],
+gapsLong: [0, -10, -30, -60],
+gapsShort: [0, 10, 30, 60]
+},
+5: {
+quantities: [0.35, 0.25, 0.2, 0.1, 0.1],
+gapsLong: [0, -10, -30, -50, -70],
+gapsShort: [0, 10, 30, 50, 70]
+},
+6: {
+quantities: [0.3, 0.25, 0.2, 0.1, 0.1, 0.05],
+gapsLong: [0, -10, -20, -40, -60, -80],
+gapsShort: [0, 10, 20, 40, 60, 80]
+}
+};
 
-      // 根据层数和方向设置默认值（万分比）
-      const defaultConfigs = {
-        2: {
-          quantities: [0.6, 0.4],
-          gapsLong: [0, -30],
-          gapsShort: [0, 30]
-        },
-        3: {
-          quantities: [0.5, 0.3, 0.2],
-          gapsLong: [0, -20, -50],
-          gapsShort: [0, 20, 50]
-        },
-        4: {
-          quantities: [0.4, 0.3, 0.2, 0.1],
-          gapsLong: [0, -10, -30, -60],
-          gapsShort: [0, 10, 30, 60]
-        },
-        5: {
-          quantities: [0.35, 0.25, 0.2, 0.1, 0.1],
-          gapsLong: [0, -10, -30, -50, -70],
-          gapsShort: [0, 10, 30, 50, 70]
-        },
-        6: {
-          quantities: [0.3, 0.25, 0.2, 0.1, 0.1, 0.05],
-          gapsLong: [0, -10, -20, -40, -60, -80],
-          gapsShort: [0, 10, 20, 40, 60, 80]
-        }
-      };
+if (defaultConfigs[levels]) {
+this.strategyForm.icebergQuantities = [...defaultConfigs[levels].quantities];
 
-      if (defaultConfigs[levels]) {
-        this.strategyForm.icebergQuantities = [...defaultConfigs[levels].quantities];
+// 根据方向选择价格间隔
+if (side === 'LONG') {
+this.strategyForm.icebergPriceGaps = [...defaultConfigs[levels].gapsLong];
+} else if (side === 'SHORT') {
+this.strategyForm.icebergPriceGaps = [...defaultConfigs[levels].gapsShort];
+}
+}
 
-        // 根据方向选择价格间隔
-        if (side === 'LONG') {
-          this.strategyForm.icebergPriceGaps = [...defaultConfigs[levels].gapsLong];
-        } else if (side === 'SHORT') {
-          this.strategyForm.icebergPriceGaps = [...defaultConfigs[levels].gapsShort];
-        }
-      }
+// 验证数量总和
+this.validateIcebergSum();
+},
 
-      // 验证数量总和
-      this.validateIcebergSum();
-    },
+// 验证冰山策略数量总和
+validateIcebergSum() {
+const sum = this.strategyForm.icebergQuantities
+.slice(0, this.strategyForm.icebergLevels)
+.reduce((a, b) => a + b, 0);
+this.icebergSumError = Math.abs(sum - 1) > 0.001;
+},
 
-    // 验证冰山策略数量总和
-    validateIcebergSum() {
-      const sum = this.strategyForm.icebergQuantities
-          .slice(0, this.strategyForm.icebergLevels)
-          .reduce((a, b) => a + b, 0);
-      this.icebergSumError = Math.abs(sum - 1) > 0.001;
-    },
+// 计算冰山策略每层价格
+calculateIcebergLayerPrice(index) {
+const { basePrice, icebergPriceGaps } = this.strategyForm;
+if (!basePrice || !icebergPriceGaps[index] === undefined) return '-';
 
-    // 计算冰山策略每层价格
-    calculateIcebergLayerPrice(index) {
-      const { basePrice, icebergPriceGaps } = this.strategyForm;
-      if (!basePrice || !icebergPriceGaps[index] === undefined) return '-';
+const layerPrice = basePrice * (1 + icebergPriceGaps[index] / 10000); // 万分比
+return this.formatPrice(layerPrice);
+},
 
-      const layerPrice = basePrice * (1 + icebergPriceGaps[index] / 10000); // 万分比
-      return this.formatPrice(layerPrice);
-    },
+// 格式化冰山数量显示
+formatIcebergQuantities(quantitiesStr) {
+if (!quantitiesStr) return '-';
+const quantities = quantitiesStr.split(',').map(q => parseFloat(q.trim()));
+return quantities.map(q => `${(q * 100).toFixed(0)}%`).join(', ');
+},
 
-    // 格式化冰山数量显示
-    formatIcebergQuantities(quantitiesStr) {
-      if (!quantitiesStr) return '-';
-      const quantities = quantitiesStr.split(',').map(q => parseFloat(q.trim()));
-      return quantities.map(q => `${(q * 100).toFixed(0)}%`).join(', ');
-    },
+// 格式化冰山价格间隔显示
+formatIcebergPriceGaps(gapsStr) {
+if (!gapsStr) return '-';
+const gaps = gapsStr.split(',').map(g => parseFloat(g.trim()));
+return gaps.map(g => `${g > 0 ? '+' : ''}${g}‱`).join(', '); // 万分比符号
+},
 
-    // 格式化冰山价格间隔显示
-    formatIcebergPriceGaps(gapsStr) {
-      if (!gapsStr) return '-';
-      const gaps = gapsStr.split(',').map(g => parseFloat(g.trim()));
-      return gaps.map(g => `${g > 0 ? '+' : ''}${g}‱`).join(', '); // 万分比符号
-    },
+// 自动生成策略名称
+generateStrategyName() {
+const { basePrice, side, takeProfitRate } = this.strategyForm;
 
-    // 自动生成策略名称
-    generateStrategyName() {
-      const { basePrice, side, takeProfitRate } = this.strategyForm;
+// 如果用户已经手动输入了名称，不覆盖
+if (this.strategyForm.strategyName && !this.isAutoGeneratedName) {
+return;
+}
 
-      // 如果用户已经手动输入了名称，不覆盖
-      if (this.strategyForm.strategyName && !this.isAutoGeneratedName) {
-        return;
-      }
+if (basePrice && side && takeProfitRate) {
+const takeProfitPrice = this.calculateTakeProfitPrice();
+const sideText = side === 'LONG' ? '做多' : '做空';
 
-      if (basePrice && side && takeProfitRate) {
-        const takeProfitPrice = this.calculateTakeProfitPrice();
-        const sideText = side === 'LONG' ? '做多' : '做空';
+// 格式化价格，去掉小数点后多余的0
+const formattedBasePrice = parseFloat(basePrice).toString();
+const formattedTPPrice = takeProfitPrice !== '-' ?
+parseFloat(takeProfitPrice).toString() : '';
 
-        // 格式化价格，去掉小数点后多余的0
-        const formattedBasePrice = parseFloat(basePrice).toString();
-        const formattedTPPrice = takeProfitPrice !== '-' ?
-            parseFloat(takeProfitPrice).toString() : '';
+if (formattedTPPrice) {
+this.strategyForm.strategyName = `${formattedBasePrice}${sideText}${formattedTPPrice}平仓`;
+this.isAutoGeneratedName = true;
+}
+}
+},
 
-        if (formattedTPPrice) {
-          this.strategyForm.strategyName = `${formattedBasePrice}${sideText}${formattedTPPrice}平仓`;
-          this.isAutoGeneratedName = true;
-        }
-      }
-    },
+// 计算预估合约数量（基于触发价格和杠杆的估算）
+calculateEstimatedContractQuantity() {
+const { quantity, basePrice, leverage } = this.strategyForm;
+if (!quantity || !basePrice) return '0';
+// 使用本金乘以杠杆计算实际开仓价值，再除以价格得到合约数量
+const totalValue = quantity * (leverage || 1);
+return (totalValue / basePrice).toFixed(8).replace(/\.?0+$/, '');
+},
 
-    // 计算预估合约数量（基于触发价格和杠杆的估算）
-    calculateEstimatedContractQuantity() {
-      const { quantity, basePrice, leverage } = this.strategyForm;
-      if (!quantity || !basePrice) return '0';
-      // 使用本金乘以杠杆计算实际开仓价值，再除以价格得到合约数量
-      const totalValue = quantity * (leverage || 1);
-      return (totalValue / basePrice).toFixed(8).replace(/\.?0+$/, '');
-    },
+// 获取合约单位
+getContractUnit() {
+const { symbol } = this.strategyForm;
+if (!symbol) return '';
+return symbol.replace('USDT', '');
+},
 
-    // 获取合约单位
-    getContractUnit() {
-      const { symbol } = this.strategyForm;
-      if (!symbol) return '';
-      return symbol.replace('USDT', '');
-    },
+// 计算开仓手续费
+calculateOpenFee() {
+const { quantity, leverage } = this.strategyForm;
+const totalValue = quantity * (leverage || 1); // 实际开仓价值
+return totalValue * 0.0004; // 0.04%
+},
 
-    // 计算开仓手续费
-    calculateOpenFee() {
-      const { quantity, leverage } = this.strategyForm;
-      const totalValue = quantity * (leverage || 1); // 实际开仓价值
-      return totalValue * 0.0004; // 0.04%
-    },
+// 计算平仓手续费
+calculateCloseFee() {
+const { quantity, takeProfitRate, side, leverage } = this.strategyForm;
+if (!quantity || !takeProfitRate) return 0;
 
-    // 计算平仓手续费
-    calculateCloseFee() {
-      const { quantity, takeProfitRate, side, leverage } = this.strategyForm;
-      if (!quantity || !takeProfitRate) return 0;
+const totalValue = quantity * (leverage || 1);
+const profitRate = takeProfitRate / 10000; // 万分比转小数
+let closeValue;
 
-      const totalValue = quantity * (leverage || 1);
-      const profitRate = takeProfitRate / 1000;
-      let closeValue;
+if (side === 'LONG') {
+closeValue = totalValue * (1 + profitRate);
+} else {
+closeValue = totalValue * (1 - profitRate);
+}
 
-      if (side === 'LONG') {
-        closeValue = totalValue * (1 + profitRate);
-      } else {
-        closeValue = totalValue * (1 - profitRate);
-      }
+return closeValue * 0.0004; // 0.04%
+},
 
-      return closeValue * 0.0004; // 0.04%
-    },
+// 计算总手续费
+calculateTotalFee() {
+return this.calculateOpenFee() + this.calculateCloseFee();
+},
 
-    // 计算总手续费
-    calculateTotalFee() {
-      return this.calculateOpenFee() + this.calculateCloseFee();
-    },
+// 计算净收益
+calculateNetProfit() {
+const { quantity, takeProfitRate, side, leverage } = this.strategyForm;
+if (!quantity || !takeProfitRate) return 0;
 
-    // 计算净收益
-    calculateNetProfit() {
-      const { quantity, takeProfitRate, side, leverage } = this.strategyForm;
-      if (!quantity || !takeProfitRate) return 0;
+const profitRate = takeProfitRate / 10000; // 万分比转小数
+const totalValue = quantity * (leverage || 1); // 实际开仓价值
+let grossProfit;
 
-      const profitRate = takeProfitRate / 1000;
-      const totalValue = quantity * (leverage || 1); // 实际开仓价值
-      let grossProfit;
+if (side === 'LONG') {
+grossProfit = totalValue * profitRate;
+} else {
+grossProfit = totalValue * profitRate;
+}
 
-      if (side === 'LONG') {
-        grossProfit = totalValue * profitRate;
-      } else {
-        grossProfit = totalValue * profitRate;
-      }
+// 扣除手续费
+return grossProfit - this.calculateTotalFee();
+},
 
-      // 扣除手续费
-      return grossProfit - this.calculateTotalFee();
-    },
+// 计算净收益率
+calculateNetProfitRate() {
+const { quantity } = this.strategyForm;
+if (!quantity) return '0.00';
 
-    // 计算净收益率
-    calculateNetProfitRate() {
-      const { quantity } = this.strategyForm;
-      if (!quantity) return '0.00';
+const netProfit = this.calculateNetProfit();
+const rate = (netProfit / quantity) * 100;
+return rate.toFixed(2);
+},
 
-      const netProfit = this.calculateNetProfit();
-      const rate = (netProfit / quantity) * 100;
-      return rate.toFixed(2);
-    },
+calculateTakeProfitPrice() {
+const { basePrice, takeProfitRate, side } = this.strategyForm;
+if (!basePrice || !takeProfitRate) return '-';
 
-    calculateTakeProfitPrice() {
-      const { basePrice, takeProfitRate, side } = this.strategyForm;
-      if (!basePrice || !takeProfitRate) return '-';
+const feeRate = 0.0004 * 2; // 开仓+平仓手续费
+const profitRate = takeProfitRate / 10000; // 万分比转小数
 
-      const feeRate = 0.0004 * 2; // 开仓+平仓手续费
-      const profitRate = takeProfitRate / 1000; // 千分比转小数
+// 基于触发价格估算（实际将根据开仓价格计算）
+if (side === 'LONG') {
+return this.formatPrice(basePrice * (1 + profitRate + feeRate));
+} else {
+return this.formatPrice(basePrice * (1 - profitRate - feeRate));
+}
+},
 
-      // 基于触发价格估算（实际将根据开仓价格计算）
-      if (side === 'LONG') {
-        return this.formatPrice(basePrice * (1 + profitRate + feeRate));
-      } else {
-        return this.formatPrice(basePrice * (1 - profitRate - feeRate));
-      }
-    },
+calculateStopLossPrice() {
+const { basePrice, stopLossRate, side } = this.strategyForm;
+if (!basePrice || !stopLossRate) return '-';
 
-    calculateStopLossPrice() {
-      const { basePrice, stopLossRate, side } = this.strategyForm;
-      if (!basePrice || !stopLossRate) return '-';
+const lossRate = stopLossRate / 10000; // 万分比转小数
 
-      const lossRate = stopLossRate / 1000; // 千分比转小数
+// 基于触发价格估算（实际将根据开仓价格计算）
+if (side === 'LONG') {
+return this.formatPrice(basePrice * (1 - lossRate));
+} else {
+return this.formatPrice(basePrice * (1 + lossRate));
+}
+},
 
-      // 基于触发价格估算（实际将根据开仓价格计算）
-      if (side === 'LONG') {
-        return this.formatPrice(basePrice * (1 - lossRate));
-      } else {
-        return this.formatPrice(basePrice * (1 + lossRate));
-      }
-    },
+// 获取杠杆样式类
+getLeverageClass(leverage) {
+if (leverage >= 1 && leverage <= 5) {
+return 'leverage-low';
+} else if (leverage >= 6 && leverage <= 20) {
+return 'leverage-high';
+}
+return '';
+},
 
-    // 获取杠杆样式类
-    getLeverageClass(leverage) {
-      if (leverage >= 1 && leverage <= 5) {
-        return 'leverage-low';
-      } else if (leverage >= 6 && leverage <= 20) {
-        return 'leverage-high';
-      }
-      return '';
-    },
+getStatusClass(status) {
+const statusMap = {
+'waiting': 'waiting',
+'triggered': 'triggered',
+'position_opened': 'active',
+'completed': 'completed',
+'cancelled': 'cancelled'
+};
+return statusMap[status] || status;
+},
 
-    getStatusClass(status) {
-      const statusMap = {
-        'waiting': 'waiting',
-        'triggered': 'triggered',
-        'position_opened': 'active',
-        'completed': 'completed',
-        'cancelled': 'cancelled'
-      };
-      return statusMap[status] || status;
-    },
+getStatusText(status) {
+const statusMap = {
+'waiting': '等待触发',
+'triggered': '已触发',
+'position_opened': '持仓中',
+'completed': '已完成',
+'cancelled': '已取消'
+};
+return statusMap[status] || status;
+},
 
-    getStatusText(status) {
-      const statusMap = {
-        'waiting': '等待触发',
-        'triggered': '已触发',
-        'position_opened': '持仓中',
-        'completed': '已完成',
-        'cancelled': '已取消'
-      };
-      return statusMap[status] || status;
-    },
+getOrderPurposeText(purpose) {
+const purposeMap = {
+'entry': '开仓',
+'take_profit': '止盈',
+'stop_loss': '止损'
+};
+return purposeMap[purpose] || purpose;
+},
 
-    getOrderPurposeText(purpose) {
-      const purposeMap = {
-        'entry': '开仓',
-        'take_profit': '止盈',
-        'stop_loss': '止损'
-      };
-      return purposeMap[purpose] || purpose;
-    },
+formatPrice(price) {
+return parseFloat(price).toFixed(8).replace(/\.?0+$/, '');
+},
 
-    formatPrice(price) {
-      return parseFloat(price).toFixed(8).replace(/\.?0+$/, '');
-    },
+formatQuantity(quantity) {
+return parseFloat(quantity).toFixed(8).replace(/\.?0+$/, '');
+},
 
-    formatQuantity(quantity) {
-      return parseFloat(quantity).toFixed(8).replace(/\.?0+$/, '');
-    },
+formatCurrency(amount) {
+return new Intl.NumberFormat('zh-CN', {
+style: 'currency',
+currency: 'USD',
+minimumFractionDigits: 2,
+maximumFractionDigits: 2
+}).format(amount || 0);
+},
 
-    formatCurrency(amount) {
-      return new Intl.NumberFormat('zh-CN', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      }).format(amount || 0);
-    },
+formatDate(dateString) {
+if (!dateString) return '-';
+const date = new Date(dateString);
+const now = new Date();
+const diff = now - date;
+const hours = Math.floor(diff / (1000 * 60 * 60));
 
-    formatDate(dateString) {
-      if (!dateString) return '-';
-      const date = new Date(dateString);
-      const now = new Date();
-      const diff = now - date;
-      const hours = Math.floor(diff / (1000 * 60 * 60));
+if (hours < 1) return '刚刚';
+if (hours < 24) return `${hours}小时前`;
 
-      if (hours < 1) return '刚刚';
-      if (hours < 24) return `${hours}小时前`;
+return date.toLocaleDateString('zh-CN', {
+month: 'short',
+day: 'numeric',
+hour: '2-digit',
+minute: '2-digit'
+});
+},
 
-      return date.toLocaleDateString('zh-CN', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    },
-
-    showToast(message, type = 'success') {
-      this.toastMessage = message;
-      this.toastType = type;
-      setTimeout(() => {
-        this.toastMessage = '';
-      }, 3000);
-    }
-  }
+showToast(message, type = 'success') {
+this.toastMessage = message;
+this.toastType = type;
+setTimeout(() => {
+this.toastMessage = '';
+}, 3000);
+}
+}
 };
 </script>
 
@@ -1414,6 +1411,25 @@ export default {
   /* 过渡 */
   --transition-fast: 150ms ease;
   --transition-normal: 200ms ease;
+}
+
+/* 新增警告样式 */
+.form-control.warning {
+  border-color: var(--color-warning);
+}
+
+.form-hint.hint-warning {
+  color: var(--color-warning);
+}
+
+.warning-text {
+  font-weight: 600;
+  color: var(--color-warning);
+}
+
+.toast.warning {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
 }
 
 /* 策略类型徽章 */
@@ -2316,6 +2332,11 @@ input:disabled + .slider {
 .toast.error {
   border-color: var(--color-danger);
   color: var(--color-danger);
+}
+
+.toast.warning {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
 }
 
 .toast-icon {
