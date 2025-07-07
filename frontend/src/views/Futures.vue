@@ -726,6 +726,7 @@ export default {
         if (this.editingStrategy) {
           // 更新策略时，只发送允许更新的字段
           const updateData = {
+            strategyName: this.strategyForm.strategyName, // 现在可以更新策略名称了
             enabled: this.editingStrategy.enabled, // 保持原有的启用状态
             basePrice: this.strategyForm.basePrice,
             entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,

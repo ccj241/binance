@@ -122,6 +122,7 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 
 	// 允许更新的字段
 	allowedFields := map[string]bool{
+		"strategyName":    true, // 新增：允许更新策略名称
 		"enabled":         true,
 		"basePrice":       true,
 		"entryPriceFloat": true,
@@ -137,7 +138,62 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 		}
 	}
 
-	// 直接更新，止盈止损价格将在触发时计算
+	// 如果更新了影响止盈止损的字段，需要重新计算
+	needRecalculate := false
+	if _, hasBasePrice := updates["basePrice"]; hasBasePrice {
+		needRecalculate = true
+	}
+	if _, hasEntryPriceFloat := updates["entryPriceFloat"]; hasEntryPriceFloat {
+		needRecalculate = true
+	}
+	if _, hasTakeProfitRate := updates["takeProfitRate"]; hasTakeProfitRate {
+		needRecalculate = true
+	}
+	if _, hasStopLossRate := updates["stopLossRate"]; hasStopLossRate {
+		needRecalculate = true
+	}
+
+	// 如果需要重新计算，获取更新后的值
+	if needRecalculate {
+		// 先应用更新
+		if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
+			return
+		}
+
+		// 重新查询获取最新值
+		ctrl.Config.DB.First(&strategy, strategyID)
+
+		// 计算预估的开仓价格（基于触发价格的估算）
+		if strategy.BasePrice > 0 {
+			// 这里使用触发价格作为预估，实际开仓价格将在触发时根据买卖价计算
+			estimatedEntryPrice := strategy.BasePrice
+			if strategy.EntryPriceFloat > 0 {
+				if strategy.Side == "LONG" {
+					// 做多时，开仓价格会低于触发价格
+					estimatedEntryPrice = strategy.BasePrice * (1 - strategy.EntryPriceFloat/1000)
+				} else {
+					// 做空时，开仓价格会高于触发价格
+					estimatedEntryPrice = strategy.BasePrice * (1 + strategy.EntryPriceFloat/1000)
+				}
+			}
+
+			// 临时设置预估开仓价格用于计算
+			strategy.EntryPrice = estimatedEntryPrice
+
+			// 重新计算止盈止损价格
+			strategy.CalculateTakeProfitPrice()
+			strategy.CalculateStopLossPrice()
+
+			// 保存计算后的止盈止损价格
+			updates["take_profit_price"] = strategy.TakeProfitPrice
+			updates["stop_loss_price"] = strategy.StopLossPrice
+			// 注意：不保存 EntryPrice，保持为 0
+			updates["entry_price"] = 0
+		}
+	}
+
+	// 最终更新（如果之前没有更新过）
 	updates["updated_at"] = time.Now()
 	if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
