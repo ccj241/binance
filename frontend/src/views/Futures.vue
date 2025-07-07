@@ -93,6 +93,9 @@
                 <span class="leverage-badge">
                   {{ strategy.leverage }}X
                 </span>
+                <span v-if="strategy.strategyType === 'iceberg'" class="type-badge">
+                  冰山
+                </span>
                 <span :class="['status-badge', getStatusClass(strategy.status)]">
                   {{ getStatusText(strategy.status) }}
                 </span>
@@ -145,6 +148,25 @@
                     (-{{ strategy.stopLossRate }}‰)
                   </span>
                 </span>
+              </div>
+            </div>
+
+            <!-- 冰山策略详情 -->
+            <div v-if="strategy.strategyType === 'iceberg' && strategy.icebergQuantities" class="iceberg-details">
+              <div class="iceberg-title">冰山策略配置</div>
+              <div class="iceberg-info-grid">
+                <div class="iceberg-info-item">
+                  <span class="info-label">层数</span>
+                  <span class="info-value">{{ strategy.icebergLevels }}层</span>
+                </div>
+                <div class="iceberg-info-item">
+                  <span class="info-label">数量分配</span>
+                  <span class="info-value">{{ formatIcebergQuantities(strategy.icebergQuantities) }}</span>
+                </div>
+                <div class="iceberg-info-item">
+                  <span class="info-label">价格间隔</span>
+                  <span class="info-value">{{ formatIcebergPriceGaps(strategy.icebergPriceGaps) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -278,6 +300,14 @@
               </div>
 
               <div class="form-group">
+                <label class="form-label">策略类型</label>
+                <select v-model="strategyForm.strategyType" class="form-control" @change="onStrategyTypeChange" required>
+                  <option value="simple">简单策略</option>
+                  <option value="iceberg">冰山策略</option>
+                </select>
+              </div>
+
+              <div class="form-group">
                 <label class="form-label">交易对</label>
                 <select v-model="strategyForm.symbol" class="form-control" :disabled="editingStrategy" required>
                   <option value="">选择交易对</option>
@@ -289,7 +319,13 @@
 
               <div class="form-group">
                 <label class="form-label">方向</label>
-                <select v-model="strategyForm.side" class="form-control" :disabled="editingStrategy" required @change="generateStrategyName">
+                <select
+                    v-model="strategyForm.side"
+                    class="form-control"
+                    :disabled="editingStrategy"
+                    required
+                    @change="onSideChange"
+                >
                   <option value="">选择方向</option>
                   <option value="LONG">做多</option>
                   <option value="SHORT">做空</option>
@@ -405,6 +441,87 @@
               </div>
             </div>
 
+            <!-- 冰山策略配置 -->
+            <template v-if="strategyForm.strategyType === 'iceberg'">
+              <div class="iceberg-config-section">
+                <h4 class="config-title">冰山策略配置</h4>
+
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label class="form-label">
+                      冰山层数
+                      <span class="form-hint">将订单分为几层</span>
+                    </label>
+                    <select v-model.number="strategyForm.icebergLevels" class="form-control" @change="updateIcebergDefaults">
+                      <option :value="2">2层</option>
+                      <option :value="3">3层</option>
+                      <option :value="4">4层</option>
+                      <option :value="5">5层</option>
+                      <option :value="6">6层</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group full-width">
+                  <label class="form-label">
+                    各层数量分配
+                    <span class="form-hint">每层占总数量的比例，总和必须为1</span>
+                  </label>
+                  <div class="iceberg-layers">
+                    <div v-for="(quantity, index) in strategyForm.icebergQuantities.slice(0, strategyForm.icebergLevels)" :key="'q' + index" class="iceberg-layer">
+                      <span class="layer-label">第{{ index + 1 }}层</span>
+                      <input
+                          v-model.number="strategyForm.icebergQuantities[index]"
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max="1"
+                          class="form-control"
+                          placeholder="比例"
+                          @input="validateIcebergSum"
+                      />
+                      <span class="layer-percent">{{ (strategyForm.icebergQuantities[index] * 100).toFixed(0) }}%</span>
+                    </div>
+                  </div>
+                  <div v-if="icebergSumError" class="form-error">
+                    数量总和必须为1，当前总和: {{ icebergSum.toFixed(2) }}
+                  </div>
+                </div>
+
+                <div class="form-group full-width">
+                  <label class="form-label">
+                    各层价格间隔 (‰)
+                    <span class="form-hint">
+                      {{ strategyForm.side === 'LONG' ? '负值表示低于基准价格' : '正值表示高于基准价格' }}
+                    </span>
+                  </label>
+                  <div class="iceberg-layers">
+                    <div v-for="(gap, index) in strategyForm.icebergPriceGaps.slice(0, strategyForm.icebergLevels)" :key="'g' + index" class="iceberg-layer">
+                      <span class="layer-label">第{{ index + 1 }}层</span>
+                      <input
+                          v-model.number="strategyForm.icebergPriceGaps[index]"
+                          type="number"
+                          step="0.1"
+                          class="form-control"
+                          placeholder="千分比"
+                      />
+                      <span class="layer-percent">
+                        {{ strategyForm.icebergPriceGaps[index] > 0 ? '+' : '' }}{{ strategyForm.icebergPriceGaps[index] }}‰
+                      </span>
+                    </div>
+                  </div>
+                  <div class="form-hint" style="margin-top: 0.5rem;">
+                    <span v-if="strategyForm.side === 'LONG'">
+                      做多时使用负值可以在价格下跌时分批建仓，获得更好的平均成本
+                    </span>
+                    <span v-else-if="strategyForm.side === 'SHORT'">
+                      做空时使用正值可以在价格上涨时分批建仓，获得更好的平均成本
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
             <!-- 策略预览 -->
             <div v-if="strategyForm.basePrice > 0 && strategyForm.quantity > 0" class="strategy-preview">
               <h4 class="preview-title">策略预览</h4>
@@ -471,6 +588,28 @@
                   </span>
                 </div>
               </div>
+
+              <!-- 冰山策略预览 -->
+              <div v-if="strategyForm.strategyType === 'iceberg'" class="iceberg-preview">
+                <h5>冰山分层预览</h5>
+                <div class="iceberg-preview-layers">
+                  <div v-for="(_, index) in strategyForm.icebergQuantities.slice(0, strategyForm.icebergLevels)"
+                       :key="'preview' + index"
+                       class="iceberg-preview-layer">
+                    <span class="preview-layer-label">第{{ index + 1 }}层</span>
+                    <span class="preview-layer-info">
+                      数量: {{ (strategyForm.icebergQuantities[index] * strategyForm.quantity).toFixed(3) }} USDT
+                      ({{ (strategyForm.icebergQuantities[index] * 100).toFixed(0) }}%)
+                    </span>
+                    <span class="preview-layer-price">
+                      价格: {{ calculateIcebergLayerPrice(index) }}
+                      <span class="price-diff">
+                        ({{ strategyForm.icebergPriceGaps[index] > 0 ? '+' : '' }}{{ strategyForm.icebergPriceGaps[index] }}‰)
+                      </span>
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </form>
 
@@ -480,7 +619,7 @@
             </button>
             <button
                 @click="submitStrategy"
-                :disabled="isSubmitting || strategyForm.quantity > availableBalance"
+                :disabled="isSubmitting || strategyForm.quantity > availableBalance || (strategyForm.strategyType === 'iceberg' && icebergSumError)"
                 class="btn btn-primary"
             >
               <span v-if="!isSubmitting">{{ editingStrategy ? '更新' : '创建' }}</span>
@@ -598,21 +737,34 @@ export default {
         strategyName: '',
         symbol: '',
         side: '',
+        strategyType: 'simple',
         basePrice: 0,
-        entryPrice: 0, // 这个字段后端不再使用，仅用于编辑时显示
-        entryPriceFloat: 0, // 开仓价格浮动千分比
+        entryPrice: 0,
+        entryPriceFloat: 0,
         leverage: 1,
         quantity: 0,
         takeProfitRate: 0,
         stopLossRate: 0,
-        marginType: 'CROSSED' // 默认改为全仓
+        marginType: 'CROSSED',
+        icebergLevels: 5,
+        icebergQuantities: [0.35, 0.25, 0.2, 0.1, 0.1],
+        icebergPriceGaps: [0, -1, -3, -5, -7], // 默认做多的价格间隔
       },
       isSubmitting: false,
       toastMessage: '',
       toastType: 'success',
       refreshInterval: null,
-      isAutoGeneratedName: false // 标记名称是否自动生成
+      isAutoGeneratedName: false,
+      icebergSumError: false,
     };
+  },
+
+  computed: {
+    icebergSum() {
+      return this.strategyForm.icebergQuantities
+          .slice(0, this.strategyForm.icebergLevels)
+          .reduce((a, b) => a + b, 0);
+    }
   },
 
   mounted() {
@@ -716,6 +868,12 @@ export default {
         return;
       }
 
+      // 验证冰山策略配置
+      if (this.strategyForm.strategyType === 'iceberg' && this.icebergSumError) {
+        this.showToast('冰山策略数量分配总和必须为1', 'error');
+        return;
+      }
+
       // 如果没有填写策略名称，使用自动生成的名称
       if (!this.strategyForm.strategyName) {
         this.generateStrategyName();
@@ -726,14 +884,21 @@ export default {
         if (this.editingStrategy) {
           // 更新策略时，只发送允许更新的字段
           const updateData = {
-            strategyName: this.strategyForm.strategyName, // 现在可以更新策略名称了
-            enabled: this.editingStrategy.enabled, // 保持原有的启用状态
+            strategyName: this.strategyForm.strategyName,
+            enabled: this.editingStrategy.enabled,
             basePrice: this.strategyForm.basePrice,
             entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,
             quantity: this.strategyForm.quantity,
             takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
-            stopLossRate: this.strategyForm.stopLossRate / 10, // 千分比转换为百分比
+            stopLossRate: this.strategyForm.stopLossRate / 10,
           };
+
+          // 如果是冰山策略，添加冰山配置
+          if (this.strategyForm.strategyType === 'iceberg') {
+            updateData.icebergLevels = this.strategyForm.icebergLevels;
+            updateData.icebergQuantities = this.strategyForm.icebergQuantities.slice(0, this.strategyForm.icebergLevels);
+            updateData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
+          }
 
           await axios.put(`/futures/strategies/${this.editingStrategy.id}`, updateData);
           this.showToast('策略更新成功');
@@ -742,9 +907,21 @@ export default {
           const submitData = {
             ...this.strategyForm,
             takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
-            stopLossRate: this.strategyForm.stopLossRate / 10, // 千分比转换为百分比
+            stopLossRate: this.strategyForm.stopLossRate / 10,
             entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,
           };
+
+          // 如果是冰山策略，确保数据格式正确
+          if (submitData.strategyType === 'iceberg') {
+            // 确保数量和价格间隔数组长度匹配层数
+            submitData.icebergQuantities = submitData.icebergQuantities.slice(0, submitData.icebergLevels);
+            submitData.icebergPriceGaps = submitData.icebergPriceGaps.slice(0, submitData.icebergLevels);
+          } else {
+            // 简单策略不需要冰山配置
+            delete submitData.icebergLevels;
+            delete submitData.icebergQuantities;
+            delete submitData.icebergPriceGaps;
+          }
 
           // 删除不需要的字段
           delete submitData.entryPrice;
@@ -755,7 +932,7 @@ export default {
 
         this.closeCreateModal();
         await this.fetchStrategies();
-        await this.fetchBalance(); // 更新余额
+        await this.fetchBalance();
       } catch (error) {
         console.error('提交策略失败:', error);
         this.showToast(error.response?.data?.error || '提交失败', 'error');
@@ -808,28 +985,52 @@ export default {
 
     editStrategy(strategy) {
       this.editingStrategy = strategy;
+
+      // 解析冰山策略配置
+      let icebergQuantities = [0.35, 0.25, 0.2, 0.1, 0.1];
+      let icebergPriceGaps = strategy.side === 'LONG' ? [0, -1, -3, -5, -7] : [0, 1, 3, 5, 7];
+
+      if (strategy.icebergQuantities) {
+        const quantities = strategy.icebergQuantities.split(',').map(q => parseFloat(q.trim()));
+        if (quantities.length > 0) {
+          icebergQuantities = quantities;
+        }
+      }
+
+      if (strategy.icebergPriceGaps) {
+        const gaps = strategy.icebergPriceGaps.split(',').map(g => parseFloat(g.trim()));
+        if (gaps.length > 0) {
+          icebergPriceGaps = gaps;
+        }
+      }
+
       this.strategyForm = {
         strategyName: strategy.strategyName,
         symbol: strategy.symbol,
         side: strategy.side,
+        strategyType: strategy.strategyType || 'simple',
         basePrice: strategy.basePrice,
         entryPrice: strategy.entryPrice,
         entryPriceFloat: strategy.entryPriceFloat || 0,
         leverage: strategy.leverage,
         quantity: strategy.quantity,
         takeProfitRate: strategy.takeProfitRate * 10, // 百分比转换为千分比
-        stopLossRate: (strategy.stopLossRate || 0) * 10, // 百分比转换为千分比
-        marginType: strategy.marginType
+        stopLossRate: (strategy.stopLossRate || 0) * 10,
+        marginType: strategy.marginType,
+        icebergLevels: strategy.icebergLevels || 5,
+        icebergQuantities: icebergQuantities,
+        icebergPriceGaps: icebergPriceGaps,
       };
+
       this.showCreateModal = true;
-      this.fetchBalance(); // 获取最新余额
+      this.fetchBalance();
     },
 
     closeCreateModal() {
       this.showCreateModal = false;
       this.editingStrategy = null;
       this.resetForm();
-      this.fetchBalance(); // 获取最新余额
+      this.fetchBalance();
     },
 
     closeOrdersModal() {
@@ -843,6 +1044,7 @@ export default {
         strategyName: '',
         symbol: '',
         side: '',
+        strategyType: 'simple',
         basePrice: 0,
         entryPrice: 0,
         entryPriceFloat: 0,
@@ -850,9 +1052,111 @@ export default {
         quantity: 0,
         takeProfitRate: 0,
         stopLossRate: 0,
-        marginType: 'CROSSED'
+        marginType: 'CROSSED',
+        icebergLevels: 5,
+        icebergQuantities: [0.35, 0.25, 0.2, 0.1, 0.1],
+        icebergPriceGaps: [0, -1, -3, -5, -7],
       };
-      this.isAutoGeneratedName = false; // 重置标记
+      this.isAutoGeneratedName = false;
+      this.icebergSumError = false;
+    },
+
+    // 策略类型改变
+    onStrategyTypeChange() {
+      if (this.strategyForm.strategyType === 'iceberg') {
+        // 切换到冰山策略时，确保有正确的默认值
+        this.updateIcebergDefaults();
+      }
+    },
+
+    // 方向改变时更新冰山策略默认值
+    onSideChange() {
+      this.generateStrategyName();
+
+      // 如果是冰山策略，更新价格间隔的默认值
+      if (this.strategyForm.strategyType === 'iceberg') {
+        this.updateIcebergDefaults();
+      }
+    },
+
+    // 更新冰山策略默认值
+    updateIcebergDefaults() {
+      const levels = this.strategyForm.icebergLevels;
+      const side = this.strategyForm.side;
+
+      // 根据层数和方向设置默认值
+      const defaultConfigs = {
+        2: {
+          quantities: [0.6, 0.4],
+          gapsLong: [0, -3],
+          gapsShort: [0, 3]
+        },
+        3: {
+          quantities: [0.5, 0.3, 0.2],
+          gapsLong: [0, -2, -5],
+          gapsShort: [0, 2, 5]
+        },
+        4: {
+          quantities: [0.4, 0.3, 0.2, 0.1],
+          gapsLong: [0, -1, -3, -6],
+          gapsShort: [0, 1, 3, 6]
+        },
+        5: {
+          quantities: [0.35, 0.25, 0.2, 0.1, 0.1],
+          gapsLong: [0, -1, -3, -5, -7],
+          gapsShort: [0, 1, 3, 5, 7]
+        },
+        6: {
+          quantities: [0.3, 0.25, 0.2, 0.1, 0.1, 0.05],
+          gapsLong: [0, -1, -2, -4, -6, -8],
+          gapsShort: [0, 1, 2, 4, 6, 8]
+        }
+      };
+
+      if (defaultConfigs[levels]) {
+        this.strategyForm.icebergQuantities = [...defaultConfigs[levels].quantities];
+
+        // 根据方向选择价格间隔
+        if (side === 'LONG') {
+          this.strategyForm.icebergPriceGaps = [...defaultConfigs[levels].gapsLong];
+        } else if (side === 'SHORT') {
+          this.strategyForm.icebergPriceGaps = [...defaultConfigs[levels].gapsShort];
+        }
+      }
+
+      // 验证数量总和
+      this.validateIcebergSum();
+    },
+
+    // 验证冰山策略数量总和
+    validateIcebergSum() {
+      const sum = this.strategyForm.icebergQuantities
+          .slice(0, this.strategyForm.icebergLevels)
+          .reduce((a, b) => a + b, 0);
+      this.icebergSumError = Math.abs(sum - 1) > 0.001;
+    },
+
+    // 计算冰山策略每层价格
+    calculateIcebergLayerPrice(index) {
+      const { basePrice, icebergPriceGaps } = this.strategyForm;
+      if (!basePrice || !icebergPriceGaps[index] === undefined) return '-';
+
+      const layerPrice = basePrice * (1 + icebergPriceGaps[index] / 1000);
+      return this.formatPrice(layerPrice);
+    },
+
+    // 格式化冰山数量显示
+    formatIcebergQuantities(quantitiesStr) {
+      if (!quantitiesStr) return '-';
+      const quantities = quantitiesStr.split(',').map(q => parseFloat(q.trim()));
+      return quantities.map(q => `${(q * 100).toFixed(0)}%`).join(', ');
+    },
+
+    // 格式化冰山价格间隔显示
+    formatIcebergPriceGaps(gapsStr) {
+      if (!gapsStr) return '-';
+      const gaps = gapsStr.split(',').map(g => parseFloat(g.trim()));
+      return gaps.map(g => `${g > 0 ? '+' : ''}${g}‰`).join(', ');
     },
 
     // 自动生成策略名称
@@ -887,12 +1191,6 @@ export default {
       // 使用本金乘以杠杆计算实际开仓价值，再除以价格得到合约数量
       const totalValue = quantity * (leverage || 1);
       return (totalValue / basePrice).toFixed(8).replace(/\.?0+$/, '');
-    },
-
-    // 计算实际合约数量（将在触发时使用实际的买卖价）
-    calculateContractQuantity() {
-      // 这个方法保留用于显示，但实际计算将在触发时进行
-      return this.calculateEstimatedContractQuantity();
     },
 
     // 获取合约单位
@@ -1079,6 +1377,148 @@ export default {
 
 <style scoped>
 /* 原有样式保持不变，新增以下样式 */
+
+/* 策略类型徽章 */
+.type-badge {
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+/* 冰山策略详情 */
+.iceberg-details {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.iceberg-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.iceberg-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.iceberg-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.info-value {
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+/* 冰山策略配置部分 */
+.iceberg-config-section {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+}
+
+.config-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 1rem 0;
+}
+
+.iceberg-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.iceberg-layer {
+  display: grid;
+  grid-template-columns: 80px 1fr 60px;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.layer-label {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.layer-percent {
+  font-size: 0.875rem;
+  color: var(--color-text-tertiary);
+  text-align: right;
+  font-weight: 500;
+}
+
+.form-error {
+  color: var(--color-danger);
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+/* 冰山策略预览 */
+.iceberg-preview {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+.iceberg-preview h5 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--color-text-primary);
+}
+
+.iceberg-preview-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.iceberg-preview-layer {
+  display: grid;
+  grid-template-columns: 60px 1fr 1fr;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+}
+
+.preview-layer-label {
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.preview-layer-info,
+.preview-layer-price {
+  color: var(--color-text-primary);
+}
+
+.price-diff {
+  color: var(--color-text-tertiary);
+  font-size: 0.7rem;
+}
 
 /* 计算后价格提示 */
 .calculated-price-hint {
@@ -1536,22 +1976,14 @@ input:disabled + .slider {
   cursor: not-allowed;
 }
 
-/* 新增：表单提示 */
+/* 表单提示 */
 .form-hint {
   font-size: 0.75rem;
   color: var(--color-text-tertiary);
   margin-top: 0.25rem;
 }
 
-/* 新增：计算后价格显示 */
-.calculated-price {
-  font-size: 0.75rem;
-  color: var(--color-primary);
-  margin-top: 0.25rem;
-  font-weight: 500;
-}
-
-/* 新增：杠杆选择样式 */
+/* 杠杆选择样式 */
 .leverage-select.leverage-low {
   color: var(--color-success);
 }
@@ -1717,7 +2149,7 @@ input:disabled + .slider {
   background: var(--color-bg);
   border-radius: var(--radius-lg);
   width: 90%;
-  max-width: 600px;
+  max-width: 700px;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
@@ -1915,6 +2347,21 @@ input:disabled + .slider {
   .orders-table th,
   .orders-table td {
     padding: 0.5rem;
+  }
+
+  .iceberg-layer {
+    grid-template-columns: 60px 1fr 50px;
+    gap: 0.5rem;
+  }
+
+  .iceberg-preview-layer {
+    grid-template-columns: 50px 1fr;
+    gap: 0.5rem;
+  }
+
+  .preview-layer-price {
+    grid-column: 2;
+    margin-top: 0.25rem;
   }
 }
 </style>

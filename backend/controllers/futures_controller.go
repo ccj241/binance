@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/adshao/go-binance/v2"
@@ -24,16 +26,20 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
 	var req struct {
-		StrategyName    string  `json:"strategyName" binding:"required"`
-		Symbol          string  `json:"symbol" binding:"required"`
-		Side            string  `json:"side" binding:"required,oneof=LONG SHORT"`
-		BasePrice       float64 `json:"basePrice" binding:"required,gt=0"`
-		EntryPriceFloat float64 `json:"entryPriceFloat" binding:"required,min=0"` // 开仓价格浮动千分比
-		Leverage        int     `json:"leverage" binding:"required,min=1,max=125"`
-		Quantity        float64 `json:"quantity" binding:"required,gt=0"` // 这里接收的是合约数量（前端已转换）
-		TakeProfitRate  float64 `json:"takeProfitRate" binding:"required,gt=0"`
-		StopLossRate    float64 `json:"stopLossRate" binding:"min=0"` // 可选
-		MarginType      string  `json:"marginType" binding:"omitempty,oneof=ISOLATED CROSSED"`
+		StrategyName      string    `json:"strategyName" binding:"required"`
+		Symbol            string    `json:"symbol" binding:"required"`
+		Side              string    `json:"side" binding:"required,oneof=LONG SHORT"`
+		StrategyType      string    `json:"strategyType" binding:"omitempty,oneof=simple iceberg"`
+		BasePrice         float64   `json:"basePrice" binding:"required,gt=0"`
+		EntryPriceFloat   float64   `json:"entryPriceFloat" binding:"required,min=0"`
+		Leverage          int       `json:"leverage" binding:"required,min=1,max=125"`
+		Quantity          float64   `json:"quantity" binding:"required,gt=0"`
+		TakeProfitRate    float64   `json:"takeProfitRate" binding:"required,gt=0"`
+		StopLossRate      float64   `json:"stopLossRate" binding:"min=0"`
+		MarginType        string    `json:"marginType" binding:"omitempty,oneof=ISOLATED CROSSED"`
+		IcebergLevels     int       `json:"icebergLevels" binding:"omitempty,min=2,max=10"`
+		IcebergQuantities []float64 `json:"icebergQuantities"`
+		IcebergPriceGaps  []float64 `json:"icebergPriceGaps"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,27 +47,95 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 		return
 	}
 
-	// 设置默认保证金类型
+	// 设置默认值
+	if req.StrategyType == "" {
+		req.StrategyType = "simple"
+	}
 	if req.MarginType == "" {
-		req.MarginType = "CROSSED" // 默认改为全仓
+		req.MarginType = "CROSSED"
+	}
+
+	// 冰山策略验证和默认值
+	icebergQuantitiesStr := ""
+	icebergPriceGapsStr := ""
+
+	if req.StrategyType == "iceberg" {
+		if req.IcebergLevels == 0 {
+			req.IcebergLevels = 5 // 默认5层
+		}
+
+		// 如果没有提供数量分配，使用默认值
+		if len(req.IcebergQuantities) == 0 {
+			req.IcebergQuantities = []float64{0.35, 0.25, 0.2, 0.1, 0.1}
+		}
+
+		// 如果没有提供价格间隔，根据方向使用默认值
+		if len(req.IcebergPriceGaps) == 0 {
+			if req.Side == "LONG" {
+				req.IcebergPriceGaps = []float64{0, -1, -3, -5, -7} // 做多默认价格递减
+			} else {
+				req.IcebergPriceGaps = []float64{0, 1, 3, 5, 7} // 做空默认价格递增
+			}
+		}
+
+		// 确保数量和价格间隔数组长度与层数匹配
+		if len(req.IcebergQuantities) != req.IcebergLevels {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "数量分配数量必须与层数相等"})
+			return
+		}
+		if len(req.IcebergPriceGaps) != req.IcebergLevels {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "价格间隔数量必须与层数相等"})
+			return
+		}
+
+		// 验证数量总和
+		var sum float64
+		for _, q := range req.IcebergQuantities {
+			if q <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "每层数量必须大于0"})
+				return
+			}
+			sum += q
+		}
+		if math.Abs(sum-1.0) > 0.001 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("冰山策略数量比例总和必须为1，当前为%.4f", sum)})
+			return
+		}
+
+		// 转换数组为字符串存储
+		quantitiesStrs := make([]string, len(req.IcebergQuantities))
+		for i, q := range req.IcebergQuantities {
+			quantitiesStrs[i] = fmt.Sprintf("%.4f", q)
+		}
+		icebergQuantitiesStr = strings.Join(quantitiesStrs, ",")
+
+		gapsStrs := make([]string, len(req.IcebergPriceGaps))
+		for i, g := range req.IcebergPriceGaps {
+			gapsStrs[i] = fmt.Sprintf("%.1f", g)
+		}
+		icebergPriceGapsStr = strings.Join(gapsStrs, ",")
 	}
 
 	// 创建策略
 	strategy := models.FuturesStrategy{
-		UserID:          userID.(uint),
-		StrategyName:    req.StrategyName,
-		Symbol:          req.Symbol,
-		Side:            req.Side,
-		BasePrice:       req.BasePrice,
-		EntryPrice:      0, // 开仓价格将在触发时计算
-		EntryPriceFloat: req.EntryPriceFloat,
-		Leverage:        req.Leverage,
-		Quantity:        req.Quantity,
-		TakeProfitRate:  req.TakeProfitRate,
-		StopLossRate:    req.StopLossRate,
-		MarginType:      req.MarginType,
-		Enabled:         true,
-		Status:          "waiting",
+		UserID:            userID.(uint),
+		StrategyName:      req.StrategyName,
+		Symbol:            req.Symbol,
+		Side:              req.Side,
+		StrategyType:      req.StrategyType,
+		BasePrice:         req.BasePrice,
+		EntryPrice:        0, // 开仓价格将在触发时计算
+		EntryPriceFloat:   req.EntryPriceFloat,
+		Leverage:          req.Leverage,
+		Quantity:          req.Quantity,
+		TakeProfitRate:    req.TakeProfitRate,
+		StopLossRate:      req.StopLossRate,
+		MarginType:        req.MarginType,
+		IcebergLevels:     req.IcebergLevels,
+		IcebergQuantities: icebergQuantitiesStr,
+		IcebergPriceGaps:  icebergPriceGapsStr,
+		Enabled:           true,
+		Status:            "waiting",
 	}
 
 	// 暂时不计算止盈止损价格，将在触发时根据实际开仓价格计算
@@ -72,7 +146,7 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 		return
 	}
 
-	log.Printf("用户 %d 创建永续期货策略: %s", userID.(uint), strategy.StrategyName)
+	log.Printf("用户 %d 创建永续期货策略: %s (类型: %s)", userID.(uint), strategy.StrategyName, strategy.StrategyType)
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "策略创建成功",
 		"strategy": strategy,
@@ -122,19 +196,33 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 
 	// 允许更新的字段
 	allowedFields := map[string]bool{
-		"strategyName":    true, // 新增：允许更新策略名称
-		"enabled":         true,
-		"basePrice":       true,
-		"entryPriceFloat": true,
-		"quantity":        true,
-		"takeProfitRate":  true,
-		"stopLossRate":    true,
+		"strategyName":      true,
+		"enabled":           true,
+		"basePrice":         true,
+		"entryPriceFloat":   true,
+		"quantity":          true,
+		"takeProfitRate":    true,
+		"stopLossRate":      true,
+		"icebergLevels":     true,
+		"icebergQuantities": true,
+		"icebergPriceGaps":  true,
 	}
 
 	updates := make(map[string]interface{})
 	for field, value := range updateData {
 		if allowedFields[field] {
-			updates[field] = value
+			// 特殊处理冰山策略的数组字段
+			if field == "icebergQuantities" || field == "icebergPriceGaps" {
+				if arr, ok := value.([]interface{}); ok {
+					strArr := make([]string, len(arr))
+					for i, v := range arr {
+						strArr[i] = fmt.Sprintf("%.4f", v.(float64))
+					}
+					updates[field] = strings.Join(strArr, ",")
+				}
+			} else {
+				updates[field] = value
+			}
 		}
 	}
 

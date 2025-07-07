@@ -34,6 +34,10 @@ func main() {
 	if err := models.MigrateFuturesTables(cfg.DB); err != nil {
 		log.Fatalf("永续期货表迁移失败: %v", err)
 	}
+	if err := migrations.AddFuturesIcebergFields(cfg.DB); err != nil {
+		log.Fatalf("迁移失败: %v", err)
+	}
+
 	// 添加性能优化索引
 	if err := migrations.AddPerformanceIndexes(cfg.DB); err != nil {
 		log.Printf("添加性能索引时出现错误: %v", err)
