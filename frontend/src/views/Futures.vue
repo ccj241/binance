@@ -309,16 +309,21 @@
                     type="number"
                     step="0.1"
                     min="0"
-                    placeholder="千分之几"
+                    placeholder="千分之几（0表示不浮动）"
                     class="form-control"
                     required
                 />
-                <div class="calculated-price-hint" v-if="strategyForm.entryPriceFloat > 0">
-                  {{ strategyForm.side === 'LONG' ? '买1价 × ' : '卖1价 × ' }}
-                  {{ strategyForm.side === 'LONG'
-                    ? (1 - strategyForm.entryPriceFloat / 1000).toFixed(4)
-                    : (1 + strategyForm.entryPriceFloat / 1000).toFixed(4)
-                  }}
+                <div class="calculated-price-hint" v-if="strategyForm.entryPriceFloat >= 0">
+                  <span v-if="strategyForm.entryPriceFloat === 0">
+                    将按买1价/卖1价开仓（不浮动）
+                  </span>
+                  <span v-else>
+                    {{ strategyForm.side === 'LONG' ? '买1价 × ' : '卖1价 × ' }}
+                    {{ strategyForm.side === 'LONG'
+                      ? (1 - strategyForm.entryPriceFloat / 1000).toFixed(4)
+                      : (1 + strategyForm.entryPriceFloat / 1000).toFixed(4)
+                    }}
+                  </span>
                 </div>
               </div>
 
@@ -341,11 +346,11 @@
                     v-model.number="strategyForm.quantity"
                     type="number"
                     step="0.001"
-                    placeholder="投入的USDT数量"
+                    placeholder="投入的本金数量"
                     class="form-control"
                     required
                 />
-                <span class="form-hint">请输入USDT数量</span>
+                <span class="form-hint">请输入本金数量（不含杠杆）</span>
               </div>
 
               <div class="form-group">
@@ -387,9 +392,15 @@
               <h4 class="preview-title">策略预览</h4>
               <div class="preview-grid">
                 <div class="preview-item">
-                  <span class="preview-label">开仓价值</span>
+                  <span class="preview-label">投入本金</span>
                   <span class="preview-value">
                     {{ formatCurrency(strategyForm.quantity) }} USDT
+                  </span>
+                </div>
+                <div class="preview-item">
+                  <span class="preview-label">开仓价值</span>
+                  <span class="preview-value">
+                    {{ formatCurrency(strategyForm.quantity * (strategyForm.leverage || 1)) }} USDT
                   </span>
                 </div>
                 <div class="preview-item">
@@ -401,7 +412,7 @@
                 <div class="preview-item">
                   <span class="preview-label">所需保证金</span>
                   <span class="preview-value">
-                    {{ formatCurrency(strategyForm.quantity / (strategyForm.leverage || 1)) }}
+                    {{ formatCurrency(strategyForm.quantity) }} USDT
                   </span>
                 </div>
                 <div class="preview-item">
@@ -660,12 +671,9 @@ export default {
     async submitStrategy() {
       if (this.isSubmitting) return;
 
-      // 计算实际的合约数量（这只是预估，实际数量会在触发时根据实时价格计算）
-      const estimatedContractQuantity = this.calculateEstimatedContractQuantity();
-
+      // 保持 quantity 为用户输入的本金数量
       const submitData = {
         ...this.strategyForm,
-        quantity: parseFloat(estimatedContractQuantity), // 转换为预估合约数量
         takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
         stopLossRate: this.strategyForm.stopLossRate / 10, // 千分比转换为百分比
         entryPrice: 0 // 开仓价格设为0，将在触发时根据实时买卖价计算
@@ -779,11 +787,13 @@ export default {
       };
     },
 
-    // 计算预估合约数量（基于触发价格的估算）
+    // 计算预估合约数量（基于触发价格和杠杆的估算）
     calculateEstimatedContractQuantity() {
-      const { quantity, basePrice } = this.strategyForm;
+      const { quantity, basePrice, leverage } = this.strategyForm;
       if (!quantity || !basePrice) return '0';
-      return (quantity / basePrice).toFixed(8).replace(/\.?0+$/, '');
+      // 使用本金乘以杠杆计算实际开仓价值，再除以价格得到合约数量
+      const totalValue = quantity * (leverage || 1);
+      return (totalValue / basePrice).toFixed(8).replace(/\.?0+$/, '');
     },
 
     // 计算实际合约数量（将在触发时使用实际的买卖价）
@@ -801,22 +811,24 @@ export default {
 
     // 计算开仓手续费
     calculateOpenFee() {
-      const { quantity } = this.strategyForm;
-      return quantity * 0.0004; // 0.04%
+      const { quantity, leverage } = this.strategyForm;
+      const totalValue = quantity * (leverage || 1); // 实际开仓价值
+      return totalValue * 0.0004; // 0.04%
     },
 
     // 计算平仓手续费
     calculateCloseFee() {
-      const { quantity, takeProfitRate, side } = this.strategyForm;
+      const { quantity, takeProfitRate, side, leverage } = this.strategyForm;
       if (!quantity || !takeProfitRate) return 0;
 
-      // 计算平仓价值
+      const totalValue = quantity * (leverage || 1);
       const profitRate = takeProfitRate / 1000;
       let closeValue;
+
       if (side === 'LONG') {
-        closeValue = quantity * (1 + profitRate);
+        closeValue = totalValue * (1 + profitRate);
       } else {
-        closeValue = quantity * (1 - profitRate);
+        closeValue = totalValue * (1 - profitRate);
       }
 
       return closeValue * 0.0004; // 0.04%
@@ -829,16 +841,17 @@ export default {
 
     // 计算净收益
     calculateNetProfit() {
-      const { quantity, takeProfitRate, side } = this.strategyForm;
+      const { quantity, takeProfitRate, side, leverage } = this.strategyForm;
       if (!quantity || !takeProfitRate) return 0;
 
       const profitRate = takeProfitRate / 1000;
+      const totalValue = quantity * (leverage || 1); // 实际开仓价值
       let grossProfit;
 
       if (side === 'LONG') {
-        grossProfit = quantity * profitRate;
+        grossProfit = totalValue * profitRate;
       } else {
-        grossProfit = quantity * profitRate;
+        grossProfit = totalValue * profitRate;
       }
 
       // 扣除手续费
