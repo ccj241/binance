@@ -55,7 +55,7 @@
     <div class="strategies-section">
       <div class="section-header">
         <h2 class="section-title">策略列表</h2>
-        <button @click="showCreateModal = true" class="btn btn-primary">
+        <button @click="showCreateModal = true" class="btn btn-primary" @click.prevent="openCreateModal">
           <span>➕</span>
           创建策略
         </button>
@@ -348,9 +348,15 @@
                     step="0.001"
                     placeholder="投入的本金数量"
                     class="form-control"
+                    :class="{ 'error': strategyForm.quantity > availableBalance }"
                     required
                 />
-                <span class="form-hint">请输入本金数量（不含杠杆）</span>
+                <span class="form-hint" :class="{ 'hint-error': strategyForm.quantity > availableBalance }">
+                  可用余额: {{ availableBalance.toFixed(2) }} USDT
+                  <span v-if="strategyForm.quantity > availableBalance" class="error-text">
+                    (余额不足)
+                  </span>
+                </span>
               </div>
 
               <div class="form-group">
@@ -462,7 +468,7 @@
             </button>
             <button
                 @click="submitStrategy"
-                :disabled="isSubmitting"
+                :disabled="isSubmitting || strategyForm.quantity > availableBalance"
                 class="btn btn-primary"
             >
               <span v-if="!isSubmitting">{{ editingStrategy ? '更新' : '创建' }}</span>
@@ -556,6 +562,7 @@ export default {
       strategies: [],
       positions: [],
       availableSymbols: [], // 可用交易对列表
+      availableBalance: 0, // 可用USDT余额
       stats: {
         activeStrategies: 0,
         totalPnl: 0,
@@ -600,11 +607,13 @@ export default {
     this.fetchStrategies();
     this.fetchPositions();
     this.fetchStats();
+    this.fetchBalance(); // 获取余额
 
     // 定时刷新
     this.refreshInterval = setInterval(() => {
       this.fetchPositions();
       this.fetchStats();
+      this.fetchBalance(); // 定时刷新余额
     }, 30000);
   },
 
@@ -668,14 +677,38 @@ export default {
       }
     },
 
+    async fetchBalance() {
+      try {
+        const response = await axios.get('/balance');
+        const balances = response.data.balances || [];
+        // 查找USDT余额
+        const usdtBalance = balances.find(b => b.asset === 'USDT');
+        if (usdtBalance) {
+          this.availableBalance = parseFloat(usdtBalance.free) || 0;
+        } else {
+          this.availableBalance = 0;
+        }
+      } catch (error) {
+        console.error('获取余额失败:', error);
+        this.availableBalance = 0;
+      }
+    },
+
     async submitStrategy() {
       if (this.isSubmitting) return;
+
+      // 验证余额是否充足
+      if (this.strategyForm.quantity > this.availableBalance) {
+        this.showToast(`USDT余额不足，当前可用: ${this.availableBalance.toFixed(2)} USDT`, 'error');
+        return;
+      }
 
       // 保持 quantity 为用户输入的本金数量
       const submitData = {
         ...this.strategyForm,
         takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
         stopLossRate: this.strategyForm.stopLossRate / 10, // 千分比转换为百分比
+        entryPriceFloat: this.strategyForm.entryPriceFloat || 0, // 确保0值能正确传递
         entryPrice: 0 // 开仓价格设为0，将在触发时根据实时买卖价计算
       };
 
@@ -696,6 +729,7 @@ export default {
 
         this.closeCreateModal();
         await this.fetchStrategies();
+        await this.fetchBalance(); // 更新余额
       } catch (error) {
         console.error('提交策略失败:', error);
         this.showToast(error.response?.data?.error || '提交失败', 'error');
@@ -741,6 +775,11 @@ export default {
       }
     },
 
+    openCreateModal() {
+      this.showCreateModal = true;
+      this.fetchBalance(); // 获取最新余额
+    },
+
     editStrategy(strategy) {
       this.editingStrategy = strategy;
       this.strategyForm = {
@@ -757,12 +796,14 @@ export default {
         marginType: strategy.marginType
       };
       this.showCreateModal = true;
+      this.fetchBalance(); // 获取最新余额
     },
 
     closeCreateModal() {
       this.showCreateModal = false;
       this.editingStrategy = null;
       this.resetForm();
+      this.fetchBalance(); // 获取最新余额
     },
 
     closeOrdersModal() {
@@ -993,6 +1034,18 @@ export default {
   color: var(--color-primary);
   margin-top: 0.25rem;
   font-weight: 500;
+}
+
+.form-control.error {
+  border-color: var(--color-danger);
+}
+
+.form-hint.hint-error {
+  color: var(--color-danger);
+}
+
+.error-text {
+  font-weight: 600;
 }
 
 /* 预览项目全宽 */
