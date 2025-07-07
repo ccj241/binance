@@ -428,10 +428,10 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		// 计算每层的价格
 		var layerPrice float64
 
-		// 使用统一的价格间隔计算方式
-		layerPrice = basePrice * (1 + priceGaps[i]/1000)
+		// 使用统一的价格间隔计算方式（万分比）
+		layerPrice = basePrice * (1 + priceGaps[i]/10000)
 
-		// 应用开仓价格浮动
+		// 应用开仓价格浮动（这里保持千分比，因为是整体浮动）
 		if strategy.EntryPriceFloat > 0 {
 			if strategy.Side == "LONG" {
 				layerPrice = layerPrice * (1 - strategy.EntryPriceFloat/1000)
@@ -722,20 +722,20 @@ func createIcebergTakeProfitOrders(cfg *config.Config, client *futures.Client,
 		// 做多止盈：价格递增
 		takeProfitGaps[0] = 0
 		for i := 1; i < len(takeProfitGaps); i++ {
-			takeProfitGaps[i] = float64(i) * 2 // 每层增加2‰
+			takeProfitGaps[i] = float64(i) * 20 // 每层增加20万分比（0.2%）
 		}
 	} else {
 		// 做空止盈：价格递减
 		takeProfitGaps[0] = 0
 		for i := 1; i < len(takeProfitGaps); i++ {
-			takeProfitGaps[i] = float64(i) * -2 // 每层减少2‰
+			takeProfitGaps[i] = float64(i) * -20 // 每层减少20万分比（0.2%）
 		}
 	}
 
 	successCount := 0
 	for i := 0; i < len(quantities); i++ {
-		// 计算每层的止盈价格
-		layerPrice := baseTakeProfitPrice * (1 + takeProfitGaps[i]/1000)
+		// 计算每层的止盈价格（万分比）
+		layerPrice := baseTakeProfitPrice * (1 + takeProfitGaps[i]/10000)
 		layerQuantity := totalQuantity * quantities[i]
 
 		order, err := client.NewCreateOrderService().
@@ -800,11 +800,11 @@ func parseQuantities(quantitiesStr string) []float64 {
 // 辅助函数：解析价格间隔配置
 func parsePriceGaps(gapsStr string, side string) []float64 {
 	if gapsStr == "" {
-		// 根据方向返回默认值
+		// 根据方向返回默认值（万分比）
 		if side == "LONG" {
-			return []float64{0, -1, -3, -5, -7} // 做多默认值（千分比）
+			return []float64{0, -10, -30, -50, -70} // 做多默认值（万分比）
 		} else {
-			return []float64{0, 1, 3, 5, 7} // 做空默认值（千分比）
+			return []float64{0, 10, 30, 50, 70} // 做空默认值（万分比）
 		}
 	}
 

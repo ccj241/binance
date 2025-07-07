@@ -10,28 +10,28 @@ type FuturesStrategy struct {
 	gorm.Model
 	ID                uint       `gorm:"primaryKey" json:"id"`
 	UserID            uint       `gorm:"index" json:"userId"`
-	StrategyName      string     `gorm:"type:varchar(100)" json:"strategyName"`                   // 策略名称
-	Symbol            string     `gorm:"type:varchar(50)" json:"symbol"`                          // 交易对，如BTCUSDT
-	Side              string     `gorm:"type:varchar(10)" json:"side"`                            // LONG/SHORT
-	StrategyType      string     `gorm:"type:varchar(20);default:'simple'" json:"strategyType"`   // simple/iceberg
-	BasePrice         float64    `json:"basePrice" gorm:"comment:基准价格"`                           // 触发价格
-	EntryPrice        float64    `json:"entryPrice" gorm:"comment:开仓价格"`                          // 限价单价格（将在触发时计算）
-	EntryPriceFloat   float64    `json:"entryPriceFloat" gorm:"comment:开仓价格浮动千分比"`                // 开仓价格浮动千分比
-	Leverage          int        `json:"leverage" gorm:"comment:杠杆倍数"`                            // 杠杆倍数 1-125
-	Quantity          float64    `json:"quantity" gorm:"comment:开仓数量"`                            // 开仓数量（USDT）
-	TakeProfitRate    float64    `json:"takeProfitRate" gorm:"comment:止盈百分比"`                     // 止盈百分比（扣除手续费后）
-	TakeProfitPrice   float64    `json:"takeProfitPrice" gorm:"comment:止盈价格"`                     // 计算后的止盈价格
-	StopLossRate      float64    `json:"stopLossRate" gorm:"comment:止损百分比"`                       // 止损百分比（可选）
-	StopLossPrice     float64    `json:"stopLossPrice" gorm:"comment:止损价格"`                       // 计算后的止损价格
-	MarginType        string     `gorm:"type:varchar(20);default:'CROSSED'" json:"marginType"`    // ISOLATED/CROSSED
-	IcebergLevels     int        `json:"icebergLevels" gorm:"default:5;comment:冰山层数"`             // 冰山策略层数
-	IcebergQuantities string     `gorm:"type:text;comment:冰山策略各层数量比例" json:"icebergQuantities"`   // 逗号分隔的比例
-	IcebergPriceGaps  string     `gorm:"type:text;comment:冰山策略各层价格间隔(‰)" json:"icebergPriceGaps"` // 逗号分隔的千分比
-	Enabled           bool       `gorm:"default:true" json:"enabled"`                             // 是否启用
-	Status            string     `gorm:"type:varchar(20);default:'waiting'" json:"status"`        // waiting/triggered/position_opened/completed/cancelled
-	TriggeredAt       *time.Time `json:"triggeredAt" gorm:"comment:触发时间"`                         // 触发时间
-	CompletedAt       *time.Time `json:"completedAt" gorm:"comment:完成时间"`                         // 完成时间
-	CurrentPositionId int64      `json:"currentPositionId" gorm:"comment:当前持仓ID"`                 // 币安持仓ID
+	StrategyName      string     `gorm:"type:varchar(100)" json:"strategyName"`                     // 策略名称
+	Symbol            string     `gorm:"type:varchar(50)" json:"symbol"`                            // 交易对，如BTCUSDT
+	Side              string     `gorm:"type:varchar(10)" json:"side"`                              // LONG/SHORT
+	StrategyType      string     `gorm:"type:varchar(20);default:'simple'" json:"strategyType"`     // simple/iceberg
+	BasePrice         float64    `json:"basePrice" gorm:"comment:基准价格"`                             // 触发价格
+	EntryPrice        float64    `json:"entryPrice" gorm:"comment:开仓价格"`                            // 限价单价格（将在触发时计算）
+	EntryPriceFloat   float64    `json:"entryPriceFloat" gorm:"comment:开仓价格浮动千分比"`                  // 开仓价格浮动千分比
+	Leverage          int        `json:"leverage" gorm:"comment:杠杆倍数"`                              // 杠杆倍数 1-125
+	Quantity          float64    `json:"quantity" gorm:"comment:开仓数量"`                              // 开仓数量（USDT）
+	TakeProfitRate    float64    `json:"takeProfitRate" gorm:"comment:止盈百分比"`                       // 止盈百分比（扣除手续费后）
+	TakeProfitPrice   float64    `json:"takeProfitPrice" gorm:"comment:止盈价格"`                       // 计算后的止盈价格
+	StopLossRate      float64    `json:"stopLossRate" gorm:"comment:止损百分比"`                         // 止损百分比（可选）
+	StopLossPrice     float64    `json:"stopLossPrice" gorm:"comment:止损价格"`                         // 计算后的止损价格
+	MarginType        string     `gorm:"type:varchar(20);default:'CROSSED'" json:"marginType"`      // ISOLATED/CROSSED
+	IcebergLevels     int        `json:"icebergLevels" gorm:"default:5;comment:冰山层数"`               // 冰山策略层数
+	IcebergQuantities string     `gorm:"type:text;comment:冰山策略各层数量比例" json:"icebergQuantities"`     // 逗号分隔的比例
+	IcebergPriceGaps  string     `gorm:"type:text;comment:冰山策略各层价格间隔(万分比)" json:"icebergPriceGaps"` // 逗号分隔的万分比
+	Enabled           bool       `gorm:"default:true" json:"enabled"`                               // 是否启用
+	Status            string     `gorm:"type:varchar(20);default:'waiting'" json:"status"`          // waiting/triggered/position_opened/completed/cancelled
+	TriggeredAt       *time.Time `json:"triggeredAt" gorm:"comment:触发时间"`                           // 触发时间
+	CompletedAt       *time.Time `json:"completedAt" gorm:"comment:完成时间"`                           // 完成时间
+	CurrentPositionId int64      `json:"currentPositionId" gorm:"comment:当前持仓ID"`                   // 币安持仓ID
 	CreatedAt         time.Time  `json:"createdAt"`
 	UpdatedAt         time.Time  `json:"updatedAt"`
 }

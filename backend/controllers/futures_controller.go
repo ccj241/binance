@@ -72,9 +72,9 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 		// 如果没有提供价格间隔，根据方向使用默认值
 		if len(req.IcebergPriceGaps) == 0 {
 			if req.Side == "LONG" {
-				req.IcebergPriceGaps = []float64{0, -1, -3, -5, -7} // 做多默认价格递减
+				req.IcebergPriceGaps = []float64{0, -1, -3, -5, -7} // 做多默认价格递减（万分比）
 			} else {
-				req.IcebergPriceGaps = []float64{0, 1, 3, 5, 7} // 做空默认价格递增
+				req.IcebergPriceGaps = []float64{0, 1, 3, 5, 7} // 做空默认价格递增（万分比）
 			}
 		}
 
