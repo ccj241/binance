@@ -721,26 +721,33 @@ export default {
         this.generateStrategyName();
       }
 
-      // 保持 quantity 为用户输入的本金数量
-      const submitData = {
-        ...this.strategyForm,
-        takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
-        stopLossRate: this.strategyForm.stopLossRate / 10, // 千分比转换为百分比
-        entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat, // 处理空字符串情况
-        entryPrice: 0 // 开仓价格设为0，将在触发时根据实时买卖价计算
-      };
-
-      // 删除不需要的字段
-      delete submitData.entryPrice;
-
       this.isSubmitting = true;
       try {
         if (this.editingStrategy) {
-          // 更新策略
-          await axios.put(`/futures/strategies/${this.editingStrategy.id}`, submitData);
+          // 更新策略时，只发送允许更新的字段
+          const updateData = {
+            enabled: this.editingStrategy.enabled, // 保持原有的启用状态
+            basePrice: this.strategyForm.basePrice,
+            entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,
+            quantity: this.strategyForm.quantity,
+            takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
+            stopLossRate: this.strategyForm.stopLossRate / 10, // 千分比转换为百分比
+          };
+
+          await axios.put(`/futures/strategies/${this.editingStrategy.id}`, updateData);
           this.showToast('策略更新成功');
         } else {
           // 创建策略
+          const submitData = {
+            ...this.strategyForm,
+            takeProfitRate: this.strategyForm.takeProfitRate / 10, // 千分比转换为百分比
+            stopLossRate: this.strategyForm.stopLossRate / 10, // 千分比转换为百分比
+            entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,
+          };
+
+          // 删除不需要的字段
+          delete submitData.entryPrice;
+
           await axios.post('/futures/strategies', submitData);
           this.showToast('策略创建成功');
         }
