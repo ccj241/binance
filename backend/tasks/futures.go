@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -285,10 +286,49 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		return
 	}
 
-	// 设置保证金模式
+	// 设置保证金模式（忽略已存在的错误）
 	if err := setMarginType(client, strategy.Symbol, strategy.MarginType); err != nil {
-		log.Printf("设置保证金模式失败: %v", err)
-		// 某些情况下设置保证金模式可能失败（如已有持仓），继续执行
+		// 检查是否是"不需要更改"的错误
+		if !strings.Contains(err.Error(), "No need to change margin type") {
+			log.Printf("设置保证金模式失败: %v", err)
+			// 其他错误继续执行，不取消策略
+		}
+	}
+
+	// 获取交易规则（精度信息）
+	exchangeInfo, err := client.NewExchangeInfoService().Do(context.Background())
+	if err != nil {
+		log.Printf("获取交易规则失败: %v", err)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
+		return
+	}
+
+	// 查找当前交易对的规则
+	var symbolInfo *futures.Symbol
+	for _, s := range exchangeInfo.Symbols {
+		if s.Symbol == strategy.Symbol {
+			symbolInfo = &s
+			break
+		}
+	}
+
+	if symbolInfo == nil {
+		log.Printf("未找到交易对 %s 的规则", strategy.Symbol)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", "未找到交易对规则")
+		return
+	}
+
+	// 获取数量精度
+	var quantityPrecision int
+	for _, filter := range symbolInfo.Filters {
+		if filter["filterType"] == "LOT_SIZE" {
+			if stepSizeStr, ok := filter["stepSize"].(string); ok {
+				stepSize, _ := strconv.ParseFloat(stepSizeStr, 64)
+				// 计算精度（例如 0.001 = 3位小数）
+				quantityPrecision = int(-math.Log10(stepSize))
+				break
+			}
+		}
 	}
 
 	// 获取深度数据以计算开仓价格
@@ -330,6 +370,16 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		return
 	}
 
+	// 计算合约数量（从USDT金额转换）
+	contractQuantity := strategy.Quantity / entryPrice
+
+	// 格式化数量，确保不超过允许的精度
+	quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
+	formattedQuantity := fmt.Sprintf(quantityFormat, contractQuantity)
+
+	log.Printf("开仓参数 - 交易对: %s, 数量: %s (精度: %d), 价格: %.8f",
+		strategy.Symbol, formattedQuantity, quantityPrecision, entryPrice)
+
 	// 更新策略的实际开仓价格
 	strategy.EntryPrice = entryPrice
 	strategy.CalculateTakeProfitPrice()
@@ -349,7 +399,7 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		PositionSide(futures.PositionSideType(strategy.Side)).
 		Type(futures.OrderTypeLimit).
 		TimeInForce(futures.TimeInForceTypeGTC).
-		Quantity(fmt.Sprintf("%.8f", strategy.Quantity)).
+		Quantity(formattedQuantity).
 		Price(fmt.Sprintf("%.8f", entryPrice))
 
 	order, err := orderService.Do(context.Background())
@@ -368,7 +418,7 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		PositionSide: strategy.Side,
 		Type:         "LIMIT",
 		Price:        entryPrice,
-		Quantity:     strategy.Quantity,
+		Quantity:     contractQuantity,
 		OrderID:      order.OrderID,
 		Status:       string(order.Status),
 		OrderPurpose: "entry",
@@ -393,9 +443,46 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		return
 	}
 
-	// 设置保证金模式
+	// 设置保证金模式（忽略已存在的错误）
 	if err := setMarginType(client, strategy.Symbol, strategy.MarginType); err != nil {
-		log.Printf("设置保证金模式失败: %v", err)
+		if !strings.Contains(err.Error(), "No need to change margin type") {
+			log.Printf("设置保证金模式失败: %v", err)
+		}
+	}
+
+	// 获取交易规则（精度信息）
+	exchangeInfo, err := client.NewExchangeInfoService().Do(context.Background())
+	if err != nil {
+		log.Printf("获取交易规则失败: %v", err)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
+		return
+	}
+
+	// 查找当前交易对的规则
+	var symbolInfo *futures.Symbol
+	for _, s := range exchangeInfo.Symbols {
+		if s.Symbol == strategy.Symbol {
+			symbolInfo = &s
+			break
+		}
+	}
+
+	if symbolInfo == nil {
+		log.Printf("未找到交易对 %s 的规则", strategy.Symbol)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", "未找到交易对规则")
+		return
+	}
+
+	// 获取数量精度
+	var quantityPrecision int
+	for _, filter := range symbolInfo.Filters {
+		if filter["filterType"] == "LOT_SIZE" {
+			if stepSizeStr, ok := filter["stepSize"].(string); ok {
+				stepSize, _ := strconv.ParseFloat(stepSizeStr, 64)
+				quantityPrecision = int(-math.Log10(stepSize))
+				break
+			}
+		}
 	}
 
 	// 获取当前市场深度
@@ -450,6 +537,9 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 	var weightedPriceSum float64
 	totalQuantity := strategy.Quantity
 
+	// 格式化数量的格式字符串
+	quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
+
 	for i := 0; i < len(quantities); i++ {
 		// 计算每层的价格
 		var layerPrice float64
@@ -466,8 +556,17 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			}
 		}
 
-		// 计算每层的数量
-		layerQuantity := totalQuantity * quantities[i]
+		// 计算每层的USDT数量
+		layerUSDTQuantity := totalQuantity * quantities[i]
+
+		// 转换为合约数量
+		layerContractQuantity := layerUSDTQuantity / layerPrice
+
+		// 格式化数量
+		formattedQuantity := fmt.Sprintf(quantityFormat, layerContractQuantity)
+
+		log.Printf("冰山第%d层 - 价格: %.8f, 数量: %s (USDT: %.2f)",
+			i+1, layerPrice, formattedQuantity, layerUSDTQuantity)
 
 		// 创建限价订单
 		orderService := client.NewCreateOrderService().
@@ -476,7 +575,7 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			PositionSide(futures.PositionSideType(strategy.Side)).
 			Type(futures.OrderTypeLimit).
 			TimeInForce(futures.TimeInForceTypeGTC).
-			Quantity(fmt.Sprintf("%.8f", layerQuantity)).
+			Quantity(formattedQuantity).
 			Price(fmt.Sprintf("%.8f", layerPrice))
 
 		order, err := orderService.Do(context.Background())
@@ -494,8 +593,8 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		successfulOrders = append(successfulOrders, order.OrderID)
 
 		// 累计加权价格用于计算平均开仓价
-		weightedPriceSum += layerPrice * layerQuantity
-		totalExecutedQuantity += layerQuantity
+		weightedPriceSum += layerPrice * layerContractQuantity
+		totalExecutedQuantity += layerContractQuantity
 
 		// 保存订单记录
 		dbOrder := models.FuturesOrder{
@@ -506,7 +605,7 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			PositionSide: strategy.Side,
 			Type:         "LIMIT",
 			Price:        layerPrice,
-			Quantity:     layerQuantity,
+			Quantity:     layerContractQuantity,
 			OrderID:      order.OrderID,
 			Status:       string(order.Status),
 			OrderPurpose: "entry",
@@ -516,8 +615,8 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			log.Printf("保存订单记录失败: %v", err)
 		}
 
-		log.Printf("冰山策略第%d层订单创建成功: OrderID=%d, Price=%.8f, Quantity=%.8f",
-			i+1, order.OrderID, layerPrice, layerQuantity)
+		log.Printf("冰山策略第%d层订单创建成功: OrderID=%d, Price=%.8f, Quantity=%s",
+			i+1, order.OrderID, layerPrice, formattedQuantity)
 	}
 
 	if len(successfulOrders) == 0 {
