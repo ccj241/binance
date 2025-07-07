@@ -311,7 +311,6 @@
                     min="0"
                     placeholder="千分之几（0表示不浮动）"
                     class="form-control"
-                    required
                 />
                 <div class="calculated-price-hint" v-if="strategyForm.entryPriceFloat >= 0">
                   <span v-if="strategyForm.entryPriceFloat === 0">
