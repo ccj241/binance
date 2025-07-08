@@ -463,6 +463,51 @@ func (ctrl *FuturesController) GetStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"stats": stats})
 }
 
+// GetFuturesBalance 获取期货账户余额
+func (ctrl *FuturesController) GetFuturesBalance(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+
+	// 获取用户信息
+	var user models.User
+	if err := ctrl.Config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败"})
+		return
+	}
+
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解密API Key失败"})
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解密Secret Key失败"})
+		return
+	}
+
+	// 创建期货客户端
+	client := binance.NewFuturesClient(apiKey, secretKey)
+
+	// 获取账户信息
+	account, err := client.NewGetAccountService().Do(context.Background())
+	if err != nil {
+		log.Printf("获取期货账户信息失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取账户信息失败"})
+		return
+	}
+
+	// 返回可用余额和总余额
+	availableBalance, _ := strconv.ParseFloat(account.AvailableBalance, 64)
+	totalBalance, _ := strconv.ParseFloat(account.TotalWalletBalance, 64)
+
+	c.JSON(http.StatusOK, gin.H{
+		"availableBalance": availableBalance,
+		"totalBalance":     totalBalance,
+		"assets":           account.Assets, // 资产详情
+	})
+}
+
 // closePosition 平仓辅助函数
 func (ctrl *FuturesController) closePosition(user models.User, strategy *models.FuturesStrategy) error {
 	// 解密API密钥
@@ -578,7 +623,7 @@ func (ctrl *FuturesController) updatePositionsRealtime(userID uint, positions []
 	positionMap := make(map[string]*futures.PositionRisk)
 	for _, pos := range riskPositions {
 		key := pos.Symbol + "_" + string(pos.PositionSide)
-		positionMap[key] = pos
+		positionMap[key] = pos // pos 已经是指针类型
 	}
 
 	// 更新本地持仓数据

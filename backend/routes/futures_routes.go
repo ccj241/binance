@@ -29,5 +29,8 @@ func SetupFuturesRoutes(router *gin.RouterGroup, cfg *config.Config) {
 
 		// 统计信息
 		futuresGroup.GET("/stats", futuresController.GetStats) // 获取统计信息
+
+		// 账户信息
+		futuresGroup.GET("/balance", futuresController.GetFuturesBalance) // 获取期货账户余额
 	}
 }

@@ -138,7 +138,7 @@ router.beforeEach((to, from, next) => {
 
     const token = localStorage.getItem('token');
 
-    // 验证 token 有效性
+    // 增强token验证，兼容iOS Safari
     const isValidToken = token &&
         token !== 'undefined' &&
         token !== 'null' &&
@@ -156,16 +156,22 @@ router.beforeEach((to, from, next) => {
             localStorage.removeItem('token');
         }
 
-        next({
-            path: '/login',
-            query: { redirect: to.fullPath } // 保存原始访问路径
-        });
+        // iOS Safari 兼容性处理
+        if (to.path !== '/login') {
+            next({
+                path: '/login',
+                query: { redirect: to.fullPath },
+                replace: true // 使用 replace 避免历史记录问题
+            });
+        } else {
+            next();
+        }
         return;
     }
 
     // 已登录用户访问登录/注册页面
     if (isValidToken && (to.path === '/login' || to.path === '/register')) {
-        next('/');
+        next({ path: '/', replace: true });
         return;
     }
 
@@ -175,13 +181,13 @@ router.beforeEach((to, from, next) => {
             const payload = JSON.parse(atob(token.split('.')[1]));
             if (payload.role !== 'admin') {
                 console.warn('🚫 无管理员权限');
-                next('/');
+                next({ path: '/', replace: true });
                 return;
             }
         } catch (e) {
             console.error('Token 解析失败:', e);
             localStorage.removeItem('token');
-            next('/login');
+            next({ path: '/login', replace: true });
             return;
         }
     }
