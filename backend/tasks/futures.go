@@ -366,7 +366,7 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 			askPrice, _ := strconv.ParseFloat(depth.Asks[0].Price, 64)
 			entryPrice = askPrice
 			if strategy.EntryPriceFloat > 0 {
-				entryPrice = askPrice * (1 - strategy.EntryPriceFloat/1000)
+				entryPrice = askPrice * (1 - strategy.EntryPriceFloat/10000)
 			}
 		}
 	} else {
@@ -375,7 +375,7 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 			bidPrice, _ := strconv.ParseFloat(depth.Bids[0].Price, 64)
 			entryPrice = bidPrice
 			if strategy.EntryPriceFloat > 0 {
-				entryPrice = bidPrice * (1 + strategy.EntryPriceFloat/1000)
+				entryPrice = bidPrice * (1 + strategy.EntryPriceFloat/10000)
 			}
 		}
 	}
@@ -507,12 +507,13 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 	var quantityPrecision int
 	var tickSize float64
 	var stepSize float64
+	var minQty float64
 
 	// 直接使用 Symbol 结构体中的精度信息
 	pricePrecision = symbolInfo.PricePrecision
 	quantityPrecision = symbolInfo.QuantityPrecision
 
-	// 从过滤器中获取 tick size 和 step size
+	// 从过滤器中获取 tick size、step size 和最小数量
 	for _, filter := range symbolInfo.Filters {
 		if filterType, ok := filter["filterType"].(string); ok {
 			switch filterType {
@@ -524,12 +525,15 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 				if stepSizeStr, ok := filter["stepSize"].(string); ok {
 					stepSize, _ = strconv.ParseFloat(stepSizeStr, 64)
 				}
+				if minQtyStr, ok := filter["minQty"].(string); ok {
+					minQty, _ = strconv.ParseFloat(minQtyStr, 64)
+				}
 			}
 		}
 	}
 
-	log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f",
-		strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize)
+	log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f, MinQty: %f",
+		strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize, minQty)
 
 	// 获取当前市场深度
 	depth, err := client.NewDepthService().
@@ -587,19 +591,28 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 	quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
 	priceFormat := fmt.Sprintf("%%.%df", pricePrecision)
 
+	// 先计算所有层的价格和检查哪些层的数量太小
+	type layerInfo struct {
+		price    float64
+		quantity float64
+		usdtQty  float64
+		skip     bool
+	}
+
+	layers := make([]layerInfo, len(quantities))
+	skippedUSDT := 0.0
+
+	// 第一遍：计算每层信息并标记需要跳过的层
 	for i := 0; i < len(quantities); i++ {
 		// 计算每层的价格
-		var layerPrice float64
+		layerPrice := basePrice * (1 + priceGaps[i]/10000)
 
-		// 使用统一的价格间隔计算方式（万分比）
-		layerPrice = basePrice * (1 + priceGaps[i]/10000)
-
-		// 应用开仓价格浮动（这里保持千分比，因为是整体浮动）
+		// 应用开仓价格浮动
 		if strategy.EntryPriceFloat > 0 {
 			if strategy.Side == "LONG" {
-				layerPrice = layerPrice * (1 - strategy.EntryPriceFloat/1000)
+				layerPrice = layerPrice * (1 - strategy.EntryPriceFloat/10000)
 			} else {
-				layerPrice = layerPrice * (1 + strategy.EntryPriceFloat/1000)
+				layerPrice = layerPrice * (1 + strategy.EntryPriceFloat/10000)
 			}
 		}
 
@@ -619,12 +632,64 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			layerContractQuantity = math.Floor(layerContractQuantity/stepSize) * stepSize
 		}
 
+		layers[i] = layerInfo{
+			price:    layerPrice,
+			quantity: layerContractQuantity,
+			usdtQty:  layerUSDTQuantity,
+			skip:     layerContractQuantity < minQty,
+		}
+
+		if layers[i].skip {
+			skippedUSDT += layerUSDTQuantity
+			log.Printf("冰山第%d层将被跳过 - USDT: %.2f, 数量: %.8f < 最小数量: %.8f",
+				i+1, layerUSDTQuantity, layerContractQuantity, minQty)
+		}
+	}
+
+	// 如果有被跳过的金额，重新分配到有效层
+	if skippedUSDT > 0 {
+		validLayers := 0
+		for i := 0; i < len(layers); i++ {
+			if !layers[i].skip {
+				validLayers++
+			}
+		}
+
+		if validLayers > 0 {
+			// 将跳过的金额平均分配到有效层
+			additionalUSDTPerLayer := skippedUSDT / float64(validLayers)
+			log.Printf("将 %.2f USDT 重新分配到 %d 个有效层，每层增加 %.2f USDT",
+				skippedUSDT, validLayers, additionalUSDTPerLayer)
+
+			for i := 0; i < len(layers); i++ {
+				if !layers[i].skip {
+					// 增加USDT金额
+					newUSDTQty := layers[i].usdtQty + additionalUSDTPerLayer
+					// 重新计算合约数量
+					newContractQty := newUSDTQty / layers[i].price
+					// 调整为 step size 的整数倍
+					if stepSize > 0 {
+						newContractQty = math.Floor(newContractQty/stepSize) * stepSize
+					}
+					layers[i].quantity = newContractQty
+					layers[i].usdtQty = newUSDTQty
+				}
+			}
+		}
+	}
+
+	// 第二遍：创建订单
+	for i := 0; i < len(layers); i++ {
+		if layers[i].skip {
+			continue
+		}
+
 		// 格式化数量和价格
-		formattedQuantity := fmt.Sprintf(quantityFormat, layerContractQuantity)
-		formattedPrice := fmt.Sprintf(priceFormat, layerPrice)
+		formattedQuantity := fmt.Sprintf(quantityFormat, layers[i].quantity)
+		formattedPrice := fmt.Sprintf(priceFormat, layers[i].price)
 
 		log.Printf("冰山第%d层 - 价格: %s, 数量: %s (USDT: %.2f)",
-			i+1, formattedPrice, formattedQuantity, layerUSDTQuantity)
+			i+1, formattedPrice, formattedQuantity, layers[i].usdtQty)
 
 		// 创建限价订单
 		orderService := client.NewCreateOrderService().
@@ -639,8 +704,8 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		order, err := orderService.Do(context.Background())
 		if err != nil {
 			log.Printf("创建第%d层订单失败: %v", i+1, err)
-			// 如果是第一个订单就失败，取消整个策略
-			if i == 0 {
+			// 如果是第一个有效订单就失败，取消整个策略
+			if len(successfulOrders) == 0 {
 				updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
 				return
 			}
@@ -651,8 +716,8 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		successfulOrders = append(successfulOrders, order.OrderID)
 
 		// 累计加权价格用于计算平均开仓价
-		weightedPriceSum += layerPrice * layerContractQuantity
-		totalExecutedQuantity += layerContractQuantity
+		weightedPriceSum += layers[i].price * layers[i].quantity
+		totalExecutedQuantity += layers[i].quantity
 
 		// 保存订单记录
 		dbOrder := models.FuturesOrder{
@@ -662,8 +727,8 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 			Side:         string(side),
 			PositionSide: strategy.Side,
 			Type:         "LIMIT",
-			Price:        layerPrice,
-			Quantity:     layerContractQuantity,
+			Price:        layers[i].price,
+			Quantity:     layers[i].quantity,
 			OrderID:      order.OrderID,
 			Status:       string(order.Status),
 			OrderPurpose: "entry",
@@ -678,7 +743,7 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 	}
 
 	if len(successfulOrders) == 0 {
-		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", "所有订单创建失败")
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", "所有订单创建失败：金额太小")
 		return
 	}
 
@@ -691,7 +756,7 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		m.cfg.DB.Save(strategy)
 	}
 
-	log.Printf("期货冰山策略 %d 开仓订单创建完成，共%d层", strategy.ID, len(successfulOrders))
+	log.Printf("期货冰山策略 %d 开仓订单创建完成，共%d层成功", strategy.ID, len(successfulOrders))
 
 	// 启动订单监控
 	go monitorIcebergOrders(m.cfg, strategy, successfulOrders)

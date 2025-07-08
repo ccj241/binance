@@ -127,7 +127,7 @@
               </div>
               <div class="detail-item">
                 <span class="detail-label">开仓价格浮动</span>
-                <span class="detail-value">{{ strategy.entryPriceFloat }}‰</span>
+                <span class="detail-value">{{ strategy.entryPriceFloat }}‱</span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">数量</span>
@@ -347,30 +347,31 @@
 
               <div class="form-group">
                 <label class="form-label">
-                  开仓价格浮动 (‰)
+                  开仓价格浮动 (‱)
                   <span class="form-hint">
-                    {{ strategyForm.side === 'LONG' ? '低于买1价' : '高于卖1价' }}的浮动千分比
-                  </span>
+      {{ strategyForm.side === 'LONG' ? '低于买1价' : '高于卖1价' }}的浮动万分比
+    </span>
                 </label>
                 <input
                     v-model.number="strategyForm.entryPriceFloat"
                     type="number"
-                    step="0.1"
+                    step="1"
                     min="0"
-                    placeholder="千分之几（0表示不浮动）"
+                    placeholder="0"
                     class="form-control"
+                    @input="generateStrategyName"
                 />
                 <div class="calculated-price-hint" v-if="strategyForm.entryPriceFloat >= 0">
-                  <span v-if="strategyForm.entryPriceFloat === 0">
-                    将按买1价/卖1价开仓（不浮动）
-                  </span>
+    <span v-if="!strategyForm.entryPriceFloat || strategyForm.entryPriceFloat === 0">
+      将按买1价/卖1价开仓（不浮动）
+    </span>
                   <span v-else>
-                    {{ strategyForm.side === 'LONG' ? '买1价 × ' : '卖1价 × ' }}
-                    {{ strategyForm.side === 'LONG'
-                      ? (1 - strategyForm.entryPriceFloat / 1000).toFixed(4)
-                      : (1 + strategyForm.entryPriceFloat / 1000).toFixed(4)
+      {{ strategyForm.side === 'LONG' ? '买1价 × ' : '卖1价 × ' }}
+      {{ strategyForm.side === 'LONG'
+                      ? (1 - strategyForm.entryPriceFloat / 10000).toFixed(4)
+                      : (1 + strategyForm.entryPriceFloat / 10000).toFixed(4)
                     }}
-                  </span>
+    </span>
                 </div>
               </div>
 
@@ -885,10 +886,10 @@ export default {
             strategyName: this.strategyForm.strategyName,
             enabled: this.editingStrategy.enabled,
             basePrice: this.strategyForm.basePrice,
-            entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,
+            entryPriceFloat: this.strategyForm.entryPriceFloat || 0,  // 确保0值被正确处理
             quantity: this.strategyForm.quantity,
             takeProfitRate: this.strategyForm.takeProfitRate,
-            stopLossRate: this.strategyForm.stopLossRate,
+            stopLossRate: this.strategyForm.stopLossRate || 0,  // 确保0值被正确处理
           };
 
           // 如果是冰山策略，添加冰山配置
@@ -901,28 +902,29 @@ export default {
           await axios.put(`/futures/strategies/${this.editingStrategy.id}`, updateData);
           this.showToast('策略更新成功');
         } else {
-          // 创建策略
+          // 创建策略 - 确保数值字段正确处理
           const submitData = {
-            ...this.strategyForm,
-            takeProfitRate: this.strategyForm.takeProfitRate,
-            stopLossRate: this.strategyForm.stopLossRate,
-            entryPriceFloat: this.strategyForm.entryPriceFloat === '' ? 0 : this.strategyForm.entryPriceFloat,
+            strategyName: this.strategyForm.strategyName,
+            symbol: this.strategyForm.symbol,
+            side: this.strategyForm.side,
+            strategyType: this.strategyForm.strategyType,
+            basePrice: parseFloat(this.strategyForm.basePrice) || 0,
+            entryPriceFloat: parseFloat(this.strategyForm.entryPriceFloat) || 0,  // 确保转换为数字
+            leverage: parseInt(this.strategyForm.leverage) || 1,
+            quantity: parseFloat(this.strategyForm.quantity) || 0,
+            takeProfitRate: parseFloat(this.strategyForm.takeProfitRate) || 0,
+            stopLossRate: parseFloat(this.strategyForm.stopLossRate) || 0,  // 确保转换为数字
+            marginType: this.strategyForm.marginType,
           };
 
-          // 如果是冰山策略，确保数据格式正确
+          // 如果是冰山策略，添加冰山配置
           if (submitData.strategyType === 'iceberg') {
-            // 确保数量和价格间隔数组长度匹配层数
-            submitData.icebergQuantities = submitData.icebergQuantities.slice(0, submitData.icebergLevels);
-            submitData.icebergPriceGaps = submitData.icebergPriceGaps.slice(0, submitData.icebergLevels);
-          } else {
-            // 简单策略不需要冰山配置
-            delete submitData.icebergLevels;
-            delete submitData.icebergQuantities;
-            delete submitData.icebergPriceGaps;
+            submitData.icebergLevels = this.strategyForm.icebergLevels;
+            submitData.icebergQuantities = this.strategyForm.icebergQuantities.slice(0, this.strategyForm.icebergLevels);
+            submitData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
           }
 
-          // 删除不需要的字段
-          delete submitData.entryPrice;
+          console.log('提交的策略数据:', submitData);  // 添加调试日志
 
           await axios.post('/futures/strategies', submitData);
           this.showToast('策略创建成功');
