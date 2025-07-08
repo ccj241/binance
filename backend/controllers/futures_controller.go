@@ -157,22 +157,53 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 
 // GetStrategies 获取用户的永续期货策略列表
 func (ctrl *FuturesController) GetStrategies(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-
-	log.Printf("获取用户 %v 的期货策略列表", userID) // 添加日志
-
-	var strategies []models.FuturesStrategy
-	if err := ctrl.Config.DB.Where("user_id = ? AND deleted_at IS NULL", userID).
-		Order("created_at desc").
-		Find(&strategies).Error; err != nil {
-		log.Printf("获取永续期货策略失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取策略列表失败"})
+	// 获取用户ID并确保类型正确
+	userIDInterface, exists := c.Get("user_id")
+	if !exists {
+		log.Printf("获取用户ID失败：user_id 不存在")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
 		return
 	}
 
-	log.Printf("找到 %d 个策略", len(strategies)) // 添加日志
+	// 类型转换
+	var userID uint
+	switch v := userIDInterface.(type) {
+	case uint:
+		userID = v
+	case float64:
+		userID = uint(v)
+	case int:
+		userID = uint(v)
+	default:
+		log.Printf("用户ID类型错误: %T", v)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "用户ID类型错误"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"strategies": strategies})
+	log.Printf("获取用户 %d 的期货策略列表", userID)
+
+	var strategies []models.FuturesStrategy
+
+	// 使用更明确的查询
+	result := ctrl.Config.DB.Model(&models.FuturesStrategy{}).
+		Where("user_id = ?", userID).
+		Where("deleted_at IS NULL").
+		Order("created_at desc").
+		Find(&strategies)
+
+	if result.Error != nil {
+		log.Printf("查询策略失败: %v", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取策略列表失败", "details": result.Error.Error()})
+		return
+	}
+
+	log.Printf("找到 %d 个策略", len(strategies))
+
+	// 返回数据
+	c.JSON(http.StatusOK, gin.H{
+		"strategies": strategies,
+		"count":      len(strategies),
+	})
 }
 
 // UpdateStrategy 更新策略
