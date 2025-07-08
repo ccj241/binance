@@ -31,11 +31,11 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 		Side              string    `json:"side" binding:"required,oneof=LONG SHORT"`
 		StrategyType      string    `json:"strategyType" binding:"omitempty,oneof=simple iceberg"`
 		BasePrice         float64   `json:"basePrice" binding:"required,gt=0"`
-		EntryPriceFloat   float64   `json:"entryPriceFloat" binding:"required,min=0"`
+		EntryPriceFloat   float64   `json:"entryPriceFloat"` // 移除 binding，允许为0
 		Leverage          int       `json:"leverage" binding:"required,min=1,max=125"`
 		Quantity          float64   `json:"quantity" binding:"required,gt=0"`
 		TakeProfitRate    float64   `json:"takeProfitRate" binding:"required,gt=0"`
-		StopLossRate      float64   `json:"stopLossRate" binding:"min=0"`
+		StopLossRate      float64   `json:"stopLossRate"` // 移除 binding，允许为0
 		MarginType        string    `json:"marginType" binding:"omitempty,oneof=ISOLATED CROSSED"`
 		IcebergLevels     int       `json:"icebergLevels" binding:"omitempty,min=2,max=10"`
 		IcebergQuantities []float64 `json:"icebergQuantities"`
