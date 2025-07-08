@@ -159,6 +159,8 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 func (ctrl *FuturesController) GetStrategies(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
+	log.Printf("获取用户 %v 的期货策略列表", userID) // 添加日志
+
 	var strategies []models.FuturesStrategy
 	if err := ctrl.Config.DB.Where("user_id = ? AND deleted_at IS NULL", userID).
 		Order("created_at desc").
@@ -167,6 +169,8 @@ func (ctrl *FuturesController) GetStrategies(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取策略列表失败"})
 		return
 	}
+
+	log.Printf("找到 %d 个策略", len(strategies)) // 添加日志
 
 	c.JSON(http.StatusOK, gin.H{"strategies": strategies})
 }

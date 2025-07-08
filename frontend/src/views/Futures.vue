@@ -990,12 +990,33 @@ export default {
       }
 
       try {
-        await axios.delete(`/futures/strategies/${strategy.id}`);
-        this.showToast('策略删除成功');
+        if (this.editingStrategy) {
+          // 更新策略
+          await axios.put(`/futures/strategies/${this.editingStrategy.id}`, updateData);
+          this.showToast('策略更新成功');
+        } else {
+          // 创建策略
+          const response = await axios.post('/futures/strategies', submitData);
+          console.log('创建策略响应:', response.data); // 添加日志
+          this.showToast('策略创建成功');
+        }
+
+        this.closeCreateModal();
+
+        // 确保立即刷新策略列表
         await this.fetchStrategies();
+        await this.fetchBalance();
+
+        // 添加一个延迟再次刷新，以防数据库延迟
+        setTimeout(() => {
+          this.fetchStrategies();
+        }, 1000);
+
       } catch (error) {
-        console.error('删除策略失败:', error);
-        this.showToast(error.response?.data?.error || '删除失败', 'error');
+        console.error('提交策略失败:', error);
+        this.showToast(error.response?.data?.error || '提交失败', 'error');
+      } finally {
+        this.isSubmitting = false;
       }
     },
 
