@@ -155,8 +155,8 @@
             </div>
 
             <!-- 冰山策略详情 -->
-            <div v-if="strategy.strategyType === 'iceberg' && strategy.icebergQuantities" class="iceberg-details">
-              <div class="iceberg-title">冰山策略配置</div>
+            <div v-if="(strategy.strategyType === 'iceberg' || strategy.strategyType === 'slow_iceberg') && strategy.icebergQuantities" class="iceberg-details">
+              <div class="iceberg-title">{{ strategy.strategyType === 'slow_iceberg' ? '慢冰山' : '冰山' }}策略配置</div>
               <div class="iceberg-info-grid">
                 <div class="iceberg-info-item">
                   <span class="info-label">层数</span>
@@ -168,7 +168,7 @@
                 </div>
                 <div class="iceberg-info-item">
                   <span class="info-label">价格间隔</span>
-                  <span class="info-value">{{ formatIcebergPriceGaps(strategy.icebergPriceGaps) }}</span>
+                  <span class="info-value">{{ formatIcebergPriceGaps(strategy.icebergPriceGaps, strategy.strategyType) }}</span>
                 </div>
               </div>
             </div>
@@ -446,9 +446,9 @@
               </div>
             </div>
             <!-- 冰山策略配置 -->
-            <template v-if="strategyForm.strategyType === 'iceberg'">
+            <template v-if="strategyForm.strategyType === 'iceberg' || strategyForm.strategyType === 'slow_iceberg'">
               <div class="iceberg-config-section">
-                {{ strategyForm.strategyType === 'slow_iceberg' ? '慢冰山' : '冰山' }}策略配置
+                <h4 class="config-title">{{ strategyForm.strategyType === 'slow_iceberg' ? '慢冰山' : '冰山' }}策略配置</h4>
 
                 <div class="form-grid">
                   <div class="form-group">
@@ -597,8 +597,8 @@
               </div>
 
               <!-- 冰山策略预览 -->
-              <div v-if="strategyForm.strategyType === 'iceberg'" class="iceberg-preview">
-                <h5>冰山分层预览</h5>
+              <div v-if="strategyForm.strategyType === 'iceberg' || strategyForm.strategyType === 'slow_iceberg'" class="iceberg-preview">
+                <h5>{{ strategyForm.strategyType === 'slow_iceberg' ? '慢冰山' : '冰山' }}分层预览</h5>
                 <div class="iceberg-preview-layers">
                   <div v-for="(_, index) in strategyForm.icebergQuantities.slice(0, strategyForm.icebergLevels)"
                        :key="'preview' + index"
@@ -626,7 +626,7 @@
             </button>
             <button
                 @click="submitStrategy"
-                :disabled="isSubmitting || (strategyForm.strategyType === 'iceberg' && icebergSumError)"
+                :disabled="isSubmitting || ((strategyForm.strategyType === 'iceberg' || strategyForm.strategyType === 'slow_iceberg') && icebergSumError)"
                 class="btn btn-primary"
             >
               <span v-if="!isSubmitting">{{ editingStrategy ? '更新' : '创建' }}</span>
@@ -868,7 +868,7 @@ export default {
       }
 
       // 验证冰山策略配置
-      if (this.strategyForm.strategyType === 'iceberg' && this.icebergSumError) {
+      if ((this.strategyForm.strategyType === 'iceberg' || this.strategyForm.strategyType === 'slow_iceberg') && this.icebergSumError) {
         this.showToast('冰山策略数量分配总和必须为1', 'error');
         return;
       }
@@ -893,7 +893,7 @@ export default {
           };
 
           // 如果是冰山策略，添加冰山配置
-          if (this.strategyForm.strategyType === 'iceberg') {
+          if (this.strategyForm.strategyType === 'iceberg' || this.strategyForm.strategyType === 'slow_iceberg') {
             updateData.icebergLevels = this.strategyForm.icebergLevels;
             updateData.icebergQuantities = this.strategyForm.icebergQuantities.slice(0, this.strategyForm.icebergLevels);
             updateData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
@@ -918,7 +918,7 @@ export default {
           };
 
           // 如果是冰山策略，添加冰山配置
-          if (submitData.strategyType === 'iceberg') {
+          if (submitData.strategyType === 'iceberg' || submitData.strategyType === 'slow_iceberg') {
             submitData.icebergLevels = this.strategyForm.icebergLevels;
             submitData.icebergQuantities = this.strategyForm.icebergQuantities.slice(0, this.strategyForm.icebergLevels);
             submitData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
@@ -1073,7 +1073,7 @@ export default {
       this.generateStrategyName();
 
 // 如果是冰山策略，更新价格间隔的默认值
-      if (this.strategyForm.strategyType === 'iceberg') {
+      if (this.strategyForm.strategyType === 'iceberg' || this.strategyForm.strategyType === 'slow_iceberg') {
         this.updateIcebergDefaults();
       }
     },
