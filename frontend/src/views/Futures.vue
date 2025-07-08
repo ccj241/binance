@@ -868,10 +868,14 @@ export default {
 
     async fetchStrategies() {
       try {
+        console.log('开始获取策略列表...');
         const response = await axios.get('/futures/strategies');
+        console.log('策略列表响应:', response.data);
         this.strategies = response.data.strategies || [];
+        console.log('策略数量:', this.strategies.length);
       } catch (error) {
         console.error('获取策略列表失败:', error);
+        console.error('错误详情:', error.response);
         this.showToast('获取策略列表失败', 'error');
       }
     },
@@ -965,39 +969,38 @@ export default {
             updateData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
           }
 
-          console.log('更新策略数据:', updateData); // 添加调试日志
+          console.log('更新策略数据:', updateData);
 
           await axios.put(`/futures/strategies/${this.editingStrategy.id}`, updateData);
           this.showToast('策略更新成功');
         } else {
-          // 创建策略的代码保持不变...
-        }
+          // 创建新策略
+          const createData = {
+            strategyName: this.strategyForm.strategyName,
+            symbol: this.strategyForm.symbol,
+            side: this.strategyForm.side,
+            strategyType: this.strategyForm.strategyType,
+            basePrice: parseFloat(this.strategyForm.basePrice) || 0,
+            entryPriceFloat: parseFloat(this.strategyForm.entryPriceFloat) || 0,
+            leverage: parseInt(this.strategyForm.leverage) || 1,
+            quantity: parseFloat(this.strategyForm.quantity) || 0,
+            takeProfitRate: parseFloat(this.strategyForm.takeProfitRate) || 0,
+            stopLossRate: parseFloat(this.strategyForm.stopLossRate) || 0,
+            marginType: this.strategyForm.marginType,
+            autoRestart: this.strategyForm.autoRestart,
+          };
 
-        this.closeCreateModal();
-        await this.fetchStrategies();
-        await this.fetchBalance();
-      } catch (error) {
-        console.error('提交策略失败:', error);
-        console.error('错误详情:', error.response); // 添加详细错误日志
-        this.showToast(error.response?.data?.error || '提交失败', 'error');
-      } finally {
-        this.isSubmitting = false;
-      }
-    },
-    async deleteStrategy(strategy) {
-      if (!window.confirm(`确定要删除策略"${strategy.strategyName}"吗？`)) {
-        return;
-      }
+          // 如果是冰山策略，添加冰山配置
+          if (this.strategyForm.strategyType === 'iceberg' || this.strategyForm.strategyType === 'slow_iceberg') {
+            createData.icebergLevels = this.strategyForm.icebergLevels;
+            createData.icebergQuantities = this.strategyForm.icebergQuantities.slice(0, this.strategyForm.icebergLevels);
+            createData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
+          }
 
-      try {
-        if (this.editingStrategy) {
-          // 更新策略
-          await axios.put(`/futures/strategies/${this.editingStrategy.id}`, updateData);
-          this.showToast('策略更新成功');
-        } else {
-          // 创建策略
-          const response = await axios.post('/futures/strategies', submitData);
-          console.log('创建策略响应:', response.data); // 添加日志
+          console.log('创建策略数据:', createData);
+
+          const response = await axios.post('/futures/strategies', createData);
+          console.log('创建策略响应:', response.data);
           this.showToast('策略创建成功');
         }
 
@@ -1014,9 +1017,24 @@ export default {
 
       } catch (error) {
         console.error('提交策略失败:', error);
+        console.error('错误详情:', error.response);
         this.showToast(error.response?.data?.error || '提交失败', 'error');
       } finally {
         this.isSubmitting = false;
+      }
+    },
+    async deleteStrategy(strategy) {
+      if (!window.confirm(`确定要删除策略"${strategy.strategyName}"吗？`)) {
+        return;
+      }
+
+      try {
+        await axios.delete(`/futures/strategies/${strategy.id}`);
+        this.showToast('策略删除成功');
+        await this.fetchStrategies();
+      } catch (error) {
+        console.error('删除策略失败:', error);
+        this.showToast(error.response?.data?.error || '删除失败', 'error');
       }
     },
 
