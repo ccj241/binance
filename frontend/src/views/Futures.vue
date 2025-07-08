@@ -1230,23 +1230,43 @@ return this.calculateOpenFee() + this.calculateCloseFee();
 },
 
 // 计算净收益
-calculateNetProfit() {
-const { quantity, takeProfitRate, side, leverage } = this.strategyForm;
-if (!quantity || !takeProfitRate) return 0;
+    calculateNetProfit() {
+      const { quantity, takeProfitRate, leverage } = this.strategyForm;
+      if (!quantity || !takeProfitRate) return 0;
 
-const profitRate = takeProfitRate / 10000; // 万分比转小数
-const totalValue = quantity * (leverage || 1); // 实际开仓价值
-let grossProfit;
+      // 止盈率是基于本金的收益率（扣除手续费后）
+      const netProfitRate = takeProfitRate / 10000; // 万分比转小数
 
-if (side === 'LONG') {
-grossProfit = totalValue * profitRate;
-} else {
-grossProfit = totalValue * profitRate;
-}
+      // 净收益 = 本金 × 净收益率
+      const netProfit = quantity * netProfitRate;
 
-// 扣除手续费
-return grossProfit - this.calculateTotalFee();
-},
+      return netProfit;
+    },
+
+// 计算毛利润（用于显示）
+    calculateGrossProfit() {
+      const { quantity, takeProfitRate, leverage } = this.strategyForm;
+      if (!quantity || !takeProfitRate) return 0;
+
+      // 净收益
+      const netProfit = this.calculateNetProfit();
+
+      // 毛利润 = 净收益 + 手续费
+      return netProfit + this.calculateTotalFee();
+    },
+
+// 计算实际的价格变动率
+    calculateActualPriceChangeRate() {
+      const { quantity, takeProfitRate, leverage } = this.strategyForm;
+      if (!quantity || !takeProfitRate || !leverage) return 0;
+
+      // 毛利润
+      const grossProfit = this.calculateGrossProfit();
+
+      // 价格变动率 = 毛利润 / 开仓价值
+      const totalValue = quantity * leverage;
+      return (grossProfit / totalValue) * 10000; // 转换为万分比
+    },
 
 // 计算净收益率
 calculateNetProfitRate() {

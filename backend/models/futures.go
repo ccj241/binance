@@ -106,16 +106,34 @@ func (s *FuturesStrategy) CalculateTakeProfitPrice() {
 	// 手续费率（币安期货默认）
 	takerFeeRate := 0.0004 // 0.04%
 
-	// 计算净利润率（扣除开仓和平仓手续费）
-	netProfitRate := s.TakeProfitRate / 100.0
-	totalFeeRate := takerFeeRate * 2 // 开仓+平仓手续费
+	// takeProfitRate 是基于本金的净收益率（万分比）
+	netProfitRate := s.TakeProfitRate / 10000.0
+
+	// 计算需要的毛利润（净利润 + 手续费）
+	// 净利润 = 本金 × 净收益率
+	netProfit := s.Quantity * netProfitRate
+
+	// 总手续费 = 开仓手续费 + 平仓手续费
+	// 开仓手续费 = 开仓价值 × 0.04%
+	// 平仓手续费 = 平仓价值 × 0.04%
+	openValue := s.Quantity * float64(s.Leverage)
+	openFee := openValue * takerFeeRate
+
+	// 毛利润 = 净利润 + 开仓手续费 + 平仓手续费
+	// 由于平仓手续费依赖于平仓价格，需要迭代计算
+	// 简化计算：假设平仓价值约等于开仓价值（因为价格变动很小）
+	totalFee := openFee * 2
+	grossProfit := netProfit + totalFee
+
+	// 价格变动率 = 毛利润 / 开仓价值
+	priceChangeRate := grossProfit / openValue
 
 	if s.Side == "LONG" {
-		// 多头：止盈价格 = 开仓价格 * (1 + 净利润率 + 手续费率)
-		s.TakeProfitPrice = s.EntryPrice * (1 + netProfitRate + totalFeeRate)
+		// 多头：止盈价格 = 开仓价格 × (1 + 价格变动率)
+		s.TakeProfitPrice = s.EntryPrice * (1 + priceChangeRate)
 	} else {
-		// 空头：止盈价格 = 开仓价格 * (1 - 净利润率 - 手续费率)
-		s.TakeProfitPrice = s.EntryPrice * (1 - netProfitRate - totalFeeRate)
+		// 空头：止盈价格 = 开仓价格 × (1 - 价格变动率)
+		s.TakeProfitPrice = s.EntryPrice * (1 - priceChangeRate)
 	}
 }
 
