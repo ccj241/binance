@@ -63,7 +63,8 @@ func monitorFuturesPrices(cfg *config.Config) {
 			continue
 		}
 
-		log.Printf("找到 %d 个等待中的策略", len(strategies))
+		// 只在策略数量变化时输出日志
+		// log.Printf("找到 %d 个等待中的策略", len(strategies))
 
 		// 按交易对分组
 		symbolStrategies := make(map[string][]models.FuturesStrategy)
@@ -108,7 +109,8 @@ func (m *FuturesWebSocketManager) start() {
 	// 将交易对转换为小写
 	wsURL := fmt.Sprintf("wss://fstream.binance.com/ws/%s@markPrice@1s", strings.ToLower(m.symbol))
 
-	log.Printf("准备连接 %s 的 WebSocket", m.symbol)
+	// 减少日志输出
+	// log.Printf("准备连接 %s 的 WebSocket", m.symbol)
 
 	for {
 		select {
@@ -128,7 +130,8 @@ func (m *FuturesWebSocketManager) start() {
 
 // connect 建立WebSocket连接
 func (m *FuturesWebSocketManager) connect(wsURL string) {
-	log.Printf("正在连接 WebSocket: %s", wsURL)
+	// 减少连接日志
+	// log.Printf("正在连接 WebSocket: %s", wsURL)
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
@@ -142,7 +145,8 @@ func (m *FuturesWebSocketManager) connect(wsURL string) {
 	}()
 
 	m.wsConn = conn
-	log.Printf("WebSocket 连接成功: %s", m.symbol)
+	// 减少连接成功日志
+	// log.Printf("WebSocket 连接成功: %s", m.symbol)
 
 	for {
 		select {
@@ -158,18 +162,15 @@ func (m *FuturesWebSocketManager) connect(wsURL string) {
 			// 解析标记价格
 			if markPriceStr, ok := msg["p"].(string); ok {
 				if markPrice, err := strconv.ParseFloat(markPriceStr, 64); err == nil {
-					log.Printf("%s 收到价格更新: %.8f", m.symbol, markPrice)
+					// 移除价格更新日志
+					// log.Printf("%s 收到价格更新: %.8f", m.symbol, markPrice)
 					m.mu.Lock()
 					m.lastPrice = markPrice
 					m.mu.Unlock()
 
 					// 检查策略触发
 					m.checkStrategies(markPrice)
-				} else {
-					log.Printf("解析价格失败: %v", err)
 				}
-			} else {
-				log.Printf("消息格式错误: %v", msg)
 			}
 		}
 	}
@@ -177,25 +178,27 @@ func (m *FuturesWebSocketManager) connect(wsURL string) {
 
 // checkStrategies 检查策略是否触发
 func (m *FuturesWebSocketManager) checkStrategies(currentPrice float64) {
-	// 添加调试日志
-	log.Printf("检查 %s 策略，当前价格: %.8f", m.symbol, currentPrice)
+	// 移除调试日志
+	// log.Printf("检查 %s 策略，当前价格: %.8f", m.symbol, currentPrice)
 
 	m.strategies.Range(func(key, value interface{}) bool {
 		strategy := value.(*models.FuturesStrategy)
 
-		// 添加策略详情日志
-		log.Printf("策略 %d: %s %s, 基准价格: %.8f, 当前价格: %.8f, 状态: %s, 启用: %v",
-			strategy.ID, strategy.Side, strategy.Symbol, strategy.BasePrice, currentPrice,
-			strategy.Status, strategy.Enabled)
+		// 移除策略详情日志
+		// log.Printf("策略 %d: %s %s, 基准价格: %.8f, 当前价格: %.8f, 状态: %s, 启用: %v",
+		// 	strategy.ID, strategy.Side, strategy.Symbol, strategy.BasePrice, currentPrice,
+		// 	strategy.Status, strategy.Enabled)
 
 		// 检查是否触发
 		shouldTrigger := false
 		if strategy.Side == "LONG" && currentPrice <= strategy.BasePrice {
 			shouldTrigger = true
-			log.Printf("策略 %d 满足做多触发条件", strategy.ID)
+			// 减少触发条件日志
+			// log.Printf("策略 %d 满足做多触发条件", strategy.ID)
 		} else if strategy.Side == "SHORT" && currentPrice >= strategy.BasePrice {
 			shouldTrigger = true
-			log.Printf("策略 %d 满足做空触发条件", strategy.ID)
+			// 减少触发条件日志
+			// log.Printf("策略 %d 满足做空触发条件", strategy.ID)
 		}
 
 		if shouldTrigger {
@@ -222,6 +225,7 @@ func (m *FuturesWebSocketManager) checkStrategies(currentPrice float64) {
 					return err
 				}
 
+				// 保留策略触发的关键日志
 				log.Printf("期货策略 %d 触发: %s %s @ %.8f",
 					strategy.ID, strategy.Side, strategy.Symbol, currentPrice)
 
@@ -281,8 +285,7 @@ func (m *FuturesWebSocketManager) executeStrategy(strategy *models.FuturesStrate
 	}
 }
 
-// executeSimpleStrategy 执行简单策略（原有逻辑）
-// executeSimpleStrategy 执行简单策略（原有逻辑）
+// executeSimpleStrategy 执行简单策略
 func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.FuturesStrategy, client *futures.Client) {
 	// 设置杠杆
 	if err := setLeverage(client, strategy.Symbol, strategy.Leverage); err != nil {
@@ -353,13 +356,14 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		}
 	}
 
-	log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f, MinQty: %f",
-		strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize, minQty)
+	// 减少规则日志
+	// log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f, MinQty: %f",
+	// 	strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize, minQty)
 
 	// 获取深度数据以计算开仓价格
 	depth, err := client.NewDepthService().
 		Symbol(strategy.Symbol).
-		Limit(5).
+		Limit(20). // 增加深度层级以便更好地避免吃单
 		Do(context.Background())
 	if err != nil {
 		log.Printf("获取深度失败: %v", err)
@@ -367,24 +371,44 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 		return
 	}
 
-	// 计算开仓价格
+	// 计算开仓价格（优化挂单逻辑）
 	var entryPrice float64
 	if strategy.Side == "LONG" {
 		// 做多时使用卖一价
 		if len(depth.Asks) > 0 {
 			askPrice, _ := strconv.ParseFloat(depth.Asks[0].Price, 64)
-			entryPrice = askPrice
+
+			// 如果设置了浮动，按浮动计算
 			if strategy.EntryPriceFloat > 0 {
 				entryPrice = askPrice * (1 - strategy.EntryPriceFloat/10000) // 万分比
+			} else {
+				// 没有设置浮动时，稍微低于卖一价挂单（避免立即吃单）
+				// 默认低于卖一价1个tick
+				entryPrice = askPrice - tickSize
+			}
+
+			// 确保价格不会高于卖一价（避免吃单）
+			if entryPrice >= askPrice {
+				entryPrice = askPrice - tickSize
 			}
 		}
 	} else {
 		// 做空时使用买一价
 		if len(depth.Bids) > 0 {
 			bidPrice, _ := strconv.ParseFloat(depth.Bids[0].Price, 64)
-			entryPrice = bidPrice
+
+			// 如果设置了浮动，按浮动计算
 			if strategy.EntryPriceFloat > 0 {
 				entryPrice = bidPrice * (1 + strategy.EntryPriceFloat/10000) // 万分比
+			} else {
+				// 没有设置浮动时，稍微高于买一价挂单（避免立即吃单）
+				// 默认高于买一价1个tick
+				entryPrice = bidPrice + tickSize
+			}
+
+			// 确保价格不会低于买一价（避免吃单）
+			if entryPrice <= bidPrice {
+				entryPrice = bidPrice + tickSize
 			}
 		}
 	}
@@ -404,8 +428,9 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 	actualOrderValue := strategy.Quantity * float64(strategy.Leverage) // 本金×杠杆=实际开仓价值
 	contractQuantity := actualOrderValue / entryPrice                  // 实际开仓价值÷价格=合约数量
 
-	log.Printf("开仓计算 - 本金: %.2f USDT, 杠杆: %dx, 实际开仓价值: %.2f USDT, 合约数量: %.8f",
-		strategy.Quantity, strategy.Leverage, actualOrderValue, contractQuantity)
+	// 减少开仓计算日志
+	// log.Printf("开仓计算 - 本金: %.2f USDT, 杠杆: %dx, 实际开仓价值: %.2f USDT, 合约数量: %.8f",
+	// 	strategy.Quantity, strategy.Leverage, actualOrderValue, contractQuantity)
 
 	// 将数量调整为 step size 的整数倍
 	if stepSize > 0 {
@@ -438,8 +463,9 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 	formattedQuantity := fmt.Sprintf(quantityFormat, contractQuantity)
 	formattedPrice := fmt.Sprintf(priceFormat, entryPrice)
 
-	log.Printf("开仓参数 - 交易对: %s, 数量: %s (精度: %d), 价格: %s (精度: %d)",
-		strategy.Symbol, formattedQuantity, quantityPrecision, formattedPrice, pricePrecision)
+	// 保留关键的开仓参数日志
+	log.Printf("开仓参数 - 策略ID: %d, 交易对: %s, 方向: %s, 数量: %s, 价格: %s",
+		strategy.ID, strategy.Symbol, strategy.Side, formattedQuantity, formattedPrice)
 
 	// 更新策略的实际开仓价格
 	strategy.EntryPrice = entryPrice
@@ -564,13 +590,10 @@ func (m *FuturesWebSocketManager) executeSlowIcebergStrategy(strategy *models.Fu
 		}
 	}
 
-	log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f, MinQty: %f",
-		strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize, minQty)
-
 	// 获取当前市场深度
 	depth, err := client.NewDepthService().
 		Symbol(strategy.Symbol).
-		Limit(5).
+		Limit(20).
 		Do(context.Background())
 	if err != nil {
 		log.Printf("获取深度失败: %v", err)
@@ -611,12 +634,28 @@ func (m *FuturesWebSocketManager) executeSlowIcebergStrategy(strategy *models.Fu
 	// 计算第一层的价格
 	firstLayerPrice := basePrice * (1 + priceGaps[0]/10000)
 
-	// 应用开仓价格浮动（万分比）
-	if strategy.EntryPriceFloat > 0 {
-		if strategy.Side == "LONG" {
+	// 应用开仓价格浮动（万分比）并避免吃单
+	if strategy.Side == "LONG" {
+		if strategy.EntryPriceFloat > 0 {
 			firstLayerPrice = firstLayerPrice * (1 - strategy.EntryPriceFloat/10000)
 		} else {
+			// 默认低于基准价1个tick避免吃单
+			firstLayerPrice = firstLayerPrice - tickSize
+		}
+		// 确保不会高于卖一价
+		if firstLayerPrice >= basePrice {
+			firstLayerPrice = basePrice - tickSize
+		}
+	} else {
+		if strategy.EntryPriceFloat > 0 {
 			firstLayerPrice = firstLayerPrice * (1 + strategy.EntryPriceFloat/10000)
+		} else {
+			// 默认高于基准价1个tick避免吃单
+			firstLayerPrice = firstLayerPrice + tickSize
+		}
+		// 确保不会低于买一价
+		if firstLayerPrice <= basePrice {
+			firstLayerPrice = basePrice + tickSize
 		}
 	}
 
@@ -653,8 +692,8 @@ func (m *FuturesWebSocketManager) executeSlowIcebergStrategy(strategy *models.Fu
 	// 计算第一层使用的本金
 	firstLayerMargin := firstLayerValue / float64(strategy.Leverage)
 
-	log.Printf("慢冰山策略第1层 - 价格: %s, 数量: %s (价值: %.2f USDT, 本金: %.2f USDT)",
-		formattedPrice, formattedQuantity, firstLayerValue, firstLayerMargin)
+	log.Printf("慢冰山策略 %d 第1层 - 价格: %s, 数量: %s (本金: %.2f USDT)",
+		strategy.ID, formattedPrice, formattedQuantity, firstLayerMargin)
 
 	// 创建开仓方向
 	side := futures.SideTypeBuy
@@ -698,8 +737,7 @@ func (m *FuturesWebSocketManager) executeSlowIcebergStrategy(strategy *models.Fu
 		log.Printf("保存订单记录失败: %v", err)
 	}
 
-	log.Printf("慢冰山策略第1层订单创建成功: OrderID=%d, Price=%s, Quantity=%s",
-		order.OrderID, formattedPrice, formattedQuantity)
+	log.Printf("慢冰山策略 %d 第1层订单创建成功: OrderID=%d", strategy.ID, order.OrderID)
 
 	// 启动慢冰山订单监控（传递必要的参数）
 	go monitorSlowIcebergOrders(m.cfg, strategy, order.OrderID, 0, quantities, priceGaps,
@@ -775,9 +813,6 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		}
 	}
 
-	log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f, MinQty: %f",
-		strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize, minQty)
-
 	// 获取当前市场深度
 	depth, err := client.NewDepthService().
 		Symbol(strategy.Symbol).
@@ -832,9 +867,6 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 	// 计算实际开仓价值（本金×杠杆）
 	totalOrderValue := strategy.Quantity * float64(strategy.Leverage)
 
-	log.Printf("冰山策略开仓计算 - 本金: %.2f USDT, 杠杆: %dx, 总开仓价值: %.2f USDT",
-		strategy.Quantity, strategy.Leverage, totalOrderValue)
-
 	// 格式化数量和价格的格式字符串
 	quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
 	priceFormat := fmt.Sprintf("%%.%df", pricePrecision)
@@ -855,12 +887,30 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		// 计算每层的价格
 		layerPrice := basePrice * (1 + priceGaps[i]/10000)
 
-		// 应用开仓价格浮动（万分比）
-		if strategy.EntryPriceFloat > 0 {
+		// 应用开仓价格浮动（万分比）并避免吃单
+		if i == 0 { // 只对第一层应用浮动和避免吃单逻辑
 			if strategy.Side == "LONG" {
-				layerPrice = layerPrice * (1 - strategy.EntryPriceFloat/10000)
+				if strategy.EntryPriceFloat > 0 {
+					layerPrice = layerPrice * (1 - strategy.EntryPriceFloat/10000)
+				} else if priceGaps[i] == 0 {
+					// 第一层价格间隔为0且没有设置浮动时，避免吃单
+					layerPrice = layerPrice - tickSize
+				}
+				// 确保不会高于卖一价
+				if layerPrice >= basePrice {
+					layerPrice = basePrice - tickSize
+				}
 			} else {
-				layerPrice = layerPrice * (1 + strategy.EntryPriceFloat/10000)
+				if strategy.EntryPriceFloat > 0 {
+					layerPrice = layerPrice * (1 + strategy.EntryPriceFloat/10000)
+				} else if priceGaps[i] == 0 {
+					// 第一层价格间隔为0且没有设置浮动时，避免吃单
+					layerPrice = layerPrice + tickSize
+				}
+				// 确保不会低于买一价
+				if layerPrice <= basePrice {
+					layerPrice = basePrice + tickSize
+				}
 			}
 		}
 
@@ -889,8 +939,9 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 
 		if layers[i].skip {
 			skippedValue += layerValue
-			log.Printf("冰山第%d层将被跳过 - 价值: %.2f USDT, 数量: %.8f < 最小数量: %.8f",
-				i+1, layerValue, layerContractQuantity, minQty)
+			// 减少跳过层的日志
+			// log.Printf("冰山第%d层将被跳过 - 价值: %.2f USDT, 数量: %.8f < 最小数量: %.8f",
+			// 	i+1, layerValue, layerContractQuantity, minQty)
 		}
 	}
 
@@ -906,8 +957,9 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		if validLayers > 0 {
 			// 将跳过的价值平均分配到有效层
 			additionalValuePerLayer := skippedValue / float64(validLayers)
-			log.Printf("将 %.2f USDT 价值重新分配到 %d 个有效层，每层增加 %.2f USDT",
-				skippedValue, validLayers, additionalValuePerLayer)
+			// 减少重新分配日志
+			// log.Printf("将 %.2f USDT 价值重新分配到 %d 个有效层，每层增加 %.2f USDT",
+			// 	skippedValue, validLayers, additionalValuePerLayer)
 
 			for i := 0; i < len(layers); i++ {
 				if !layers[i].skip {
@@ -939,8 +991,9 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		// 计算该层使用的本金
 		layerMargin := layers[i].value / float64(strategy.Leverage)
 
-		log.Printf("冰山第%d层 - 价格: %s, 数量: %s (价值: %.2f USDT, 本金: %.2f USDT)",
-			i+1, formattedPrice, formattedQuantity, layers[i].value, layerMargin)
+		// 保留关键层信息日志
+		log.Printf("冰山策略 %d 第%d层 - 价格: %s, 数量: %s (本金: %.2f USDT)",
+			strategy.ID, i+1, formattedPrice, formattedQuantity, layerMargin)
 
 		// 创建限价订单
 		orderService := client.NewCreateOrderService().
@@ -988,9 +1041,6 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 		if err := m.cfg.DB.Create(&dbOrder).Error; err != nil {
 			log.Printf("保存订单记录失败: %v", err)
 		}
-
-		log.Printf("冰山策略第%d层订单创建成功: OrderID=%d, Price=%s, Quantity=%s",
-			i+1, order.OrderID, formattedPrice, formattedQuantity)
 	}
 
 	if len(successfulOrders) == 0 {
@@ -1077,8 +1127,8 @@ func monitorSlowIcebergOrders(cfg *config.Config, strategy *models.FuturesStrate
 
 			// 检查订单是否成交
 			if order.Status == futures.OrderStatusTypeFilled {
-				log.Printf("慢冰山第%d层订单成交: OrderID=%d, AvgPrice=%.8f, Qty=%.8f",
-					currentLayer+1, currentOrderID, avgPrice, execQty)
+				log.Printf("慢冰山第%d层订单成交: 策略ID=%d, OrderID=%d, AvgPrice=%.8f",
+					currentLayer+1, strategy.ID, currentOrderID, avgPrice)
 
 				// 更新成交统计
 				totalFilledQuantity += execQty
@@ -1089,7 +1139,7 @@ func monitorSlowIcebergOrders(cfg *config.Config, strategy *models.FuturesStrate
 					// 获取最新的市场深度
 					depth, depthErr := client.NewDepthService().
 						Symbol(strategy.Symbol).
-						Limit(5).
+						Limit(20).
 						Do(context.Background())
 
 					if depthErr != nil {
@@ -1117,12 +1167,28 @@ func monitorSlowIcebergOrders(cfg *config.Config, strategy *models.FuturesStrate
 					// 计算下一层的价格（基于新的买卖1价）
 					nextLayerPrice := basePrice * (1 + priceGaps[currentLayer+1]/10000)
 
-					// 应用开仓价格浮动
-					if strategy.EntryPriceFloat > 0 {
-						if strategy.Side == "LONG" {
+					// 应用开仓价格浮动并避免吃单
+					if strategy.Side == "LONG" {
+						if strategy.EntryPriceFloat > 0 {
 							nextLayerPrice = nextLayerPrice * (1 - strategy.EntryPriceFloat/10000)
 						} else {
+							// 避免吃单
+							nextLayerPrice = nextLayerPrice - tickSize
+						}
+						// 确保不会高于卖一价
+						if nextLayerPrice >= basePrice {
+							nextLayerPrice = basePrice - tickSize
+						}
+					} else {
+						if strategy.EntryPriceFloat > 0 {
 							nextLayerPrice = nextLayerPrice * (1 + strategy.EntryPriceFloat/10000)
+						} else {
+							// 避免吃单
+							nextLayerPrice = nextLayerPrice + tickSize
+						}
+						// 确保不会低于买一价
+						if nextLayerPrice <= basePrice {
+							nextLayerPrice = basePrice + tickSize
 						}
 					}
 
@@ -1143,7 +1209,8 @@ func monitorSlowIcebergOrders(cfg *config.Config, strategy *models.FuturesStrate
 
 					// 检查数量是否满足最小要求
 					if nextLayerQuantity < minQty {
-						log.Printf("慢冰山第%d层数量太小，跳过", currentLayer+2)
+						// 减少跳过层的日志
+						// log.Printf("慢冰山第%d层数量太小，跳过", currentLayer+2)
 						// 递归调用处理下一层
 						if currentLayer+2 < len(quantities) {
 							go monitorSlowIcebergOrders(cfg, strategy, currentOrderID, currentLayer+1,
@@ -1159,8 +1226,8 @@ func monitorSlowIcebergOrders(cfg *config.Config, strategy *models.FuturesStrate
 					formattedQuantity := fmt.Sprintf(quantityFormat, nextLayerQuantity)
 					formattedPrice := fmt.Sprintf(priceFormat, nextLayerPrice)
 
-					log.Printf("慢冰山策略第%d层 - 价格: %s (基于新的%s价), 数量: %s",
-						currentLayer+2, formattedPrice,
+					log.Printf("慢冰山策略 %d 第%d层 - 价格: %s (基于新的%s价), 数量: %s",
+						strategy.ID, currentLayer+2, formattedPrice,
 						map[bool]string{true: "卖1", false: "买1"}[strategy.Side == "LONG"],
 						formattedQuantity)
 
@@ -1203,8 +1270,6 @@ func monitorSlowIcebergOrders(cfg *config.Config, strategy *models.FuturesStrate
 					if err := cfg.DB.Create(&dbOrder).Error; err != nil {
 						log.Printf("保存订单记录失败: %v", err)
 					}
-
-					log.Printf("慢冰山策略第%d层订单创建成功: OrderID=%d", currentLayer+2, nextOrder.OrderID)
 
 					// 将新订单加入列表
 					allOrderIDs = append(allOrderIDs, nextOrder.OrderID)
@@ -1415,7 +1480,7 @@ func monitorIcebergOrders(cfg *config.Config, strategy *models.FuturesStrategy, 
 					filledOrders[orderID] = true
 					totalFilledQuantity += execQty
 					weightedPriceSum += avgPrice * execQty
-					log.Printf("冰山订单成交: OrderID=%d, AvgPrice=%.8f, Qty=%.8f", orderID, avgPrice, execQty)
+					log.Printf("冰山订单成交: 策略ID=%d, OrderID=%d, AvgPrice=%.8f", strategy.ID, orderID, avgPrice)
 				} else if order.Status == futures.OrderStatusTypeCanceled ||
 					order.Status == futures.OrderStatusTypeExpired ||
 					order.Status == futures.OrderStatusTypeRejected {
@@ -1607,8 +1672,9 @@ func createIcebergTakeProfitOrders(cfg *config.Config, client *futures.Client,
 		}
 
 		successCount++
-		log.Printf("冰山止盈第%d层订单创建成功: OrderID=%d, Price=%.8f, Quantity=%.8f",
-			i+1, order.OrderID, layerPrice, layerQuantity)
+		// 减少止盈订单创建日志
+		// log.Printf("冰山止盈第%d层订单创建成功: OrderID=%d, Price=%.8f, Quantity=%.8f",
+		// 	i+1, order.OrderID, layerPrice, layerQuantity)
 	}
 
 	if successCount > 0 {
@@ -1701,7 +1767,7 @@ func monitorEntryOrder(cfg *config.Config, strategy *models.FuturesStrategy, ord
 
 			// 检查订单是否成交
 			if order.Status == futures.OrderStatusTypeFilled {
-				log.Printf("开仓订单成交: OrderID=%d", orderID)
+				log.Printf("开仓订单成交: 策略ID=%d, OrderID=%d", strategy.ID, orderID)
 
 				// 创建持仓记录
 				avgPrice, _ := strconv.ParseFloat(order.AvgPrice, 64)
@@ -1761,9 +1827,42 @@ func monitorEntryOrder(cfg *config.Config, strategy *models.FuturesStrategy, ord
 	}
 }
 
-// createTakeProfitOrder 创建止盈订单
+// createTakeProfitOrder 创建止盈订单（优化避免吃单）
 func createTakeProfitOrder(cfg *config.Config, client *futures.Client,
 	strategy *models.FuturesStrategy, quantity float64) {
+
+	// 获取当前深度
+	depth, err := client.NewDepthService().
+		Symbol(strategy.Symbol).
+		Limit(5).
+		Do(context.Background())
+	if err != nil {
+		log.Printf("获取深度失败，使用策略预设止盈价: %v", err)
+		// 如果获取深度失败，使用策略中的止盈价格
+	} else {
+		// 检查止盈价格是否会立即吃单
+		if strategy.Side == "LONG" {
+			// 做多止盈是卖出，检查买一价
+			if len(depth.Bids) > 0 {
+				bidPrice, _ := strconv.ParseFloat(depth.Bids[0].Price, 64)
+				if strategy.TakeProfitPrice <= bidPrice {
+					// 如果止盈价格低于或等于买一价，会立即吃单
+					log.Printf("警告：止盈价格 %.8f 低于买一价 %.8f，可能立即成交",
+						strategy.TakeProfitPrice, bidPrice)
+				}
+			}
+		} else {
+			// 做空止盈是买入，检查卖一价
+			if len(depth.Asks) > 0 {
+				askPrice, _ := strconv.ParseFloat(depth.Asks[0].Price, 64)
+				if strategy.TakeProfitPrice >= askPrice {
+					// 如果止盈价格高于或等于卖一价，会立即吃单
+					log.Printf("警告：止盈价格 %.8f 高于卖一价 %.8f，可能立即成交",
+						strategy.TakeProfitPrice, askPrice)
+				}
+			}
+		}
+	}
 
 	// 确定止盈方向
 	side := futures.SideTypeSell
@@ -1805,7 +1904,8 @@ func createTakeProfitOrder(cfg *config.Config, client *futures.Client,
 		log.Printf("保存止盈订单失败: %v", err)
 	}
 
-	log.Printf("止盈订单创建成功: OrderID=%d, Price=%.8f", order.OrderID, strategy.TakeProfitPrice)
+	log.Printf("止盈订单创建成功: 策略ID=%d, OrderID=%d, Price=%.8f",
+		strategy.ID, order.OrderID, strategy.TakeProfitPrice)
 }
 
 // createStopLossOrder 创建止损订单
@@ -1852,7 +1952,8 @@ func createStopLossOrder(cfg *config.Config, client *futures.Client,
 		log.Printf("保存止损订单失败: %v", err)
 	}
 
-	log.Printf("止损订单创建成功: OrderID=%d, StopPrice=%.8f", order.OrderID, strategy.StopLossPrice)
+	log.Printf("止损订单创建成功: 策略ID=%d, OrderID=%d, StopPrice=%.8f",
+		strategy.ID, order.OrderID, strategy.StopLossPrice)
 }
 
 // monitorFuturesPositions 监控期货持仓
