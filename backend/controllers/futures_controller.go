@@ -29,7 +29,7 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 		StrategyName      string    `json:"strategyName" binding:"required"`
 		Symbol            string    `json:"symbol" binding:"required"`
 		Side              string    `json:"side" binding:"required,oneof=LONG SHORT"`
-		StrategyType      string    `json:"strategyType" binding:"omitempty,oneof=simple iceberg"`
+		StrategyType      string    `json:"strategyType" binding:"omitempty,oneof=simple iceberg slow_iceberg"`
 		BasePrice         float64   `json:"basePrice" binding:"required,gt=0"`
 		EntryPriceFloat   float64   `json:"entryPriceFloat"` // 移除 binding，允许为0
 		Leverage          int       `json:"leverage" binding:"required,min=1,max=125"`
@@ -55,11 +55,11 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 		req.MarginType = "CROSSED"
 	}
 
-	// 冰山策略验证和默认值
+	// 冰山策略验证和默认值（包括慢冰山）
 	icebergQuantitiesStr := ""
 	icebergPriceGapsStr := ""
 
-	if req.StrategyType == "iceberg" {
+	if req.StrategyType == "iceberg" || req.StrategyType == "slow_iceberg" {
 		if req.IcebergLevels == 0 {
 			req.IcebergLevels = 5 // 默认5层
 		}

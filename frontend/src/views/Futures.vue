@@ -96,6 +96,9 @@
                 <span v-if="strategy.strategyType === 'iceberg'" class="type-badge">
                   冰山
                 </span>
+                <span v-if="strategy.strategyType === 'slow_iceberg'" class="type-badge slow">
+  慢冰山
+</span>
                 <span :class="['status-badge', getStatusClass(strategy.status)]">
                   {{ getStatusText(strategy.status) }}
                 </span>
@@ -304,6 +307,7 @@
                 <select v-model="strategyForm.strategyType" class="form-control" @change="onStrategyTypeChange" required>
                   <option value="simple">简单策略</option>
                   <option value="iceberg">冰山策略</option>
+                  <option value="slow_iceberg">慢冰山策略</option>
                 </select>
               </div>
 
@@ -444,7 +448,7 @@
             <!-- 冰山策略配置 -->
             <template v-if="strategyForm.strategyType === 'iceberg'">
               <div class="iceberg-config-section">
-                <h4 class="config-title">冰山策略配置</h4>
+                {{ strategyForm.strategyType === 'slow_iceberg' ? '慢冰山' : '冰山' }}策略配置
 
                 <div class="form-grid">
                   <div class="form-group">
@@ -492,8 +496,11 @@
                   <label class="form-label">
                     各层价格间隔 (‱)
                     <span class="form-hint">
-                      {{ strategyForm.side === 'LONG' ? '负值表示低于基准价格' : '正值表示高于基准价格' }}
-                    </span>
+          {{ strategyForm.side === 'LONG' ? '负值表示低于基准价格' : '正值表示高于基准价格' }}
+          <span v-if="strategyForm.strategyType === 'slow_iceberg'" class="slow-iceberg-hint">
+            （慢冰山策略每层将基于成交时的最新买卖1价计算）
+          </span>
+        </span>
                   </label>
                   <div class="iceberg-layers">
                     <div v-for="(gap, index) in strategyForm.icebergPriceGaps.slice(0, strategyForm.icebergLevels)" :key="'g' + index" class="iceberg-layer">
@@ -1055,8 +1062,8 @@ export default {
 
 // 策略类型改变
     onStrategyTypeChange() {
-      if (this.strategyForm.strategyType === 'iceberg') {
-// 切换到冰山策略时，确保有正确的默认值
+      if (this.strategyForm.strategyType === 'iceberg' || this.strategyForm.strategyType === 'slow_iceberg') {
+        // 切换到冰山策略时，确保有正确的默认值
         this.updateIcebergDefaults();
       }
     },
@@ -1137,18 +1144,23 @@ export default {
       return this.formatPrice(layerPrice);
     },
 
-// 格式化冰山数量显示
+// 格式化冰山策略显示
     formatIcebergQuantities(quantitiesStr) {
       if (!quantitiesStr) return '-';
       const quantities = quantitiesStr.split(',').map(q => parseFloat(q.trim()));
       return quantities.map(q => `${(q * 100).toFixed(0)}%`).join(', ');
     },
-
-// 格式化冰山价格间隔显示
-    formatIcebergPriceGaps(gapsStr) {
+// 格式化冰山价格间隔显示（添加对慢冰山的特殊处理）
+    formatIcebergPriceGaps(gapsStr, strategyType) {
       if (!gapsStr) return '-';
       const gaps = gapsStr.split(',').map(g => parseFloat(g.trim()));
-      return gaps.map(g => `${g > 0 ? '+' : ''}${g}‱`).join(', '); // 万分比符号
+      const formatted = gaps.map(g => `${g > 0 ? '+' : ''}${g}‱`).join(', ');
+
+      // 如果是慢冰山策略，添加特殊标记
+      if (strategyType === 'slow_iceberg') {
+        return formatted + ' (动态)';
+      }
+      return formatted;
     },
 
 // 自动生成策略名称
@@ -1455,6 +1467,19 @@ export default {
   font-weight: 500;
   background: #f3e8ff;
   color: #7c3aed;
+}
+
+.type-badge.slow {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* 慢冰山提示 */
+.slow-iceberg-hint {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--color-warning);
+  font-weight: 500;
 }
 
 /* 冰山策略详情 */

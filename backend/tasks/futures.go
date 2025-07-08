@@ -268,10 +268,14 @@ func (m *FuturesWebSocketManager) executeStrategy(strategy *models.FuturesStrate
 	client := binance.NewFuturesClient(apiKey, secretKey)
 
 	// 根据策略类型执行不同的开仓逻辑
-	if strategy.StrategyType == "iceberg" {
+	switch strategy.StrategyType {
+	case "iceberg":
 		// 执行冰山策略
 		m.executeIcebergStrategy(strategy, client)
-	} else {
+	case "slow_iceberg":
+		// 执行慢冰山策略
+		m.executeSlowIcebergStrategy(strategy, client)
+	default:
 		// 执行简单策略
 		m.executeSimpleStrategy(strategy, client)
 	}
@@ -489,6 +493,217 @@ func (m *FuturesWebSocketManager) executeSimpleStrategy(strategy *models.Futures
 
 	// 启动订单监控
 	go monitorEntryOrder(m.cfg, strategy, order.OrderID)
+}
+
+// executeSlowIcebergStrategy 执行慢冰山策略
+func (m *FuturesWebSocketManager) executeSlowIcebergStrategy(strategy *models.FuturesStrategy, client *futures.Client) {
+	// 设置杠杆
+	if err := setLeverage(client, strategy.Symbol, strategy.Leverage); err != nil {
+		log.Printf("设置杠杆失败: %v", err)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
+		return
+	}
+
+	// 设置保证金模式（忽略已存在的错误）
+	if err := setMarginType(client, strategy.Symbol, strategy.MarginType); err != nil {
+		if !strings.Contains(err.Error(), "No need to change margin type") {
+			log.Printf("设置保证金模式失败: %v", err)
+		}
+	}
+
+	// 获取交易规则（精度信息）
+	exchangeInfo, err := client.NewExchangeInfoService().Do(context.Background())
+	if err != nil {
+		log.Printf("获取交易规则失败: %v", err)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
+		return
+	}
+
+	// 查找当前交易对的规则
+	var symbolInfo *futures.Symbol
+	for _, s := range exchangeInfo.Symbols {
+		if s.Symbol == strategy.Symbol {
+			symbolInfo = &s
+			break
+		}
+	}
+
+	if symbolInfo == nil {
+		log.Printf("未找到交易对 %s 的规则", strategy.Symbol)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", "未找到交易对规则")
+		return
+	}
+
+	// 获取价格和数量精度
+	var pricePrecision int
+	var quantityPrecision int
+	var tickSize float64
+	var stepSize float64
+	var minQty float64
+
+	// 直接使用 Symbol 结构体中的精度信息
+	pricePrecision = symbolInfo.PricePrecision
+	quantityPrecision = symbolInfo.QuantityPrecision
+
+	// 从过滤器中获取 tick size、step size 和最小数量
+	for _, filter := range symbolInfo.Filters {
+		if filterType, ok := filter["filterType"].(string); ok {
+			switch filterType {
+			case "PRICE_FILTER":
+				if tickSizeStr, ok := filter["tickSize"].(string); ok {
+					tickSize, _ = strconv.ParseFloat(tickSizeStr, 64)
+				}
+			case "LOT_SIZE":
+				if stepSizeStr, ok := filter["stepSize"].(string); ok {
+					stepSize, _ = strconv.ParseFloat(stepSizeStr, 64)
+				}
+				if minQtyStr, ok := filter["minQty"].(string); ok {
+					minQty, _ = strconv.ParseFloat(minQtyStr, 64)
+				}
+			}
+		}
+	}
+
+	log.Printf("交易对 %s 规则 - 价格精度: %d, 数量精度: %d, TickSize: %f, StepSize: %f, MinQty: %f",
+		strategy.Symbol, pricePrecision, quantityPrecision, tickSize, stepSize, minQty)
+
+	// 获取当前市场深度
+	depth, err := client.NewDepthService().
+		Symbol(strategy.Symbol).
+		Limit(5).
+		Do(context.Background())
+	if err != nil {
+		log.Printf("获取深度失败: %v", err)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
+		return
+	}
+
+	// 解析冰山策略配置
+	quantities := parseQuantities(strategy.IcebergQuantities)
+	priceGaps := parsePriceGaps(strategy.IcebergPriceGaps, strategy.Side)
+
+	if len(quantities) != len(priceGaps) {
+		log.Printf("慢冰山策略配置错误：数量和价格间隔数量不匹配")
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", "配置错误")
+		return
+	}
+
+	// 获取基准价格（第一层）
+	var basePrice float64
+	if strategy.Side == "LONG" {
+		// 做多时使用卖一价作为基准
+		if len(depth.Asks) > 0 {
+			basePrice, _ = strconv.ParseFloat(depth.Asks[0].Price, 64)
+		}
+	} else {
+		// 做空时使用买一价作为基准
+		if len(depth.Bids) > 0 {
+			basePrice, _ = strconv.ParseFloat(depth.Bids[0].Price, 64)
+		}
+	}
+
+	if basePrice == 0 {
+		log.Printf("无法获取基准价格")
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", "无法获取价格")
+		return
+	}
+
+	// 计算第一层的价格
+	firstLayerPrice := basePrice * (1 + priceGaps[0]/10000)
+
+	// 应用开仓价格浮动（万分比）
+	if strategy.EntryPriceFloat > 0 {
+		if strategy.Side == "LONG" {
+			firstLayerPrice = firstLayerPrice * (1 - strategy.EntryPriceFloat/10000)
+		} else {
+			firstLayerPrice = firstLayerPrice * (1 + strategy.EntryPriceFloat/10000)
+		}
+	}
+
+	// 将价格调整为 tick size 的整数倍
+	if tickSize > 0 {
+		firstLayerPrice = math.Round(firstLayerPrice/tickSize) * tickSize
+	}
+
+	// 计算第一层的价值和数量
+	totalOrderValue := strategy.Quantity * float64(strategy.Leverage)
+	firstLayerValue := totalOrderValue * quantities[0]
+	firstLayerQuantity := firstLayerValue / firstLayerPrice
+
+	// 将数量调整为 step size 的整数倍
+	if stepSize > 0 {
+		firstLayerQuantity = math.Floor(firstLayerQuantity/stepSize) * stepSize
+	}
+
+	// 检查第一层数量是否满足最小要求
+	if firstLayerQuantity < minQty {
+		log.Printf("慢冰山策略第一层数量 %.8f 小于最小数量 %.8f", firstLayerQuantity, minQty)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", "第一层数量太小")
+		return
+	}
+
+	// 格式化数量和价格的格式字符串
+	quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
+	priceFormat := fmt.Sprintf("%%.%df", pricePrecision)
+
+	// 格式化第一层数量和价格
+	formattedQuantity := fmt.Sprintf(quantityFormat, firstLayerQuantity)
+	formattedPrice := fmt.Sprintf(priceFormat, firstLayerPrice)
+
+	// 计算第一层使用的本金
+	firstLayerMargin := firstLayerValue / float64(strategy.Leverage)
+
+	log.Printf("慢冰山策略第1层 - 价格: %s, 数量: %s (价值: %.2f USDT, 本金: %.2f USDT)",
+		formattedPrice, formattedQuantity, firstLayerValue, firstLayerMargin)
+
+	// 创建开仓方向
+	side := futures.SideTypeBuy
+	if strategy.Side == "SHORT" {
+		side = futures.SideTypeSell
+	}
+
+	// 创建第一层限价订单
+	orderService := client.NewCreateOrderService().
+		Symbol(strategy.Symbol).
+		Side(side).
+		PositionSide(futures.PositionSideType(strategy.Side)).
+		Type(futures.OrderTypeLimit).
+		TimeInForce(futures.TimeInForceTypeGTC).
+		Quantity(formattedQuantity).
+		Price(formattedPrice)
+
+	order, err := orderService.Do(context.Background())
+	if err != nil {
+		log.Printf("创建慢冰山第1层订单失败: %v", err)
+		updateStrategyStatus(m.cfg.DB, strategy, "cancelled", err.Error())
+		return
+	}
+
+	// 保存订单记录
+	dbOrder := models.FuturesOrder{
+		UserID:       strategy.UserID,
+		StrategyID:   strategy.ID,
+		Symbol:       strategy.Symbol,
+		Side:         string(side),
+		PositionSide: strategy.Side,
+		Type:         "LIMIT",
+		Price:        firstLayerPrice,
+		Quantity:     firstLayerQuantity,
+		OrderID:      order.OrderID,
+		Status:       string(order.Status),
+		OrderPurpose: "entry",
+	}
+
+	if err := m.cfg.DB.Create(&dbOrder).Error; err != nil {
+		log.Printf("保存订单记录失败: %v", err)
+	}
+
+	log.Printf("慢冰山策略第1层订单创建成功: OrderID=%d, Price=%s, Quantity=%s",
+		order.OrderID, formattedPrice, formattedQuantity)
+
+	// 启动慢冰山订单监控（传递必要的参数）
+	go monitorSlowIcebergOrders(m.cfg, strategy, order.OrderID, 0, quantities, priceGaps,
+		pricePrecision, quantityPrecision, tickSize, stepSize, minQty)
 }
 
 // executeIcebergStrategy 执行冰山策略
@@ -796,6 +1011,341 @@ func (m *FuturesWebSocketManager) executeIcebergStrategy(strategy *models.Future
 
 	// 启动订单监控
 	go monitorIcebergOrders(m.cfg, strategy, successfulOrders)
+}
+
+// monitorSlowIcebergOrders 监控慢冰山订单
+func monitorSlowIcebergOrders(cfg *config.Config, strategy *models.FuturesStrategy,
+	currentOrderID int64, currentLayer int, quantities []float64, priceGaps []float64,
+	pricePrecision int, quantityPrecision int, tickSize float64, stepSize float64, minQty float64) {
+
+	// 获取用户信息
+	var user models.User
+	if err := cfg.DB.First(&user, strategy.UserID).Error; err != nil {
+		return
+	}
+
+	// 解密API密钥
+	apiKey, err := user.GetDecryptedAPIKey()
+	if err != nil {
+		return
+	}
+	secretKey, err := user.GetDecryptedSecretKey()
+	if err != nil {
+		return
+	}
+
+	client := binance.NewFuturesClient(apiKey, secretKey)
+
+	// 定期检查订单状态
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(10 * time.Minute) // 10分钟超时
+
+	// 用于追踪所有层的成交情况
+	var totalFilledQuantity float64
+	var weightedPriceSum float64
+	var allOrderIDs []int64
+
+	// 将当前订单加入列表
+	allOrderIDs = append(allOrderIDs, currentOrderID)
+
+	for {
+		select {
+		case <-ticker.C:
+			order, err := client.NewGetOrderService().
+				Symbol(strategy.Symbol).
+				OrderID(currentOrderID).
+				Do(context.Background())
+
+			if err != nil {
+				log.Printf("查询慢冰山订单状态失败: %v", err)
+				continue
+			}
+
+			// 更新订单状态
+			execQty, _ := strconv.ParseFloat(order.ExecutedQuantity, 64)
+			avgPrice, _ := strconv.ParseFloat(order.AvgPrice, 64)
+
+			cfg.DB.Model(&models.FuturesOrder{}).
+				Where("order_id = ?", currentOrderID).
+				Updates(map[string]interface{}{
+					"status":       string(order.Status),
+					"executed_qty": execQty,
+					"avg_price":    avgPrice,
+				})
+
+			// 检查订单是否成交
+			if order.Status == futures.OrderStatusTypeFilled {
+				log.Printf("慢冰山第%d层订单成交: OrderID=%d, AvgPrice=%.8f, Qty=%.8f",
+					currentLayer+1, currentOrderID, avgPrice, execQty)
+
+				// 更新成交统计
+				totalFilledQuantity += execQty
+				weightedPriceSum += avgPrice * execQty
+
+				// 检查是否还有下一层
+				if currentLayer+1 < len(quantities) {
+					// 获取最新的市场深度
+					depth, depthErr := client.NewDepthService().
+						Symbol(strategy.Symbol).
+						Limit(5).
+						Do(context.Background())
+
+					if depthErr != nil {
+						log.Printf("获取深度失败: %v", depthErr)
+						break
+					}
+
+					// 根据最新的买卖1价计算下一层价格
+					var basePrice float64
+					if strategy.Side == "LONG" {
+						if len(depth.Asks) > 0 {
+							basePrice, _ = strconv.ParseFloat(depth.Asks[0].Price, 64)
+						}
+					} else {
+						if len(depth.Bids) > 0 {
+							basePrice, _ = strconv.ParseFloat(depth.Bids[0].Price, 64)
+						}
+					}
+
+					if basePrice == 0 {
+						log.Printf("无法获取下一层基准价格")
+						break
+					}
+
+					// 计算下一层的价格（基于新的买卖1价）
+					nextLayerPrice := basePrice * (1 + priceGaps[currentLayer+1]/10000)
+
+					// 应用开仓价格浮动
+					if strategy.EntryPriceFloat > 0 {
+						if strategy.Side == "LONG" {
+							nextLayerPrice = nextLayerPrice * (1 - strategy.EntryPriceFloat/10000)
+						} else {
+							nextLayerPrice = nextLayerPrice * (1 + strategy.EntryPriceFloat/10000)
+						}
+					}
+
+					// 将价格调整为 tick size 的整数倍
+					if tickSize > 0 {
+						nextLayerPrice = math.Round(nextLayerPrice/tickSize) * tickSize
+					}
+
+					// 计算下一层的数量
+					totalOrderValue := strategy.Quantity * float64(strategy.Leverage)
+					nextLayerValue := totalOrderValue * quantities[currentLayer+1]
+					nextLayerQuantity := nextLayerValue / nextLayerPrice
+
+					// 将数量调整为 step size 的整数倍
+					if stepSize > 0 {
+						nextLayerQuantity = math.Floor(nextLayerQuantity/stepSize) * stepSize
+					}
+
+					// 检查数量是否满足最小要求
+					if nextLayerQuantity < minQty {
+						log.Printf("慢冰山第%d层数量太小，跳过", currentLayer+2)
+						// 递归调用处理下一层
+						if currentLayer+2 < len(quantities) {
+							go monitorSlowIcebergOrders(cfg, strategy, currentOrderID, currentLayer+1,
+								quantities, priceGaps, pricePrecision, quantityPrecision,
+								tickSize, stepSize, minQty)
+						}
+						break
+					}
+
+					// 格式化数量和价格
+					quantityFormat := fmt.Sprintf("%%.%df", quantityPrecision)
+					priceFormat := fmt.Sprintf("%%.%df", pricePrecision)
+					formattedQuantity := fmt.Sprintf(quantityFormat, nextLayerQuantity)
+					formattedPrice := fmt.Sprintf(priceFormat, nextLayerPrice)
+
+					log.Printf("慢冰山策略第%d层 - 价格: %s (基于新的%s价), 数量: %s",
+						currentLayer+2, formattedPrice,
+						map[bool]string{true: "卖1", false: "买1"}[strategy.Side == "LONG"],
+						formattedQuantity)
+
+					// 创建下一层订单
+					side := futures.SideTypeBuy
+					if strategy.Side == "SHORT" {
+						side = futures.SideTypeSell
+					}
+
+					nextOrder, nextErr := client.NewCreateOrderService().
+						Symbol(strategy.Symbol).
+						Side(side).
+						PositionSide(futures.PositionSideType(strategy.Side)).
+						Type(futures.OrderTypeLimit).
+						TimeInForce(futures.TimeInForceTypeGTC).
+						Quantity(formattedQuantity).
+						Price(formattedPrice).
+						Do(context.Background())
+
+					if nextErr != nil {
+						log.Printf("创建慢冰山第%d层订单失败: %v", currentLayer+2, nextErr)
+						break
+					}
+
+					// 保存订单记录
+					dbOrder := models.FuturesOrder{
+						UserID:       strategy.UserID,
+						StrategyID:   strategy.ID,
+						Symbol:       strategy.Symbol,
+						Side:         string(side),
+						PositionSide: strategy.Side,
+						Type:         "LIMIT",
+						Price:        nextLayerPrice,
+						Quantity:     nextLayerQuantity,
+						OrderID:      nextOrder.OrderID,
+						Status:       string(nextOrder.Status),
+						OrderPurpose: "entry",
+					}
+
+					if err := cfg.DB.Create(&dbOrder).Error; err != nil {
+						log.Printf("保存订单记录失败: %v", err)
+					}
+
+					log.Printf("慢冰山策略第%d层订单创建成功: OrderID=%d", currentLayer+2, nextOrder.OrderID)
+
+					// 将新订单加入列表
+					allOrderIDs = append(allOrderIDs, nextOrder.OrderID)
+
+					// 递归监控下一层
+					go monitorSlowIcebergOrders(cfg, strategy, nextOrder.OrderID, currentLayer+1,
+						quantities, priceGaps, pricePrecision, quantityPrecision,
+						tickSize, stepSize, minQty)
+				} else {
+					// 所有层都已完成，创建持仓和止盈止损订单
+					avgEntryPrice := weightedPriceSum / totalFilledQuantity
+
+					// 创建持仓记录
+					position := models.FuturesPosition{
+						UserID:       strategy.UserID,
+						StrategyID:   strategy.ID,
+						Symbol:       strategy.Symbol,
+						PositionSide: strategy.Side,
+						EntryPrice:   avgEntryPrice,
+						Quantity:     totalFilledQuantity,
+						Leverage:     strategy.Leverage,
+						MarginType:   strategy.MarginType,
+						Status:       "open",
+						OpenedAt:     time.Now(),
+					}
+
+					cfg.DB.Create(&position)
+
+					// 更新策略状态和实际开仓价格
+					strategy.Status = "position_opened"
+					strategy.CurrentPositionId = allOrderIDs[0] // 使用第一个订单ID作为标识
+					strategy.EntryPrice = avgEntryPrice
+					strategy.CalculateTakeProfitPrice()
+					strategy.CalculateStopLossPrice()
+					cfg.DB.Save(strategy)
+
+					// 创建止盈订单
+					createTakeProfitOrder(cfg, client, strategy, totalFilledQuantity)
+
+					// 如果设置了止损，创建止损订单
+					if strategy.StopLossRate > 0 {
+						createStopLossOrder(cfg, client, strategy, totalFilledQuantity)
+					}
+
+					log.Printf("慢冰山策略 %d 所有层完成，平均开仓价: %.8f", strategy.ID, avgEntryPrice)
+				}
+
+				return
+
+			} else if order.Status == futures.OrderStatusTypeCanceled ||
+				order.Status == futures.OrderStatusTypeExpired ||
+				order.Status == futures.OrderStatusTypeRejected {
+				log.Printf("慢冰山第%d层订单失败: OrderID=%d, Status=%s",
+					currentLayer+1, currentOrderID, order.Status)
+
+				// 如果是第一层就失败，取消策略
+				if currentLayer == 0 && totalFilledQuantity == 0 {
+					updateStrategyStatus(cfg.DB, strategy, "cancelled", string(order.Status))
+				} else if totalFilledQuantity > 0 {
+					// 如果已有部分成交，创建持仓
+					avgEntryPrice := weightedPriceSum / totalFilledQuantity
+
+					position := models.FuturesPosition{
+						UserID:       strategy.UserID,
+						StrategyID:   strategy.ID,
+						Symbol:       strategy.Symbol,
+						PositionSide: strategy.Side,
+						EntryPrice:   avgEntryPrice,
+						Quantity:     totalFilledQuantity,
+						Leverage:     strategy.Leverage,
+						MarginType:   strategy.MarginType,
+						Status:       "open",
+						OpenedAt:     time.Now(),
+					}
+
+					cfg.DB.Create(&position)
+
+					strategy.Status = "position_opened"
+					strategy.CurrentPositionId = allOrderIDs[0]
+					strategy.EntryPrice = avgEntryPrice
+					strategy.CalculateTakeProfitPrice()
+					strategy.CalculateStopLossPrice()
+					cfg.DB.Save(strategy)
+
+					createTakeProfitOrder(cfg, client, strategy, totalFilledQuantity)
+					if strategy.StopLossRate > 0 {
+						createStopLossOrder(cfg, client, strategy, totalFilledQuantity)
+					}
+				}
+
+				return
+			}
+
+		case <-timeout:
+			// 超时取消当前订单
+			log.Printf("慢冰山第%d层订单超时，取消订单: OrderID=%d", currentLayer+1, currentOrderID)
+			_, cancelErr := client.NewCancelOrderService().
+				Symbol(strategy.Symbol).
+				OrderID(currentOrderID).
+				Do(context.Background())
+			if cancelErr != nil {
+				log.Printf("取消订单失败: %v", cancelErr)
+			}
+
+			// 如果有部分成交，仍然创建持仓
+			if totalFilledQuantity > 0 {
+				avgEntryPrice := weightedPriceSum / totalFilledQuantity
+
+				position := models.FuturesPosition{
+					UserID:       strategy.UserID,
+					StrategyID:   strategy.ID,
+					Symbol:       strategy.Symbol,
+					PositionSide: strategy.Side,
+					EntryPrice:   avgEntryPrice,
+					Quantity:     totalFilledQuantity,
+					Leverage:     strategy.Leverage,
+					MarginType:   strategy.MarginType,
+					Status:       "open",
+					OpenedAt:     time.Now(),
+				}
+
+				cfg.DB.Create(&position)
+
+				strategy.Status = "position_opened"
+				strategy.CurrentPositionId = allOrderIDs[0]
+				strategy.EntryPrice = avgEntryPrice
+				strategy.CalculateTakeProfitPrice()
+				strategy.CalculateStopLossPrice()
+				cfg.DB.Save(strategy)
+
+				createTakeProfitOrder(cfg, client, strategy, totalFilledQuantity)
+				if strategy.StopLossRate > 0 {
+					createStopLossOrder(cfg, client, strategy, totalFilledQuantity)
+				}
+			} else {
+				updateStrategyStatus(cfg.DB, strategy, "cancelled", "timeout")
+			}
+
+			return
+		}
+	}
 }
 
 // monitorIcebergOrders 监控冰山订单
