@@ -82,6 +82,10 @@
 
       <div v-else class="strategies-list">
         <div v-for="strategy in strategies" :key="strategy.id" class="strategy-card">
+            <!-- 自动重启指示器 -->
+            <div v-if="strategy.autoRestart" class="auto-restart-indicator" title="自动重启已启用">
+              🔄
+            </div>
           <!-- 策略头部 -->
           <div class="strategy-header">
             <div class="strategy-info">
@@ -102,22 +106,34 @@
                 <span :class="['status-badge', getStatusClass(strategy.status)]">
         {{ getStatusText(strategy.status) }}
       </span>
-                <!-- 添加自动重启徽章 -->
-                <span v-if="strategy.autoRestart" class="auto-restart-badge">
-        🔄 自动重启
-      </span>
               </div>
             </div>
-            <div class="strategy-toggle">
-              <label class="switch">
-                <input
-                    type="checkbox"
-                    :checked="strategy.enabled"
-                    @change="toggleStrategy(strategy)"
-                    :disabled="strategy.status !== 'waiting' && strategy.status !== 'cancelled'"
-                />
-                <span class="slider"></span>
-              </label>
+            <div class="strategy-toggles">
+              <!-- 自动重启开关 -->
+              <div class="toggle-item">
+                <span class="toggle-label">自动重启</span>
+                <label class="switch switch-small">
+                  <input
+                      type="checkbox"
+                      :checked="strategy.autoRestart"
+                      @change="toggleAutoRestart(strategy)"
+                  />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <!-- 策略启用开关 -->
+              <div class="toggle-item">
+                <span class="toggle-label">启用</span>
+                <label class="switch">
+                  <input
+                      type="checkbox"
+                      :checked="strategy.enabled"
+                      @change="toggleStrategy(strategy)"
+                      :disabled="strategy.status !== 'waiting' && strategy.status !== 'cancelled'"
+                  />
+                  <span class="slider"></span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -1566,7 +1582,24 @@ export default {
         this.toastMessage = '';
       }, 3000);
     }
-  }
+  },
+  async toggleAutoRestart(strategy) {
+    try {
+      const response = await axios.put(`/futures/strategies/${strategy.id}`, {
+        autoRestart: !strategy.autoRestart
+      });
+
+      // 更新本地数据
+      strategy.autoRestart = !strategy.autoRestart;
+
+      this.showToast(`自动重启已${strategy.autoRestart ? '启用' : '禁用'}`);
+    } catch (error) {
+      console.error('更新自动重启状态失败:', error);
+      this.showToast(error.response?.data?.error || '更新失败', 'error');
+      // 恢复原状态
+      strategy.autoRestart = !strategy.autoRestart;
+    }
+  },
 };
 </script>
 
@@ -2160,7 +2193,88 @@ input:disabled + .slider {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* 策略开关组 */
+.strategy-toggles {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
 
+.toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 小尺寸开关 */
+.switch.switch-small {
+  width: 40px;
+  height: 20px;
+}
+
+.switch.switch-small .slider:before {
+  width: 16px;
+  height: 16px;
+  left: 2px;
+  bottom: 2px;
+}
+
+.switch.switch-small input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* 自动重启标识 */
+.auto-restart-indicator {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 24px;
+  height: 24px;
+  background: #e0f2fe;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: #0369a1;
+  cursor: help;
+  transition: all var(--transition-fast);
+}
+
+.auto-restart-indicator:hover {
+  background: #bae6fd;
+  transform: scale(1.1);
+}
+
+/* 策略卡片相对定位 */
+.strategy-card {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  transition: all var(--transition-normal);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .strategy-toggles {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.75rem;
+  }
+
+  .toggle-item {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
 /* 详情网格 */
 .strategy-details,
 .position-details {
