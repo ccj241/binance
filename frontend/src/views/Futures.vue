@@ -366,51 +366,17 @@
                     @input="generateStrategyName"
                 />
 
-                <!-- 优化后的价格提示 -->
-                <div class="entry-price-preview" v-if="strategyForm.basePrice > 0 && strategyForm.side">
-                  <div class="preview-header">
-                    <span class="preview-icon">💡</span>
-                    <span class="preview-title">预估开仓价格</span>
-                  </div>
-
-                  <div class="preview-content">
-                    <!-- 无浮动时的提示 -->
-                    <div v-if="!strategyForm.entryPriceFloat || strategyForm.entryPriceFloat === 0" class="preview-warning">
-                      <span class="warning-icon">⚠️</span>
-                      <span>将按买卖1价挂单（可能立即成交/吃单）</span>
-                    </div>
-
-                    <!-- 有浮动时的计算显示 -->
-                    <div v-else class="preview-calculation">
-                      <div class="calc-formula">
-                        <span v-if="strategyForm.side === 'LONG'">
-                          挂单价 = 卖1价 × {{ (1 - strategyForm.entryPriceFloat / 10000).toFixed(4) }}
-                        </span>
-                        <span v-else-if="strategyForm.side === 'SHORT'">
-                          挂单价 = 买1价 × {{ (1 + strategyForm.entryPriceFloat / 10000).toFixed(4) }}
-                        </span>
-                      </div>
-
-                      <div class="calc-result">
-                        <span class="result-label">预估价格：</span>
-                        <span class="result-value">{{ calculateEstimatedEntryPrice() }}</span>
-                        <span class="result-diff" :class="strategyForm.side === 'LONG' ? 'lower' : 'higher'">
-                          ({{ strategyForm.side === 'LONG' ? '低于' : '高于' }}触发价
-                          {{ Math.abs(strategyForm.entryPriceFloat / 100).toFixed(2) }}%)
-                        </span>
-                      </div>
-                    </div>
-
-                    <!-- 说明文字 -->
-                    <div class="preview-explanation">
-                      <span v-if="strategyForm.side === 'LONG'">
-                        📉 做多时：挂单价低于卖1价，避免立即吃单
-                      </span>
-                      <span v-else-if="strategyForm.side === 'SHORT'">
-                        📈 做空时：挂单价高于买1价，避免立即吃单
-                      </span>
-                    </div>
-                  </div>
+                <!-- 简洁的价格提示 -->
+                <div class="form-hint" v-if="strategyForm.basePrice > 0 && strategyForm.side">
+                  <span v-if="!strategyForm.entryPriceFloat || strategyForm.entryPriceFloat === 0">
+                    预估开仓价: 按买卖1价挂单（可能吃单）
+                  </span>
+                  <span v-else>
+                    预估开仓价: {{ calculateEstimatedEntryPrice() }}
+                    <span class="hint-percentage">
+                      ({{ strategyForm.side === 'LONG' ? '低于' : '高于' }}触发价{{ (strategyForm.entryPriceFloat / 100).toFixed(2) }}%)
+                    </span>
+                  </span>
                 </div>
               </div>
 
@@ -2379,6 +2345,11 @@ input:disabled + .slider {
   margin-top: 0.25rem;
 }
 
+.hint-percentage {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
 /* 杠杆选择样式 */
 .leverage-select.leverage-low {
   color: var(--color-success);
@@ -2763,19 +2734,6 @@ input:disabled + .slider {
   .preview-layer-price {
     grid-column: 2;
     margin-top: 0.25rem;
-  }
-
-  /* 响应式适配 */
-  .entry-price-preview {
-    padding: 0.75rem;
-  }
-
-  .calc-result {
-    flex-wrap: wrap;
-  }
-
-  .result-value {
-    font-size: 1rem;
   }
 }
 </style>
