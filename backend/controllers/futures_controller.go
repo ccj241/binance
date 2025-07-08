@@ -208,7 +208,7 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 		"icebergLevels":     true,
 		"icebergQuantities": true,
 		"icebergPriceGaps":  true,
-		"autoRestart":       true, // 添加自动重启字段
+		"autoRestart":       true,
 	}
 
 	updates := make(map[string]interface{})
@@ -219,7 +219,15 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 				if arr, ok := value.([]interface{}); ok {
 					strArr := make([]string, len(arr))
 					for i, v := range arr {
-						strArr[i] = fmt.Sprintf("%.4f", v.(float64))
+						// 确保正确处理数字类型
+						switch num := v.(type) {
+						case float64:
+							strArr[i] = fmt.Sprintf("%.4f", num)
+						case int:
+							strArr[i] = fmt.Sprintf("%.4f", float64(num))
+						default:
+							strArr[i] = fmt.Sprintf("%v", v)
+						}
 					}
 					updates[field] = strings.Join(strArr, ",")
 				}
@@ -228,6 +236,9 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 			}
 		}
 	}
+
+	// 记录更新内容，便于调试
+	log.Printf("更新策略 %s，更新内容: %+v", strategyID, updates)
 
 	// 如果更新了影响止盈止损的字段，需要重新计算
 	needRecalculate := false
@@ -248,6 +259,7 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 	if needRecalculate {
 		// 先应用更新
 		if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
+			log.Printf("更新策略失败: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
 			return
 		}
@@ -262,10 +274,10 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 			if strategy.EntryPriceFloat > 0 {
 				if strategy.Side == "LONG" {
 					// 做多时，开仓价格会低于触发价格
-					estimatedEntryPrice = strategy.BasePrice * (1 - strategy.EntryPriceFloat/1000)
+					estimatedEntryPrice = strategy.BasePrice * (1 - strategy.EntryPriceFloat/10000)
 				} else {
 					// 做空时，开仓价格会高于触发价格
-					estimatedEntryPrice = strategy.BasePrice * (1 + strategy.EntryPriceFloat/1000)
+					estimatedEntryPrice = strategy.BasePrice * (1 + strategy.EntryPriceFloat/10000)
 				}
 			}
 
@@ -287,6 +299,7 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 	// 最终更新（如果之前没有更新过）
 	updates["updated_at"] = time.Now()
 	if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
+		log.Printf("更新策略失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
 		return
 	}
