@@ -87,21 +87,25 @@
             <div class="strategy-info">
               <h3>{{ strategy.strategyName }}</h3>
               <div class="strategy-badges">
-                <span :class="['side-badge', strategy.side.toLowerCase()]">
-                  {{ strategy.side === 'LONG' ? '做多' : '做空' }}
-                </span>
+      <span :class="['side-badge', strategy.side.toLowerCase()]">
+        {{ strategy.side === 'LONG' ? '做多' : '做空' }}
+      </span>
                 <span class="leverage-badge">
-                  {{ strategy.leverage }}X
-                </span>
+        {{ strategy.leverage }}X
+      </span>
                 <span v-if="strategy.strategyType === 'iceberg'" class="type-badge">
-                  冰山
-                </span>
+        冰山
+      </span>
                 <span v-if="strategy.strategyType === 'slow_iceberg'" class="type-badge slow">
-  慢冰山
-</span>
+        慢冰山
+      </span>
                 <span :class="['status-badge', getStatusClass(strategy.status)]">
-                  {{ getStatusText(strategy.status) }}
-                </span>
+        {{ getStatusText(strategy.status) }}
+      </span>
+                <!-- 添加自动重启徽章 -->
+                <span v-if="strategy.autoRestart" class="auto-restart-badge">
+        🔄 自动重启
+      </span>
               </div>
             </div>
             <div class="strategy-toggle">
@@ -445,6 +449,31 @@
                   <option value="ISOLATED">逐仓</option>
                 </select>
               </div>
+              <!-- 添加自动重启开关 -->
+              <div class="form-group">
+                <label class="form-label">
+                  自动重启
+                  <span class="form-hint">策略完成后自动创建相同配置的新策略</span>
+                </label>
+                <div class="form-switch-wrapper">
+                  <label class="form-switch">
+                    <input
+                        type="checkbox"
+                        v-model="strategyForm.autoRestart"
+                    />
+                    <span class="form-switch-slider"></span>
+                    <span class="form-switch-label">
+        {{ strategyForm.autoRestart ? '已启用' : '已禁用' }}
+      </span>
+                  </label>
+                  <div v-if="strategyForm.autoRestart" class="auto-restart-warning">
+                    <span class="warning-icon">⚠️</span>
+                    <span class="warning-text">
+        启用后，策略将在止盈或止损后自动重新创建并等待触发，请确保账户有足够的余额。
+      </span>
+                  </div>
+                </div>
+              </div>
             </div>
             <!-- 冰山策略配置 -->
             <template v-if="strategyForm.strategyType === 'iceberg' || strategyForm.strategyType === 'slow_iceberg'">
@@ -769,6 +798,7 @@ export default {
         icebergLevels: 5,
         icebergQuantities: [0.35, 0.25, 0.2, 0.1, 0.1],
         icebergPriceGaps: [0, -1, -2, -3, -4], // 默认做多的价格间隔（万分比）
+        autoRestart: false, // 添加自动重启字段
       },
       isSubmitting: false,
       toastMessage: '',
@@ -880,6 +910,13 @@ export default {
         this.showToast(`警告：USDT余额不足，当前可用: ${this.availableBalance.toFixed(2)} USDT，请确保在策略触发前充值！`, 'warning');
       }
 
+      // 如果启用了自动重启，特别提醒
+      if (this.strategyForm.autoRestart) {
+        if (!window.confirm('您已启用自动重启，策略完成后将自动创建新的相同策略。请确保账户余额充足，是否继续？')) {
+          return;
+        }
+      }
+
       // 验证冰山策略配置
       if ((this.strategyForm.strategyType === 'iceberg' || this.strategyForm.strategyType === 'slow_iceberg') && this.icebergSumError) {
         this.showToast('冰山策略数量分配总和必须为1', 'error');
@@ -899,10 +936,11 @@ export default {
             strategyName: this.strategyForm.strategyName,
             enabled: this.editingStrategy.enabled,
             basePrice: this.strategyForm.basePrice,
-            entryPriceFloat: this.strategyForm.entryPriceFloat || 0,  // 确保0值被正确处理
+            entryPriceFloat: this.strategyForm.entryPriceFloat || 0,
             quantity: this.strategyForm.quantity,
             takeProfitRate: this.strategyForm.takeProfitRate,
-            stopLossRate: this.strategyForm.stopLossRate || 0,  // 确保0值被正确处理
+            stopLossRate: this.strategyForm.stopLossRate || 0,
+            autoRestart: this.strategyForm.autoRestart, // 添加自动重启字段
           };
 
           // 如果是冰山策略，添加冰山配置
@@ -922,12 +960,13 @@ export default {
             side: this.strategyForm.side,
             strategyType: this.strategyForm.strategyType,
             basePrice: parseFloat(this.strategyForm.basePrice) || 0,
-            entryPriceFloat: parseFloat(this.strategyForm.entryPriceFloat) || 0,  // 确保转换为数字
+            entryPriceFloat: parseFloat(this.strategyForm.entryPriceFloat) || 0,
             leverage: parseInt(this.strategyForm.leverage) || 1,
             quantity: parseFloat(this.strategyForm.quantity) || 0,
             takeProfitRate: parseFloat(this.strategyForm.takeProfitRate) || 0,
-            stopLossRate: parseFloat(this.strategyForm.stopLossRate) || 0,  // 确保转换为数字
+            stopLossRate: parseFloat(this.strategyForm.stopLossRate) || 0,
             marginType: this.strategyForm.marginType,
+            autoRestart: this.strategyForm.autoRestart, // 添加自动重启字段
           };
 
           // 如果是冰山策略，添加冰山配置
@@ -937,7 +976,7 @@ export default {
             submitData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
           }
 
-          console.log('提交的策略数据:', submitData);  // 添加调试日志
+          console.log('提交的策略数据:', submitData);
 
           await axios.post('/futures/strategies', submitData);
           this.showToast('策略创建成功');
@@ -998,9 +1037,9 @@ export default {
     editStrategy(strategy) {
       this.editingStrategy = strategy;
 
-// 解析冰山策略配置
+      // 解析冰山策略配置
       let icebergQuantities = [0.35, 0.25, 0.2, 0.1, 0.1];
-      let icebergPriceGaps = strategy.side === 'LONG' ? [0, -1, -2, -3, -4] : [0, 1,2 , 3, 4];
+      let icebergPriceGaps = strategy.side === 'LONG' ? [0, -1, -2, -3, -4] : [0, 1, 2, 3, 4];
 
       if (strategy.icebergQuantities) {
         const quantities = strategy.icebergQuantities.split(',').map(q => parseFloat(q.trim()));
@@ -1032,6 +1071,7 @@ export default {
         icebergLevels: strategy.icebergLevels || 5,
         icebergQuantities: icebergQuantities,
         icebergPriceGaps: icebergPriceGaps,
+        autoRestart: strategy.autoRestart || false, // 添加自动重启字段
       };
 
       this.showCreateModal = true;
@@ -1068,6 +1108,7 @@ export default {
         icebergLevels: 5,
         icebergQuantities: [0.35, 0.25, 0.2, 0.1, 0.1],
         icebergPriceGaps: [0, -1, -2, -3, -4],
+        autoRestart: false, // 添加自动重启字段
       };
       this.isAutoGeneratedName = false;
       this.icebergSumError = false;
@@ -2734,6 +2775,105 @@ input:disabled + .slider {
   .preview-layer-price {
     grid-column: 2;
     margin-top: 0.25rem;
+  }
+}
+/* 自动重启相关样式 */
+.auto-restart-badge {
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+/* 表单开关样式 */
+.form-switch-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.form-switch {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.form-switch input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.form-switch-slider {
+  position: relative;
+  width: 48px;
+  height: 24px;
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+  transition: background-color 0.2s;
+  margin-right: 0.75rem;
+}
+
+.form-switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: white;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.form-switch input:checked + .form-switch-slider {
+  background-color: var(--color-primary);
+}
+
+.form-switch input:checked + .form-switch-slider::before {
+  transform: translateX(24px);
+}
+
+.form-switch-label {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+/* 自动重启警告 */
+.auto-restart-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-md);
+}
+
+.auto-restart-warning .warning-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.auto-restart-warning .warning-text {
+  font-size: 0.75rem;
+  color: #92400e;
+  line-height: 1.4;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .form-switch-wrapper {
+    gap: 0.5rem;
+  }
+
+  .auto-restart-warning {
+    padding: 0.5rem;
   }
 }
 </style>

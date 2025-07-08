@@ -2151,6 +2151,42 @@ func checkFuturesUserOrders(cfg *config.Config, userID uint, orders []models.Fut
 					cfg.DB.Save(&strategy)
 
 					log.Printf("策略 %d 完成，盈亏: %.8f", strategy.ID, realizedPnl)
+
+					// 检查是否需要自动重启
+					if strategy.AutoRestart && strategy.Enabled {
+						log.Printf("策略 %d 设置了自动重启，正在创建新策略...", strategy.ID)
+
+						// 创建新的策略（复制原策略配置）
+						newStrategy := models.FuturesStrategy{
+							UserID:            strategy.UserID,
+							StrategyName:      strategy.StrategyName,
+							Symbol:            strategy.Symbol,
+							Side:              strategy.Side,
+							StrategyType:      strategy.StrategyType,
+							BasePrice:         strategy.BasePrice,
+							EntryPrice:        0, // 重置为0
+							EntryPriceFloat:   strategy.EntryPriceFloat,
+							Leverage:          strategy.Leverage,
+							Quantity:          strategy.Quantity,
+							TakeProfitRate:    strategy.TakeProfitRate,
+							TakeProfitPrice:   0, // 重置为0
+							StopLossRate:      strategy.StopLossRate,
+							StopLossPrice:     0, // 重置为0
+							MarginType:        strategy.MarginType,
+							IcebergLevels:     strategy.IcebergLevels,
+							IcebergQuantities: strategy.IcebergQuantities,
+							IcebergPriceGaps:  strategy.IcebergPriceGaps,
+							AutoRestart:       strategy.AutoRestart, // 保持自动重启设置
+							Enabled:           true,
+							Status:            "waiting",
+						}
+
+						if err := cfg.DB.Create(&newStrategy).Error; err != nil {
+							log.Printf("自动重启策略失败: %v", err)
+						} else {
+							log.Printf("策略 %d 已自动重启，新策略ID: %d", strategy.ID, newStrategy.ID)
+						}
+					}
 				}
 			}
 		}

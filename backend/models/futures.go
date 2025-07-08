@@ -27,6 +27,7 @@ type FuturesStrategy struct {
 	IcebergLevels     int        `json:"icebergLevels" gorm:"default:5;comment:冰山层数"`               // 冰山策略层数
 	IcebergQuantities string     `gorm:"type:text;comment:冰山策略各层数量比例" json:"icebergQuantities"`     // 逗号分隔的比例
 	IcebergPriceGaps  string     `gorm:"type:text;comment:冰山策略各层价格间隔(万分比)" json:"icebergPriceGaps"` // 逗号分隔的万分比
+	AutoRestart       bool       `gorm:"default:false;comment:完成后自动重启" json:"autoRestart"`          // 完成后自动重启
 	Enabled           bool       `gorm:"default:true" json:"enabled"`                               // 是否启用
 	Status            string     `gorm:"type:varchar(20);default:'waiting'" json:"status"`          // waiting/triggered/position_opened/completed/cancelled
 	TriggeredAt       *time.Time `json:"triggeredAt" gorm:"comment:触发时间"`                           // 触发时间

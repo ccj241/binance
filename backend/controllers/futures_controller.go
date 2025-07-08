@@ -40,6 +40,7 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 		IcebergLevels     int       `json:"icebergLevels" binding:"omitempty,min=2,max=10"`
 		IcebergQuantities []float64 `json:"icebergQuantities"`
 		IcebergPriceGaps  []float64 `json:"icebergPriceGaps"`
+		AutoRestart       bool      `json:"autoRestart"` // 添加自动重启字段
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -134,6 +135,7 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 		IcebergLevels:     req.IcebergLevels,
 		IcebergQuantities: icebergQuantitiesStr,
 		IcebergPriceGaps:  icebergPriceGapsStr,
+		AutoRestart:       req.AutoRestart, // 添加自动重启字段
 		Enabled:           true,
 		Status:            "waiting",
 	}
@@ -206,6 +208,7 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 		"icebergLevels":     true,
 		"icebergQuantities": true,
 		"icebergPriceGaps":  true,
+		"autoRestart":       true, // 添加自动重启字段
 	}
 
 	updates := make(map[string]interface{})

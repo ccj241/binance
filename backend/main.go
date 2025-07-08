@@ -37,7 +37,9 @@ func main() {
 	if err := migrations.AddFuturesIcebergFields(cfg.DB); err != nil {
 		log.Fatalf("迁移失败: %v", err)
 	}
-
+	if err := migrations.AddFuturesAutoRestart(cfg.DB); err != nil {
+		log.Fatalf("添加期货自动重启字段失败: %v", err)
+	}
 	// 添加性能优化索引
 	if err := migrations.AddPerformanceIndexes(cfg.DB); err != nil {
 		log.Printf("添加性能索引时出现错误: %v", err)
