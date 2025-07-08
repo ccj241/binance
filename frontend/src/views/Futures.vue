@@ -353,8 +353,8 @@
                 <label class="form-label">
                   开仓价格浮动 (‱)
                   <span class="form-hint">
-      相对于买卖1价的浮动万分比，用于避免吃单
-    </span>
+                    相对于买卖1价的浮动万分比，用于避免吃单
+                  </span>
                 </label>
                 <input
                     v-model.number="strategyForm.entryPriceFloat"
@@ -365,22 +365,52 @@
                     class="form-control"
                     @input="generateStrategyName"
                 />
-                <div class="calculated-price-hint" v-if="strategyForm.basePrice > 0">
-                  <span v-if="!strategyForm.entryPriceFloat || strategyForm.entryPriceFloat === 0">
-                    将按买卖1价挂单（可能吃单）
-                  </span>
-                  <span v-else-if="strategyForm.side === 'LONG'">
-                    挂单价 = 卖1价 × {{ (1 - strategyForm.entryPriceFloat / 10000).toFixed(4) }}
-                    <span class="price-example" v-if="strategyForm.basePrice">
-                      ≈ {{ calculateEstimatedEntryPrice() }}
-                    </span>
-                  </span>
-                  <span v-else-if="strategyForm.side === 'SHORT'">
-                    挂单价 = 买1价 × {{ (1 + strategyForm.entryPriceFloat / 10000).toFixed(4) }}
-                    <span class="price-example" v-if="strategyForm.basePrice">
-                      ≈ {{ calculateEstimatedEntryPrice() }}
-                    </span>
-                  </span>
+
+                <!-- 优化后的价格提示 -->
+                <div class="entry-price-preview" v-if="strategyForm.basePrice > 0 && strategyForm.side">
+                  <div class="preview-header">
+                    <span class="preview-icon">💡</span>
+                    <span class="preview-title">预估开仓价格</span>
+                  </div>
+
+                  <div class="preview-content">
+                    <!-- 无浮动时的提示 -->
+                    <div v-if="!strategyForm.entryPriceFloat || strategyForm.entryPriceFloat === 0" class="preview-warning">
+                      <span class="warning-icon">⚠️</span>
+                      <span>将按买卖1价挂单（可能立即成交/吃单）</span>
+                    </div>
+
+                    <!-- 有浮动时的计算显示 -->
+                    <div v-else class="preview-calculation">
+                      <div class="calc-formula">
+                        <span v-if="strategyForm.side === 'LONG'">
+                          挂单价 = 卖1价 × {{ (1 - strategyForm.entryPriceFloat / 10000).toFixed(4) }}
+                        </span>
+                        <span v-else-if="strategyForm.side === 'SHORT'">
+                          挂单价 = 买1价 × {{ (1 + strategyForm.entryPriceFloat / 10000).toFixed(4) }}
+                        </span>
+                      </div>
+
+                      <div class="calc-result">
+                        <span class="result-label">预估价格：</span>
+                        <span class="result-value">{{ calculateEstimatedEntryPrice() }}</span>
+                        <span class="result-diff" :class="strategyForm.side === 'LONG' ? 'lower' : 'higher'">
+                          ({{ strategyForm.side === 'LONG' ? '低于' : '高于' }}触发价
+                          {{ Math.abs(strategyForm.entryPriceFloat / 100).toFixed(2) }}%)
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- 说明文字 -->
+                    <div class="preview-explanation">
+                      <span v-if="strategyForm.side === 'LONG'">
+                        📉 做多时：挂单价低于卖1价，避免立即吃单
+                      </span>
+                      <span v-else-if="strategyForm.side === 'SHORT'">
+                        📈 做空时：挂单价高于买1价，避免立即吃单
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -562,12 +592,15 @@
                     {{ formatCurrency(strategyForm.quantity) }} USDT
                   </span>
                 </div>
-                <div class="preview-item">
-                  <span class="preview-label">预估开仓价格</span>
-                  <span class="preview-value highlight">
+                <div class="preview-item preview-item-highlight">
+                  <span class="preview-label">
+                    <span class="label-icon">🎯</span>
+                    预估开仓价格
+                  </span>
+                  <span class="preview-value highlight-large">
                     {{ calculateEstimatedEntryPrice() }}
                     <span class="percentage" v-if="strategyForm.entryPriceFloat > 0">
-                      ({{ strategyForm.side === 'LONG' ? '-' : '+' }}{{ strategyForm.entryPriceFloat }}‱)
+                      ({{ strategyForm.side === 'LONG' ? '-' : '+' }}{{ (strategyForm.entryPriceFloat / 100).toFixed(2) }}%)
                     </span>
                   </span>
                 </div>
@@ -1515,6 +1548,139 @@ export default {
   /* 过渡 */
   --transition-fast: 150ms ease;
   --transition-normal: 200ms ease;
+}
+
+/* 开仓价格预览样式 */
+.entry-price-preview {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #bae6fd;
+  border-radius: var(--radius-md);
+  animation: fadeIn 0.3s ease;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.preview-icon {
+  font-size: 1rem;
+}
+
+.preview-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.preview-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.preview-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: #fef3c7;
+  border-radius: var(--radius-sm);
+  color: #92400e;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.warning-icon {
+  font-size: 1rem;
+}
+
+.preview-calculation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.calc-formula {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  font-family: 'Courier New', monospace;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-sm);
+}
+
+.calc-result {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.result-label {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.result-value {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-family: 'Courier New', monospace;
+}
+
+.result-diff {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.result-diff.lower {
+  color: var(--color-success);
+}
+
+.result-diff.higher {
+  color: var(--color-warning);
+}
+
+.preview-explanation {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  padding-top: 0.5rem;
+  border-top: 1px dashed #cbd5e1;
+}
+
+/* 策略预览高亮项 */
+.preview-item-highlight {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid #bfdbfe;
+}
+
+.label-icon {
+  margin-right: 0.25rem;
+}
+
+.preview-value.highlight-large {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 新增警告样式 */
@@ -2543,6 +2709,19 @@ input:disabled + .slider {
   .preview-layer-price {
     grid-column: 2;
     margin-top: 0.25rem;
+  }
+
+  /* 响应式适配 */
+  .entry-price-preview {
+    padding: 0.75rem;
+  }
+
+  .calc-result {
+    flex-wrap: wrap;
+  }
+
+  .result-value {
+    font-size: 1rem;
   }
 }
 </style>
