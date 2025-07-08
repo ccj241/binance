@@ -1018,7 +1018,20 @@ export default {
       } catch (error) {
         console.error('提交策略失败:', error);
         console.error('错误详情:', error.response);
-        this.showToast(error.response?.data?.error || '提交失败', 'error');
+
+        // 添加更详细的错误信息
+        if (error.response) {
+          console.error('状态码:', error.response.status);
+          console.error('错误数据:', error.response.data);
+        }
+
+        // 显示更详细的错误信息
+        const errorMessage = error.response?.data?.error ||
+            error.response?.data?.details ||
+            error.message ||
+            '提交失败';
+
+        this.showToast(errorMessage, 'error');
       } finally {
         this.isSubmitting = false;
       }

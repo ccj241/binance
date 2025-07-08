@@ -231,24 +231,24 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 		return
 	}
 
-	// 允许更新的字段
-	allowedFields := map[string]bool{
-		"strategyName":      true,
-		"enabled":           true,
-		"basePrice":         true,
-		"entryPriceFloat":   true,
-		"quantity":          true,
-		"takeProfitRate":    true,
-		"stopLossRate":      true,
-		"icebergLevels":     true,
-		"icebergQuantities": true,
-		"icebergPriceGaps":  true,
-		"autoRestart":       true,
+	// 允许更新的字段映射（前端字段名 -> 数据库字段名）
+	allowedFields := map[string]string{
+		"strategyName":      "strategy_name",
+		"enabled":           "enabled",
+		"basePrice":         "base_price",
+		"entryPriceFloat":   "entry_price_float",
+		"quantity":          "quantity",
+		"takeProfitRate":    "take_profit_rate",
+		"stopLossRate":      "stop_loss_rate",
+		"icebergLevels":     "iceberg_levels",
+		"icebergQuantities": "iceberg_quantities",
+		"icebergPriceGaps":  "iceberg_price_gaps",
+		"autoRestart":       "auto_restart",
 	}
 
 	updates := make(map[string]interface{})
 	for field, value := range updateData {
-		if allowedFields[field] {
+		if dbField, ok := allowedFields[field]; ok {
 			// 特殊处理冰山策略的数组字段
 			if field == "icebergQuantities" || field == "icebergPriceGaps" {
 				if arr, ok := value.([]interface{}); ok {
@@ -257,17 +257,25 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 						// 确保正确处理数字类型
 						switch num := v.(type) {
 						case float64:
-							strArr[i] = fmt.Sprintf("%.4f", num)
+							if field == "icebergQuantities" {
+								strArr[i] = fmt.Sprintf("%.4f", num)
+							} else {
+								strArr[i] = fmt.Sprintf("%.1f", num)
+							}
 						case int:
-							strArr[i] = fmt.Sprintf("%.4f", float64(num))
+							if field == "icebergQuantities" {
+								strArr[i] = fmt.Sprintf("%.4f", float64(num))
+							} else {
+								strArr[i] = fmt.Sprintf("%.1f", float64(num))
+							}
 						default:
 							strArr[i] = fmt.Sprintf("%v", v)
 						}
 					}
-					updates[field] = strings.Join(strArr, ",")
+					updates[dbField] = strings.Join(strArr, ",")
 				}
 			} else {
-				updates[field] = value
+				updates[dbField] = value
 			}
 		}
 	}
@@ -277,16 +285,16 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 
 	// 如果更新了影响止盈止损的字段，需要重新计算
 	needRecalculate := false
-	if _, hasBasePrice := updates["basePrice"]; hasBasePrice {
+	if _, hasBasePrice := updates["base_price"]; hasBasePrice {
 		needRecalculate = true
 	}
-	if _, hasEntryPriceFloat := updates["entryPriceFloat"]; hasEntryPriceFloat {
+	if _, hasEntryPriceFloat := updates["entry_price_float"]; hasEntryPriceFloat {
 		needRecalculate = true
 	}
-	if _, hasTakeProfitRate := updates["takeProfitRate"]; hasTakeProfitRate {
+	if _, hasTakeProfitRate := updates["take_profit_rate"]; hasTakeProfitRate {
 		needRecalculate = true
 	}
-	if _, hasStopLossRate := updates["stopLossRate"]; hasStopLossRate {
+	if _, hasStopLossRate := updates["stop_loss_rate"]; hasStopLossRate {
 		needRecalculate = true
 	}
 
@@ -335,7 +343,7 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 	updates["updated_at"] = time.Now()
 	if err := ctrl.Config.DB.Model(&strategy).Updates(updates).Error; err != nil {
 		log.Printf("更新策略失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新策略失败", "details": err.Error()})
 		return
 	}
 
