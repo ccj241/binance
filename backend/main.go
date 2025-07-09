@@ -40,6 +40,10 @@ func main() {
 	if err := migrations.AddFuturesAutoRestart(cfg.DB); err != nil {
 		log.Fatalf("添加期货自动重启字段失败: %v", err)
 	}
+	// 添加慢冰山超时字段
+	if err := migrations.AddSlowIcebergTimeout(cfg.DB); err != nil {
+		log.Fatalf("添加慢冰山超时字段失败: %v", err)
+	}
 	// 添加性能优化索引
 	if err := migrations.AddPerformanceIndexes(cfg.DB); err != nil {
 		log.Printf("添加性能索引时出现错误: %v", err)

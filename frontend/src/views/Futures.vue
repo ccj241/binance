@@ -82,10 +82,10 @@
 
       <div v-else class="strategies-list">
         <div v-for="strategy in strategies" :key="strategy.id" class="strategy-card">
-            <!-- 自动重启指示器 -->
-            <div v-if="strategy.autoRestart" class="auto-restart-indicator" title="自动重启已启用">
-              🔄
-            </div>
+          <!-- 自动重启指示器 -->
+          <div v-if="strategy.autoRestart" class="auto-restart-indicator" title="自动重启已启用">
+            🔄
+          </div>
           <!-- 策略头部 -->
           <div class="strategy-header">
             <div class="strategy-info">
@@ -189,6 +189,10 @@
                 <div class="iceberg-info-item">
                   <span class="info-label">价格间隔</span>
                   <span class="info-value">{{ formatIcebergPriceGaps(strategy.icebergPriceGaps, strategy.strategyType) }}</span>
+                </div>
+                <div v-if="strategy.strategyType === 'slow_iceberg'" class="iceberg-info-item">
+                  <span class="info-label">超时时间</span>
+                  <span class="info-value">{{ strategy.slowIcebergTimeout || 5 }}分钟</span>
                 </div>
               </div>
             </div>
@@ -490,8 +494,7 @@
                   </div>
                 </div>
               </div>
-            </div>
-            <!-- 冰山策略配置 -->
+            </div><!-- 冰山策略配置 -->
             <template v-if="strategyForm.strategyType === 'iceberg' || strategyForm.strategyType === 'slow_iceberg'">
               <div class="iceberg-config-section">
                 <h4 class="config-title">{{ strategyForm.strategyType === 'slow_iceberg' ? '慢冰山' : '冰山' }}策略配置</h4>
@@ -508,6 +511,21 @@
                       <option :value="4">4层</option>
                       <option :value="5">5层</option>
                       <option :value="6">6层</option>
+                    </select>
+                  </div>
+
+                  <!-- 慢冰山超时时间配置 -->
+                  <div v-if="strategyForm.strategyType === 'slow_iceberg'" class="form-group">
+                    <label class="form-label">
+                      每层超时时间
+                      <span class="form-hint">订单未成交时重新挂单的时间</span>
+                    </label>
+                    <select v-model.number="strategyForm.slowIcebergTimeout" class="form-control">
+                      <option :value="3">3分钟</option>
+                      <option :value="5">5分钟</option>
+                      <option :value="10">10分钟</option>
+                      <option :value="15">15分钟</option>
+                      <option :value="30">30分钟</option>
                     </select>
                   </div>
                 </div>
@@ -571,6 +589,20 @@
                       做空时使用正值可以在价格上涨时分批建仓，获得更好的平均成本
                     </span>
                   </div>
+                </div>
+
+                <!-- 慢冰山策略说明 -->
+                <div v-if="strategyForm.strategyType === 'slow_iceberg'" class="slow-iceberg-info">
+                  <div class="info-header">
+                    <span class="info-icon">💡</span>
+                    <span class="info-title">慢冰山策略说明</span>
+                  </div>
+                  <ul class="info-list">
+                    <li>每层订单成交后才会挂下一层订单</li>
+                    <li>每层订单如果超过{{ strategyForm.slowIcebergTimeout }}分钟未成交，将自动撤单并基于最新价格重新挂单</li>
+                    <li>最多重试10次，避免策略卡死</li>
+                    <li>适合在波动较大的市场中分批建仓</li>
+                  </ul>
                 </div>
               </div>
             </template>
@@ -814,6 +846,7 @@ export default {
         icebergLevels: 5,
         icebergQuantities: [0.35, 0.25, 0.2, 0.1, 0.1],
         icebergPriceGaps: [0, -1, -2, -3, -4], // 默认做多的价格间隔（万分比）
+        slowIcebergTimeout: 5, // 添加慢冰山超时字段，默认5分钟
         autoRestart: false, // 添加自动重启字段
       },
       isSubmitting: false,
@@ -967,6 +1000,11 @@ export default {
             updateData.icebergLevels = this.strategyForm.icebergLevels;
             updateData.icebergQuantities = this.strategyForm.icebergQuantities.slice(0, this.strategyForm.icebergLevels);
             updateData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
+
+            // 如果是慢冰山，添加超时时间
+            if (this.strategyForm.strategyType === 'slow_iceberg') {
+              updateData.slowIcebergTimeout = this.strategyForm.slowIcebergTimeout;
+            }
           }
 
           console.log('更新策略数据:', updateData);
@@ -995,6 +1033,11 @@ export default {
             createData.icebergLevels = this.strategyForm.icebergLevels;
             createData.icebergQuantities = this.strategyForm.icebergQuantities.slice(0, this.strategyForm.icebergLevels);
             createData.icebergPriceGaps = this.strategyForm.icebergPriceGaps.slice(0, this.strategyForm.icebergLevels);
+
+            // 如果是慢冰山，添加超时时间
+            if (this.strategyForm.strategyType === 'slow_iceberg') {
+              createData.slowIcebergTimeout = this.strategyForm.slowIcebergTimeout;
+            }
           }
 
           console.log('创建策略数据:', createData);
@@ -1035,8 +1078,7 @@ export default {
       } finally {
         this.isSubmitting = false;
       }
-    },
-    async deleteStrategy(strategy) {
+    },async deleteStrategy(strategy) {
       if (!window.confirm(`确定要删除策略"${strategy.strategyName}"吗？`)) {
         return;
       }
@@ -1066,7 +1108,7 @@ export default {
     },
 
     viewPositions(strategy) {
-// 滚动到持仓部分
+      // 滚动到持仓部分
       const positionsSection = document.querySelector('.positions-section');
       if (positionsSection) {
         positionsSection.scrollIntoView({ behavior: 'smooth' });
@@ -1115,6 +1157,7 @@ export default {
         icebergLevels: strategy.icebergLevels || 5,
         icebergQuantities: icebergQuantities,
         icebergPriceGaps: icebergPriceGaps,
+        slowIcebergTimeout: strategy.slowIcebergTimeout || 5, // 添加慢冰山超时字段
         autoRestart: strategy.autoRestart || false, // 添加自动重启字段
       };
 
@@ -1152,13 +1195,14 @@ export default {
         icebergLevels: 5,
         icebergQuantities: [0.35, 0.25, 0.2, 0.1, 0.1],
         icebergPriceGaps: [0, -1, -2, -3, -4],
+        slowIcebergTimeout: 5, // 添加慢冰山超时字段
         autoRestart: false, // 添加自动重启字段
       };
       this.isAutoGeneratedName = false;
       this.icebergSumError = false;
     },
 
-// 策略类型改变
+    // 策略类型改变
     onStrategyTypeChange() {
       if (this.strategyForm.strategyType === 'iceberg' || this.strategyForm.strategyType === 'slow_iceberg') {
         // 切换到冰山策略时，确保有正确的默认值
@@ -1166,22 +1210,22 @@ export default {
       }
     },
 
-// 方向改变时更新冰山策略默认值
+    // 方向改变时更新冰山策略默认值
     onSideChange() {
       this.generateStrategyName();
 
-// 如果是冰山策略，更新价格间隔的默认值
+      // 如果是冰山策略，更新价格间隔的默认值
       if (this.strategyForm.strategyType === 'iceberg' || this.strategyForm.strategyType === 'slow_iceberg') {
         this.updateIcebergDefaults();
       }
     },
 
-// 更新冰山策略默认值
+    // 更新冰山策略默认值
     updateIcebergDefaults() {
       const levels = this.strategyForm.icebergLevels;
       const side = this.strategyForm.side;
 
-// 根据层数和方向设置默认值（万分比）
+      // 根据层数和方向设置默认值（万分比）
       const defaultConfigs = {
         2: {
           quantities: [0.6, 0.4],
@@ -1213,7 +1257,7 @@ export default {
       if (defaultConfigs[levels]) {
         this.strategyForm.icebergQuantities = [...defaultConfigs[levels].quantities];
 
-// 根据方向选择价格间隔
+        // 根据方向选择价格间隔
         if (side === 'LONG') {
           this.strategyForm.icebergPriceGaps = [...defaultConfigs[levels].gapsLong];
         } else if (side === 'SHORT') {
@@ -1221,11 +1265,11 @@ export default {
         }
       }
 
-// 验证数量总和
+      // 验证数量总和
       this.validateIcebergSum();
     },
 
-// 验证冰山策略数量总和
+    // 验证冰山策略数量总和
     validateIcebergSum() {
       const sum = this.strategyForm.icebergQuantities
           .slice(0, this.strategyForm.icebergLevels)
@@ -1233,7 +1277,7 @@ export default {
       this.icebergSumError = Math.abs(sum - 1) > 0.001;
     },
 
-// 计算预估开仓价格
+    // 计算预估开仓价格
     calculateEstimatedEntryPrice() {
       const { basePrice, entryPriceFloat, side } = this.strategyForm;
       if (!basePrice) return '-';
@@ -1254,7 +1298,7 @@ export default {
       return this.formatPrice(estimatedPrice);
     },
 
-// 计算冰山策略每层价格
+    // 计算冰山策略每层价格
     calculateIcebergLayerPrice(index) {
       const { basePrice, icebergPriceGaps, side, entryPriceFloat } = this.strategyForm;
       if (!basePrice || !icebergPriceGaps[index] === undefined) return '-';
@@ -1274,13 +1318,14 @@ export default {
       return this.formatPrice(layerPrice);
     },
 
-// 格式化冰山策略显示
+    // 格式化冰山策略显示
     formatIcebergQuantities(quantitiesStr) {
       if (!quantitiesStr) return '-';
       const quantities = quantitiesStr.split(',').map(q => parseFloat(q.trim()));
       return quantities.map(q => `${(q * 100).toFixed(0)}%`).join(', ');
     },
-// 格式化冰山价格间隔显示（添加对慢冰山的特殊处理）
+
+    // 格式化冰山价格间隔显示（添加对慢冰山的特殊处理）
     formatIcebergPriceGaps(gapsStr, strategyType) {
       if (!gapsStr) return '-';
       const gaps = gapsStr.split(',').map(g => parseFloat(g.trim()));
@@ -1293,11 +1338,11 @@ export default {
       return formatted;
     },
 
-// 自动生成策略名称
+    // 自动生成策略名称
     generateStrategyName() {
       const { basePrice, side, takeProfitRate } = this.strategyForm;
 
-// 如果用户已经手动输入了名称，不覆盖
+      // 如果用户已经手动输入了名称，不覆盖
       if (this.strategyForm.strategyName && !this.isAutoGeneratedName) {
         return;
       }
@@ -1306,7 +1351,7 @@ export default {
         const takeProfitPrice = this.calculateTakeProfitPrice();
         const sideText = side === 'LONG' ? '做多' : '做空';
 
-// 格式化价格，去掉小数点后多余的0
+        // 格式化价格，去掉小数点后多余的0
         const formattedBasePrice = parseFloat(basePrice).toString();
         const formattedTPPrice = takeProfitPrice !== '-' ?
             parseFloat(takeProfitPrice).toString() : '';
@@ -1318,7 +1363,7 @@ export default {
       }
     },
 
-// 计算预估合约数量（基于预估开仓价格）
+    // 计算预估合约数量（基于预估开仓价格）
     calculateEstimatedContractQuantity() {
       const { quantity, basePrice, leverage, side, entryPriceFloat } = this.strategyForm;
       if (!quantity || !basePrice) return '0';
@@ -1338,21 +1383,21 @@ export default {
       return (totalValue / estimatedEntryPrice).toFixed(8).replace(/\.?0+$/, '');
     },
 
-// 获取合约单位
+    // 获取合约单位
     getContractUnit() {
       const { symbol } = this.strategyForm;
       if (!symbol) return '';
       return symbol.replace('USDT', '');
     },
 
-// 计算开仓手续费
+    // 计算开仓手续费
     calculateOpenFee() {
       const { quantity, leverage } = this.strategyForm;
       const totalValue = quantity * (leverage || 1); // 实际开仓价值
       return totalValue * 0.0004; // 0.04%
     },
 
-// 计算平仓手续费
+    // 计算平仓手续费
     calculateCloseFee() {
       const { quantity, takeProfitRate, side, leverage } = this.strategyForm;
       if (!quantity || !takeProfitRate) return 0;
@@ -1370,12 +1415,12 @@ export default {
       return closeValue * 0.0004; // 0.04%
     },
 
-// 计算总手续费
+    // 计算总手续费
     calculateTotalFee() {
       return this.calculateOpenFee() + this.calculateCloseFee();
     },
 
-// 计算净收益
+    // 计算净收益
     calculateNetProfit() {
       const { quantity, takeProfitRate, leverage, side, basePrice, entryPriceFloat } = this.strategyForm;
       if (!quantity || !takeProfitRate || !leverage || !basePrice) return 0;
@@ -1389,7 +1434,7 @@ export default {
       return netProfit;
     },
 
-// 计算毛利润
+    // 计算毛利润
     calculateGrossProfit() {
       const { quantity, takeProfitRate, leverage, side, basePrice, entryPriceFloat } = this.strategyForm;
       if (!quantity || !takeProfitRate || !leverage || !basePrice) return 0;
@@ -1404,7 +1449,7 @@ export default {
       return netProfit + totalFee;
     },
 
-// 计算实际的价格变动率
+    // 计算实际的价格变动率
     calculateActualPriceChangeRate() {
       const { takeProfitRate, leverage } = this.strategyForm;
       if (!takeProfitRate || !leverage) return 0;
@@ -1421,7 +1466,7 @@ export default {
       return priceChangeRate * 10000; // 转换回万分比显示
     },
 
-// 计算净收益率
+    // 计算净收益率
     calculateNetProfitRate() {
       const { takeProfitRate } = this.strategyForm;
       if (!takeProfitRate) return '0.00';
@@ -1431,7 +1476,7 @@ export default {
       return (takeProfitRate / 100).toFixed(2);
     },
 
-// 辅助方法：计算止盈价格（返回数字）
+    // 辅助方法：计算止盈价格（返回数字）
     calculateTakeProfitPriceNumeric() {
       const { basePrice, takeProfitRate, side, entryPriceFloat, leverage } = this.strategyForm;
       if (!basePrice || !takeProfitRate || !leverage) return 0;
@@ -1527,7 +1572,7 @@ export default {
       }
     },
 
-// 获取杠杆样式类
+    // 获取杠杆样式类
     getLeverageClass(leverage) {
       if (leverage >= 1 && leverage <= 5) {
         return 'leverage-low';
@@ -1609,29 +1654,28 @@ export default {
       setTimeout(() => {
         this.toastMessage = '';
       }, 3000);
-    }
-  },
-  async toggleAutoRestart(strategy) {
-    try {
-      const response = await axios.put(`/futures/strategies/${strategy.id}`, {
-        autoRestart: !strategy.autoRestart
-      });
+    },
 
-      // 更新本地数据
-      strategy.autoRestart = !strategy.autoRestart;
+    async toggleAutoRestart(strategy) {
+      try {
+        const response = await axios.put(`/futures/strategies/${strategy.id}`, {
+          autoRestart: !strategy.autoRestart
+        });
 
-      this.showToast(`自动重启已${strategy.autoRestart ? '启用' : '禁用'}`);
-    } catch (error) {
-      console.error('更新自动重启状态失败:', error);
-      this.showToast(error.response?.data?.error || '更新失败', 'error');
-      // 恢复原状态
-      strategy.autoRestart = !strategy.autoRestart;
-    }
-  },
+        // 更新本地数据
+        strategy.autoRestart = !strategy.autoRestart;
+
+        this.showToast(`自动重启已${strategy.autoRestart ? '启用' : '禁用'}`);
+      } catch (error) {
+        console.error('更新自动重启状态失败:', error);
+        this.showToast(error.response?.data?.error || '更新失败', 'error');
+        // 恢复原状态
+        strategy.autoRestart = !strategy.autoRestart;
+      }
+    },
+  }
 };
-</script>
-
-<style scoped>
+</script><style scoped>
 /* CSS 变量定义 */
 :root {
   /* 颜色系统 */
@@ -1670,6 +1714,44 @@ export default {
   /* 过渡 */
   --transition-fast: 150ms ease;
   --transition-normal: 200ms ease;
+}
+
+/* 慢冰山策略说明样式 */
+.slow-iceberg-info {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: var(--radius-md);
+}
+
+.info-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.info-icon {
+  font-size: 1.125rem;
+}
+
+.info-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.info-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: 0.813rem;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.info-list li {
+  margin-bottom: 0.25rem;
 }
 
 /* 开仓价格预览样式 */

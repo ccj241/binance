@@ -26,21 +26,22 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
 	var req struct {
-		StrategyName      string    `json:"strategyName" binding:"required"`
-		Symbol            string    `json:"symbol" binding:"required"`
-		Side              string    `json:"side" binding:"required,oneof=LONG SHORT"`
-		StrategyType      string    `json:"strategyType" binding:"omitempty,oneof=simple iceberg slow_iceberg"`
-		BasePrice         float64   `json:"basePrice" binding:"required,gt=0"`
-		EntryPriceFloat   float64   `json:"entryPriceFloat"` // 移除 binding，允许为0
-		Leverage          int       `json:"leverage" binding:"required,min=1,max=125"`
-		Quantity          float64   `json:"quantity" binding:"required,gt=0"`
-		TakeProfitRate    float64   `json:"takeProfitRate" binding:"required,gt=0"`
-		StopLossRate      float64   `json:"stopLossRate"` // 移除 binding，允许为0
-		MarginType        string    `json:"marginType" binding:"omitempty,oneof=ISOLATED CROSSED"`
-		IcebergLevels     int       `json:"icebergLevels" binding:"omitempty,min=2,max=10"`
-		IcebergQuantities []float64 `json:"icebergQuantities"`
-		IcebergPriceGaps  []float64 `json:"icebergPriceGaps"`
-		AutoRestart       bool      `json:"autoRestart"` // 添加自动重启字段
+		StrategyName       string    `json:"strategyName" binding:"required"`
+		Symbol             string    `json:"symbol" binding:"required"`
+		Side               string    `json:"side" binding:"required,oneof=LONG SHORT"`
+		StrategyType       string    `json:"strategyType" binding:"omitempty,oneof=simple iceberg slow_iceberg"`
+		BasePrice          float64   `json:"basePrice" binding:"required,gt=0"`
+		EntryPriceFloat    float64   `json:"entryPriceFloat"` // 移除 binding，允许为0
+		Leverage           int       `json:"leverage" binding:"required,min=1,max=125"`
+		Quantity           float64   `json:"quantity" binding:"required,gt=0"`
+		TakeProfitRate     float64   `json:"takeProfitRate" binding:"required,gt=0"`
+		StopLossRate       float64   `json:"stopLossRate"` // 移除 binding，允许为0
+		MarginType         string    `json:"marginType" binding:"omitempty,oneof=ISOLATED CROSSED"`
+		IcebergLevels      int       `json:"icebergLevels" binding:"omitempty,min=2,max=10"`
+		IcebergQuantities  []float64 `json:"icebergQuantities"`
+		IcebergPriceGaps   []float64 `json:"icebergPriceGaps"`
+		SlowIcebergTimeout int       `json:"slowIcebergTimeout" binding:"omitempty,min=1,max=60"` // 添加慢冰山超时字段
+		AutoRestart        bool      `json:"autoRestart"`                                         // 添加自动重启字段
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -54,6 +55,9 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 	}
 	if req.MarginType == "" {
 		req.MarginType = "CROSSED"
+	}
+	if req.SlowIcebergTimeout == 0 {
+		req.SlowIcebergTimeout = 5 // 默认5分钟
 	}
 
 	// 冰山策略验证和默认值（包括慢冰山）
@@ -119,25 +123,26 @@ func (ctrl *FuturesController) CreateStrategy(c *gin.Context) {
 
 	// 创建策略
 	strategy := models.FuturesStrategy{
-		UserID:            userID.(uint),
-		StrategyName:      req.StrategyName,
-		Symbol:            req.Symbol,
-		Side:              req.Side,
-		StrategyType:      req.StrategyType,
-		BasePrice:         req.BasePrice,
-		EntryPrice:        0, // 开仓价格将在触发时计算
-		EntryPriceFloat:   req.EntryPriceFloat,
-		Leverage:          req.Leverage,
-		Quantity:          req.Quantity,
-		TakeProfitRate:    req.TakeProfitRate,
-		StopLossRate:      req.StopLossRate,
-		MarginType:        req.MarginType,
-		IcebergLevels:     req.IcebergLevels,
-		IcebergQuantities: icebergQuantitiesStr,
-		IcebergPriceGaps:  icebergPriceGapsStr,
-		AutoRestart:       req.AutoRestart, // 添加自动重启字段
-		Enabled:           true,
-		Status:            "waiting",
+		UserID:             userID.(uint),
+		StrategyName:       req.StrategyName,
+		Symbol:             req.Symbol,
+		Side:               req.Side,
+		StrategyType:       req.StrategyType,
+		BasePrice:          req.BasePrice,
+		EntryPrice:         0, // 开仓价格将在触发时计算
+		EntryPriceFloat:    req.EntryPriceFloat,
+		Leverage:           req.Leverage,
+		Quantity:           req.Quantity,
+		TakeProfitRate:     req.TakeProfitRate,
+		StopLossRate:       req.StopLossRate,
+		MarginType:         req.MarginType,
+		IcebergLevels:      req.IcebergLevels,
+		IcebergQuantities:  icebergQuantitiesStr,
+		IcebergPriceGaps:   icebergPriceGapsStr,
+		SlowIcebergTimeout: req.SlowIcebergTimeout, // 添加慢冰山超时字段
+		AutoRestart:        req.AutoRestart,        // 添加自动重启字段
+		Enabled:            true,
+		Status:             "waiting",
 	}
 
 	// 暂时不计算止盈止损价格，将在触发时根据实际开仓价格计算
@@ -233,17 +238,18 @@ func (ctrl *FuturesController) UpdateStrategy(c *gin.Context) {
 
 	// 允许更新的字段映射（前端字段名 -> 数据库字段名）
 	allowedFields := map[string]string{
-		"strategyName":      "strategy_name",
-		"enabled":           "enabled",
-		"basePrice":         "base_price",
-		"entryPriceFloat":   "entry_price_float",
-		"quantity":          "quantity",
-		"takeProfitRate":    "take_profit_rate",
-		"stopLossRate":      "stop_loss_rate",
-		"icebergLevels":     "iceberg_levels",
-		"icebergQuantities": "iceberg_quantities",
-		"icebergPriceGaps":  "iceberg_price_gaps",
-		"autoRestart":       "auto_restart",
+		"strategyName":       "strategy_name",
+		"enabled":            "enabled",
+		"basePrice":          "base_price",
+		"entryPriceFloat":    "entry_price_float",
+		"quantity":           "quantity",
+		"takeProfitRate":     "take_profit_rate",
+		"stopLossRate":       "stop_loss_rate",
+		"icebergLevels":      "iceberg_levels",
+		"icebergQuantities":  "iceberg_quantities",
+		"icebergPriceGaps":   "iceberg_price_gaps",
+		"slowIcebergTimeout": "slow_iceberg_timeout", // 添加慢冰山超时字段
+		"autoRestart":        "auto_restart",
 	}
 
 	updates := make(map[string]interface{})
